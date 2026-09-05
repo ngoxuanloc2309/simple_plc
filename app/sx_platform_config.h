@@ -1,0 +1,4 @@
+#ifndef SX_PLATFORM_CONFIG_H
+#define SX_PLATFORM_CONFIG_H
+
+#endif    // SX_PLATFORM_CONFIG_H
