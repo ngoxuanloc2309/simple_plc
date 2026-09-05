@@ -22,28 +22,46 @@ trù cho Gateway), retentive storage qua Flash, nạp cấu hình qua Modbus RTU
 
 ---
 
-## 1. Tổng quan — 6 layer (5 layer nghiệp vụ gốc + Utils)
+## 1. Tổng quan — 7 layer (5 layer nghiệp vụ gốc + Utils + Protocol Porting)
 
 ```
-Layer 4   Engine & Application entry
-Layer 3   PLC Application Services
-Layer 2   PLC Core
-Layer 1   SX Driver Core
-Layer 0   Platform
-Layer U   Utils          (nền — không nằm trong thứ bậc 0..4, mọi layer có thể include)
+Layer 4     Engine & Application entry        app/
+Layer 3     PLC Application Services          services/
+Layer 3.5   Protocol / Library Porting        port/         ← MỚI, xem mục 2.4b
+Layer 2     PLC Core                          core/
+Layer 1     SX Driver Core                    components/
+Layer 0     Platform                          platforms/
+Layer U     Utils (+ thư viện ngoài)          utils/, libs/  (nền — mọi layer có thể include)
 ```
 
-### Quy tắc xuyên suốt cả 6 layer
+> **Cập nhật so với bản đầu:** ban đầu kiến trúc chỉ có 6 layer (không có
+> 3.5). Sau khi quyết định dùng thư viện ngoài `nanoMODBUS` (xem mục 2.4b),
+> team quyết định tách riêng 1 layer trung gian — **Layer 3.5 — Protocol
+> Porting** (thư mục `port/`) — để chứa lớp "thích ứng" (adapter) giữa thư
+> viện ngoài (Layer U) và driver phần cứng (Layer 1). Lý do tách riêng, không
+> gộp vào Layer 3: dự tính sau này còn thêm các protocol/thư viện khác (MQTT,
+> CANopen...), mỗi cái cần 1 lớp porting riêng — tách sẵn từ đầu giúp
+> `services/` (Layer 3) không phình to lẫn lộn giữa "logic nghiệp vụ SimplePLC"
+> và "lớp keo dán thư viện ngoài".
+
+### Quy tắc xuyên suốt cả 7 layer
 
 1. **Include chỉ chạy 1 chiều, từ trên xuống.** Layer cao gọi layer thấp,
-   không bao giờ ngược lại. Layer 0/1/2 không bao giờ chủ động gọi lên Layer 3/4.
+   không bao giờ ngược lại. Layer 0/1/2/3.5 không bao giờ chủ động gọi lên
+   Layer 3/4.
 2. **Mô hình "kéo" (poll), không phải "đẩy" (push/event).** Ghi giá trị vào 1
    nơi thì dừng lại, không tự động kích hoạt bước tiếp theo ngay lập tức. Phải
    có 1 bên khác, chạy độc lập theo lịch cố định, tự đi đọc lại sau.
-3. **Layer 2 là ranh giới port.** Không include gì từ Layer 0/1 → build/test
-   được trên PC thuần, không cần phần cứng thật.
-4. **Layer U (Utils) không include ngược lên ai** — Layer 0, 1, 2 đều có thể
-   include nó tự do mà không phá quy tắc 1 chiều.
+3. **Layer 2 là ranh giới port (ranh giới build).** Không include gì từ
+   Layer 0/1/3.5 → build/test được trên PC thuần, không cần phần cứng thật.
+   *(Lưu ý: chữ "port" ở đây là thuật ngữ chung ngành nhúng — nghĩa là "port
+   sang nền tảng khác" — không phải tên thư mục `port/` của Layer 3.5. Hai
+   khái niệm trùng tên tình cờ, không liên quan nhau.)*
+4. **Layer U (Utils) không include ngược lên ai** — mọi layer phía trên đều
+   có thể include nó tự do mà không phá quy tắc 1 chiều.
+5. **Layer 3.5 (Protocol Porting) chỉ đứng giữa đúng Layer U và Layer 1** —
+   xem quy tắc include riêng ở mục 2.4b. Nó không được biết gì về Layer 2
+   (Tag/Rule), và không ai ở Layer 0/1/2 được phép include ngược lên nó.
 
 ---
 
@@ -267,6 +285,74 @@ gọi lên Layer 3 — chỉ "đứng yên" chờ ai đó (Layer 3) tới đọc
 
 ---
 
+### Layer 3.5 — Protocol / Library Porting (`port/`)
+
+**Chức năng:** lớp "thích ứng" (adapter) mỏng, chỉ đứng giữa **1 thư viện
+ngoài** (Layer U) và **driver phần cứng** (Layer 1) — cấp cho thư viện ngoài
+đúng những hàm đọc/ghi byte thô mà nó cần, không chứa logic nghiệp vụ
+SimplePLC (không biết Tag/Rule, không biết staging buffer/CRC32/atomic-commit
+— những thứ đó vẫn thuộc về Layer 3 thật).
+
+**Lý do tồn tại riêng, không gộp vào Layer 3:** dự tính hệ thống sẽ dùng thêm
+nhiều thư viện/giao thức ngoài khác trong tương lai (MQTT, CANopen...), mỗi
+thư viện cần 1 lớp porting adapter tương tự. Tách riêng từ đầu giúp
+`services/` (Layer 3) chỉ chứa thuần logic nghiệp vụ, không lẫn lộn với "lớp
+keo dán" từng thư viện ngoài cụ thể.
+
+**Quy tắc include riêng (khác 1 chút so với các layer khác):**
+
+| Được phép | Không được phép |
+|---|---|
+| `port/*` include Layer 1 (`components/*`) | `port/*` include Layer 3 (`services/*`) — không được include ngược lên |
+| `port/*` include Layer U (`libs/*`, `utils/*`) | `port/*` include Layer 2 (`core/*`) — port không cần và không được biết Tag/Rule |
+| Layer 3 (`services/*`) include `port/*` | `port/*` gọi thẳng Layer 0 (`platforms/*`) — vẫn phải đi qua Layer 1, không nhảy cóc |
+
+#### Layer 3.5, mục a — `port/modbus_serial/modbus_serial.h` / `.c`
+
+Lớp porting cho thư viện `nanoMODBUS` (xem lý do chọn thư viện này ở mục
+2.4b bên dưới, phần "Quyết định dùng nanoMODBUS").
+
+```c
+// modbus_serial.h
+int32_t modbus_serial_read(uint8_t *buf, uint16_t count, int32_t timeout_ms, void *arg);
+int32_t modbus_serial_write(const uint8_t *buf, uint16_t count, int32_t timeout_ms, void *arg);
+```
+
+```c
+// modbus_serial.c
+#include "modbus_serial.h"
+#include "nanomodbus.h"      // Layer U — OK, port được phép biết thư viện nó đang adapt
+#include "sx_uart.h"          // Layer 1 — OK
+
+int32_t modbus_serial_read(uint8_t *buf, uint16_t count, int32_t timeout_ms, void *arg) {
+    sx_uart_t *uart = (sx_uart_t *)arg;
+    return sx_uart_read(uart, buf, count, timeout_ms);
+}
+
+int32_t modbus_serial_write(const uint8_t *buf, uint16_t count, int32_t timeout_ms, void *arg) {
+    sx_uart_t *uart = (sx_uart_t *)arg;
+    return sx_uart_write(uart, buf, count);
+}
+```
+
+Chữ ký 2 hàm này khớp đúng với `nmbs_platform_conf.read`/`.write` mà
+`nanoMODBUS` yêu cầu (xem "Quyết định dùng nanoMODBUS" trong mục 3.3 bên
+dưới) — `plc_modbus_cfg.c` (Layer 3) sẽ gán
+trực tiếp 2 con trỏ hàm này vào struct cấu hình khi khởi tạo, không cần viết
+lại logic đọc/ghi UART ở Layer 3.
+
+**Mở rộng sau này (không phải làm ngay, chỉ để hình dung hướng đi):**
+```
+port/
+├───modbus_serial/       (đã có — cho RS485/Modbus RTU)
+├───mqtt_transport/       (dự trù — nếu Gateway cần MQTT qua Ethernet/WiFi)
+└───canopen_transport/    (dự trù — nếu cần thêm CANopen)
+```
+Mỗi thư mục con độc lập, không include lẫn nhau — giống cách 3 file trong
+Layer 3 (`plc_io`, `plc_modbus_cfg`, `plc_retain`) cũng không gọi lẫn nhau.
+
+---
+
 ### Layer 3 — PLC Application Services (lớp phiên dịch)
 
 **Chức năng:** mỗi file nối RAM thuần (Layer 2) với 1 thứ cụ thể "ngoài đời"
@@ -361,26 +447,91 @@ void plc_modbus_cfg_init(void);
 void modbus_config_service(void);
 ```
 
-```c
-void modbus_config_service(void) {
-    uint8_t frame[256];
-    int len = sx_uart_read(&g_rs485_uart, frame, sizeof(frame), 0);   // Layer 1
+##### Quyết định dùng thư viện ngoài: nanoMODBUS
 
-    uint16_t reg_addr = parse_modbus_register(frame);
-    if (reg_addr == STAGING_BUFFER_OFFSET) {
-        memcpy(&g_staging_buffer[...], frame + 6, len - 8);
+**Đã quyết định KHÔNG tự viết tay Modbus slave stack** (parse FC03/FC16, tính
+CRC16-Modbus thủ công), mà dùng thư viện ngoài
+[`nanoMODBUS`](https://github.com/debevv/nanoMODBUS.git) — thêm vào repo dưới
+dạng **git submodule** tại `libs/nanomodbus/` (Layer U).
+
+**Lý do chọn nanoMODBUS** (mục tiêu: kiến trúc dùng lại được cho nhiều mạch,
+hạn chế sửa lại tối thiểu):
+- Chỉ 2 file `nanomodbus.h`/`.c`, không phụ thuộc phần cứng nào — đúng tinh
+  thần Layer U (giống `cqueue`/`filter`).
+- Không tự đụng UART/GPIO — chỉ cần cấp callback đọc/ghi byte thô qua
+  `nmbs_platform_conf.read`/`.write` (đây chính là lý do cần Layer 3.5 —
+  xem `port/modbus_serial`).
+- Đã hỗ trợ sẵn cả Master/Slave, RTU/TCP — dù hiện tại chỉ cần Slave + RTU,
+  vẫn tái dùng được nếu sau này SKU khác (Gateway) cần Modbus Master.
+- CRC16 chuẩn Modbus có sẵn, không cần tự viết lại.
+
+**Lưu ý quan trọng:** nanoMODBUS chỉ lo phần **giao thức Modbus chuẩn**
+(khung RTU, CRC16, function code). Toàn bộ **logic nghiệp vụ riêng của
+SimplePLC** (staging buffer, CRC32 riêng để xác nhận rule, atomic-commit)
+vẫn phải tự viết — nằm trong các callback `read_holding_registers`/
+`write_multiple_registers` mà `plc_modbus_cfg.c` cấp cho nanoMODBUS, **không
+có trong thư viện**.
+
+##### Code thật (dùng nanoMODBUS qua lớp porting `port/modbus_serial`)
+
+```c
+#include "plc_modbus_cfg.h"
+#include "nanomodbus.h"         // Layer U
+#include "modbus_serial.h"      // Layer 3.5 — port/modbus_serial
+#include "plc_rule.h"           // Layer 2
+#include "plc_tag.h"            // Layer 2
+
+static nmbs_t g_nmbs;
+
+// --- Callback nghiệp vụ: nối nanoMODBUS vào Tag Table / Rule Table ---
+static nmbs_error handle_write_multiple_registers(uint16_t address, const uint16_t *registers,
+                                                     uint16_t quantity, uint8_t unit_id, void *arg) {
+    if (address == STAGING_BUFFER_OFFSET) {
+        memcpy(&g_staging_buffer[...], registers, quantity * 2);
     }
-    else if (reg_addr == COMMIT_COMMAND_OFFSET) {
-        uint32_t crc = crc32_calc(g_staging_buffer, g_staged_len);
+    else if (address == COMMIT_COMMAND_OFFSET) {
+        uint32_t crc = crc32_calc(g_staging_buffer, g_staged_len);   // CRC32 riêng của SimplePLC
         if (crc == g_expected_crc32) {
             rule_table_commit(g_staging_buffer, g_staged_rule_count);  // Layer 2
         }
     }
+    return NMBS_ERROR_NONE;
+}
+
+static nmbs_error handle_read_holding_registers(uint16_t address, uint16_t quantity,
+                                                   uint16_t *registers_out, uint8_t unit_id, void *arg) {
+    for (int i = 0; i < quantity; i++) {
+        registers_out[i] = (uint16_t)tag_read(address + i);   // Layer 2 — SCADA đọc tag bình thường
+    }
+    return NMBS_ERROR_NONE;
+}
+
+// --- Khởi tạo, gọi từ plc_engine_init() ---
+void plc_modbus_cfg_init(void) {
+    nmbs_platform_conf platform_conf = {
+        .transport = NMBS_TRANSPORT_RTU,
+        .read  = modbus_serial_read,    // lấy từ port/modbus_serial (Layer 3.5)
+        .write = modbus_serial_write,   // lấy từ port/modbus_serial (Layer 3.5)
+        .arg   = &g_rs485_uart,
+    };
+    nmbs_callbacks callbacks = {
+        .read_holding_registers   = handle_read_holding_registers,
+        .write_multiple_registers = handle_write_multiple_registers,
+    };
+    nmbs_server_create(&g_nmbs, RTU_SLAVE_ADDRESS, &platform_conf, &callbacks);
+}
+
+// --- Gọi mỗi vòng quét ---
+void modbus_config_service(void) {
+    nmbs_server_poll(&g_nmbs);   // nanoMODBUS tự lo parse khung + CRC16, tự gọi callback tương ứng
 }
 ```
 
-Nạp rule mới: staged upload vào buffer tạm → xác nhận CRC32 → commit
-atomic-swap → mất kết nối giữa chừng không phá rule đang chạy.
+Nạp rule mới: staged upload vào buffer tạm → xác nhận CRC32 riêng của
+SimplePLC → commit atomic-swap → mất kết nối giữa chừng không phá rule đang
+chạy. **API công khai `plc_modbus_cfg.h` không đổi** dù đổi cách implement
+bên trong (tự viết tay hay dùng nanoMODBUS) — Layer 4 gọi `plc_modbus_cfg_init()`/
+`modbus_config_service()` y hệt, không cần biết bên trong dùng gì.
 
 ---
 
@@ -444,10 +595,12 @@ Rule tính ra được đẩy ra chân NGAY trong cùng vòng quét — không b
 | `plc_rule_eval.h`, `plc_rule_action.h` | Chỉ `plc_rule.c` |
 | `plc_io.h`, `plc_retain.h`, `plc_modbus_cfg.h` | Chỉ Layer 4 (`plc_engine.c`) |
 | `plc_engine.h` | Chỉ `main.c` |
+| `modbus_serial.h` (Layer 3.5, `port/modbus_serial`) | Chỉ `plc_modbus_cfg.c` (Layer 3) |
+| `nanomodbus.h` (Layer U, `libs/nanomodbus`) | `port/modbus_serial` VÀ `plc_modbus_cfg.c` (cả 2 đều cần biết kiểu `nmbs_t`, `nmbs_platform_conf`...) |
 
 ---
 
-## 4. Ví dụ luồng dữ liệu đầy đủ (xuyên suốt cả 6 layer)
+## 4. Ví dụ luồng dữ liệu đầy đủ (xuyên suốt cả 7 layer)
 
 **Tình huống:** Kỹ sư gửi rule mới qua RS485: "khi tag 9 (DI) = 1 thì bật
 đèn đỏ (tag 21 → GPIO 19)".
@@ -628,6 +781,8 @@ cần ổn định qua các bản firmware (không phải trường hợp của 
 | Gộp Layer 2+3 thành 1 khối, bỏ ranh giới | Không nên — nhiều nguồn cùng ghi tag (UART, Rule Engine...) cần 1 điểm chung để tránh viết trùng logic ánh xạ GPIO ở nhiều nơi |
 | "Thêm 1 layer mới giữa Modbus parse và GPIO tra bảng" | Thực chất đã có sẵn — chỉ là tách `modbus_config_service()` (chỉ parse, dừng ở `tag_write`) và `output_scan()` (chỉ tra bảng, gọi `sx_gpio_write`) thành 2 hàm rõ ràng trong CÙNG Layer 3, không phải 2 layer mới |
 | Index giữa các mảng ánh xạ có thể lệch nhau không sao | BẮT BUỘC phải khớp tuyệt đối — sai thì hệ thống chạy sai lặng lẽ, không crash, khó debug |
+| Tự viết tay Modbus slave stack sẽ kiểm soát tốt hơn dùng thư viện ngoài | Với dự án cần dùng lại cho nhiều mạch, thư viện ngoài gọn nhẹ (nanoMODBUS) + 1 lớp porting mỏng lại tiết kiệm công hơn — vì phần khó nhất (staging buffer, CRC32 riêng, atomic-commit) vẫn phải tự viết dù chọn hướng nào |
+| `port/` để ngang hàng `services/`, `core/` là sai vì không rõ nó thuộc layer nào | Không sai — nếu CHỦ ĐÍCH tách riêng 1 layer trung gian cho việc porting thư viện ngoài. Chỉ cần đặt tên rõ ràng (Layer 3.5) và định nghĩa quy tắc include riêng cho nó, để không lẫn với Layer 3 thật |
 
 ---
 
@@ -643,6 +798,21 @@ cần ổn định qua các bản firmware (không phải trường hợp của 
       sâu trong quá trình bàn bạc này.
 - [ ] AI scaling và Modbus register map cho SCADA — cố tình nằm ngoài phạm vi
       tài liệu này theo spec gốc, cần tài liệu riêng.
+- [x] ~~Modbus slave stack: tự viết tay hay dùng thư viện ngoài?~~ **ĐÃ CHỐT:**
+      dùng `nanoMODBUS` (submodule tại `libs/nanomodbus/`), lý do và cách
+      porting xem mục 2, phần "Layer 3.5" và mục 3.3 "Quyết định dùng
+      nanoMODBUS".
+- [x] ~~Thư mục `port/` nên gộp vào `services/` hay tách riêng?~~ **ĐÃ CHỐT:**
+      giữ tách riêng, chính thức hoá thành **Layer 3.5 — Protocol/Library
+      Porting**, để chừa chỗ cho các protocol/thư viện khác sau này (MQTT,
+      CANopen...). Quy tắc include riêng xem mục 2, phần "Layer 3.5".
+- [ ] Repo thật (`github.com/ngoxuanloc2309/simple_plc`) hiện mới có khung
+      thư mục + code thật ở Layer U (`utils/cqueue`, `utils/filter/*`) và
+      submodule `libs/nanomodbus`. Toàn bộ Layer 0/1/2/3/3.5/4 mới là file
+      rỗng (0 byte), CHƯA có code — đây là bước tiếp theo cần làm.
+- [ ] `port/modbus_serial/modbus_serial.h`/`.c` trong repo hiện chỉ có
+      include guard + `#include "nanomodbus.h"`, chưa có nội dung — cần điền
+      đúng theo mẫu ở mục 3.5.
 
 ---
 
