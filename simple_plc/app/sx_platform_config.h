@@ -1,0 +1,10 @@
+#ifndef SX_PLATFORM_CONFIG_H
+#define SX_PLATFORM_CONFIG_H
+
+#define STM32H5_PLATFORM    1
+#define STM32F1_PLATFORM    0
+#define STM32F4_PLATFORM    0
+#define STM32H7_PLATFORM    0
+#define ESP32_PLATFORM      0
+
+#endif    // SX_PLATFORM_CONFIG_H
