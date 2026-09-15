@@ -1,45 +1,126 @@
+#include <string.h>
+
 #include "plc_rule_state_machine.h"
-#include "plc_rule_eval.h"   /* check_trigger_edge(), compare_ok(), guard_ok() giả định có sẵn */
-#include "plc_rule_action.h" /* execute_action() giả định có sẵn */
+#include "plc_rule_eval.h"   /* check_trigger_edge(), compare_ok(), trigger_timing_ok() */
+#include "plc_rule_action.h" /* execute_action() */
 #include "plc_tag.h"
 
 /*
- * Máy trạng thái CHẠY LẠI TỪ ĐẦU MỖI VÒNG QUÉT cho các bước Trigger/
- * Compare/Guard (chúng không có khái niệm "kéo dài qua nhiều vòng
- * quét" -- Trigger là 1 sự kiện tức thời, Compare/Guard là phép so
- * sánh tại 1 thời điểm), NHƯNG DWELLING là trạng thái DUY NHẤT thực sự
- * "đứng lại" xuyên suốt nhiều lần gọi hàm này, đúng như RuleRuntimeSM
- * đã lưu rt->state = RULE_STATE_DWELLING giữa 2 lần gọi.
- *
- * Điều này giữ đúng ngữ nghĩa: dwell phải đo trên MỨC hiện tại (qua
- * compare_ok), không phải trên kết quả edge-detect một lần (xem ghi
- * chú lịch sử trong dwell_ok() ở bản if/else trước đó) -- nếu không,
- * dwell không bao giờ đạt cho trigger dạng edge.
+ * TODO: Layer 4 must supply the current tick count. Until plc_engine.c
+ * (currently empty) wires up a real millisecond tick source, rule_scan()
+ * has no way to know "now" on its own -- Layer 2 must not include any
+ * Layer 0/1 timer header. Storing it here as a static updated externally
+ * is a placeholder; see docs/architecture.md section 10 for the open
+ * items list. For now this stays at 0, which means SPLC_TRG_INTERVAL and
+ * dwell timing (for_ms) will not behave correctly until this is wired up.
  */
-bool rule_state_machine_step(Rule *rule, RuleRuntimeSM *rt, uint32_t now_ms)
+static uint32_t s_rule_scan_now_ms = 0;
+
+SPLC_RuleRecord   g_rule_table[MAX_RULES];
+SPLC_RuleRuntime  g_rule_runtime[MAX_RULES];
+SPLC_RuleTableInfo g_rule_count;
+
+void rule_table_load_from_flash(void)
+{
+    /*
+     * TODO: Flash location for the Active Rule Table is not yet specified
+     * (see docs/architecture.md section 10 -- open item). This must not
+     * call sx_flash_read() directly (Layer 0/1), since Layer 2 has to stay
+     * buildable/testable on a plain PC. Expected real implementation:
+     * receive a raw buffer already read from Flash by Layer 3/4 and pass
+     * it through the same validation path as rule_table_commit().
+     *
+     * For now this only guarantees a defined, all-zero starting state so
+     * g_rule_table[]/g_rule_runtime[] are never left uninitialized.
+     */
+    memset(g_rule_table, 0, sizeof(g_rule_table));
+    for (int i = 0; i < MAX_RULES; i++) {
+        g_rule_runtime[i].state             = RULE_STATE_IDLE;
+        g_rule_runtime[i].prev_value        = 0;
+        g_rule_runtime[i].dwell_start_tick  = DWELL_NOT_STARTED;
+        g_rule_runtime[i].last_fire_tick    = 0;
+    }
+    g_rule_count.rule_count = 0;
+}
+
+void rule_scan(void)
+{
+    for (uint16_t i = 0; i < g_rule_count.rule_count && i < MAX_RULES; i++) {
+        rule_state_machine_step(&g_rule_table[i], &g_rule_runtime[i], s_rule_scan_now_ms);
+    }
+}
+
+bool rule_table_commit(const uint8_t *raw_data, uint16_t rule_count)
+{
+    /*
+     * TODO: per docs/architecture.md section 2.6.2 / the v1.7 data
+     * contract, the caller (plc_modbus_cfg.c, Layer 3 -- currently empty)
+     * is responsible for verifying CRC-16/MODBUS over
+     * rule_count * sizeof(SPLC_RuleRecord) bytes BEFORE calling this
+     * function. This function only performs the atomic swap into
+     * g_rule_table[]; it does not re-verify CRC itself.
+     */
+    if (raw_data == NULL || rule_count > MAX_RULES) {
+        return false;
+    }
+
+    memcpy(g_rule_table, raw_data, (size_t)rule_count * sizeof(SPLC_RuleRecord));
+    if (rule_count < MAX_RULES) {
+        memset(&g_rule_table[rule_count], 0,
+               (size_t)(MAX_RULES - rule_count) * sizeof(SPLC_RuleRecord));
+    }
+
+    for (int i = 0; i < MAX_RULES; i++) {
+        g_rule_runtime[i].state             = RULE_STATE_IDLE;
+        g_rule_runtime[i].prev_value        = 0;
+        g_rule_runtime[i].dwell_start_tick  = DWELL_NOT_STARTED;
+        g_rule_runtime[i].last_fire_tick    = 0;
+    }
+    g_rule_count.rule_count = rule_count;
+    return true;
+}
+
+/*
+ * State machine re-evaluated FROM SCRATCH every scan cycle for the
+ * Trigger/Compare/Guard steps (they have no concept of "persisting across
+ * scan cycles" -- Trigger is an instantaneous event, Compare/Guard are
+ * point-in-time comparisons), BUT DWELLING is the ONE state that genuinely
+ * "holds" across multiple calls to this function, exactly as
+ * SPLC_RuleRuntime keeps rt->state = RULE_STATE_DWELLING between calls.
+ *
+ * This preserves the intended semantics: dwell must be measured against
+ * the current LEVEL (via compare_ok()), not against a one-shot edge-detect
+ * result (see the historical note in the DWELLING case below) -- otherwise
+ * dwell would never complete for edge-type triggers.
+ */
+bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt, uint32_t now_ms)
 {
     if (!rule->enabled) {
         rt->state = RULE_STATE_IDLE;
         return false;
     }
 
-    TriggerType trigger_type = (TriggerType)rule->trigger_type;
-    bool        is_edge_type = (trigger_type == TRG_ON_RISE  ||
-                                 trigger_type == TRG_ON_FALL  ||
-                                 trigger_type == TRG_ON_CHANGE);
-    int32_t     current       = tag_read(rule->trigger_tag);
+    SPLC_TriggerType trigger_type = (SPLC_TriggerType)rule->trigger_type;
+    bool              is_edge_type = (trigger_type == SPLC_TRG_ON_RISE  ||
+                                       trigger_type == SPLC_TRG_ON_FALL  ||
+                                       trigger_type == SPLC_TRG_ON_CHANGE);
+    int32_t           current       = tag_read(rule->trigger_tag);
 
     switch (rt->state) {
 
     case RULE_STATE_IDLE:
     case RULE_STATE_BLOCKED: {
-        /* Xét lại từ đầu mỗi vòng quét khi không đang dwell dở dang. */
+        /* Re-evaluated from scratch every scan cycle when not mid-dwell. */
         bool trigger_met;
         if (is_edge_type) {
             trigger_met = check_trigger_edge(trigger_type, rt->prev_value, current);
         } else {
-            /* TRG_TIME_WINDOW / TRG_INTERVAL: xử lý tương tự bản cũ,
-               rút gọn ở đây vì không phải trọng tâm câu hỏi. */
+            /* SPLC_TRG_TIME_WINDOW / SPLC_TRG_INTERVAL.
+             * TODO: now_hhmm is hardcoded to 0 until an RTC/calendar
+             * source is available (see docs/architecture.md section 10).
+             * This means SPLC_TRG_TIME_WINDOW cannot function correctly
+             * yet; SPLC_TRG_INTERVAL is unaffected since it only uses
+             * now_ms. */
             trigger_met = trigger_timing_ok(trigger_type, now_ms, 0,
                                              rule->threshold_lo, rule->threshold_hi,
                                              rule->for_ms, rt->last_fire_tick);
@@ -55,8 +136,8 @@ bool rule_state_machine_step(Rule *rule, RuleRuntimeSM *rt, uint32_t now_ms)
     /* FALLTHROUGH */
 
     case RULE_STATE_TRIGGERED: {
-        if (rule->compare_op != OP_NONE &&
-            !compare_ok((CompareOp)rule->compare_op, current, rule->threshold_lo, rule->threshold_hi)) {
+        if (rule->compare_op != SPLC_OP_NONE &&
+            !compare_ok((SPLC_CompareOp)rule->compare_op, current, rule->threshold_lo, rule->threshold_hi)) {
             rt->state = RULE_STATE_BLOCKED;
             return false;
         }
@@ -68,68 +149,68 @@ bool rule_state_machine_step(Rule *rule, RuleRuntimeSM *rt, uint32_t now_ms)
         if (is_edge_type && rule->for_ms > 0) {
             rt->dwell_start_tick = now_ms;
             rt->state = RULE_STATE_DWELLING;
-            /* Dwell mới bắt đầu: KHÔNG fire ngay, phải chờ vòng quét sau. */
+            /* Dwell just started: do not fire yet, wait for a later scan. */
             return false;
         }
-        /* Không cần dwell: đi thẳng sang Guard trong cùng vòng quét. */
+        /* No dwell needed: proceed straight to Guard within this scan. */
         rt->state = RULE_STATE_GUARD_CHECK;
     }
     /* FALLTHROUGH */
 
     case RULE_STATE_DWELLING: {
-        /* ĐÂY LÀ TRẠNG THÁI DUY NHẤT "SỐNG" QUA NHIỀU LẦN GỌI HÀM.
-         * Mỗi vòng quét, kiểm tra lại MỨC hiện tại còn giữ đúng ý
-         * nghĩa của trigger hay không.
+        /* THE ONLY STATE THAT "LIVES" ACROSS MULTIPLE CALLS.
+         * Every scan cycle, re-check whether the current LEVEL still
+         * matches the meaning of the trigger.
          *
-         * BUG ĐÃ SỬA: kiểm tra ban đầu chỉ dựa vào compare_ok(), nhưng
-         * compare_op thường là OP_NONE cho các rule dạng edge (ví dụ
-         * ON_FALL không kèm ngưỡng nào) -- "OP_NONE => luôn coi là còn
-         * giữ mức" khiến dwell không bao giờ bị huỷ dù tín hiệu gốc đã
-         * đổi ngược lại (máy chạy lại giữa chừng vẫn không huỷ dwell).
-         * Với is_edge_type, "mức còn giữ" phải suy trực tiếp từ chính
-         * current so với hướng của trigger_type (ON_FALL => còn giữ
-         * nghĩa là current vẫn ==0; ON_RISE => current vẫn !=0), rồi
-         * MỚI áp thêm compare_ok() làm điều kiện phụ nếu rule có khai
-         * báo compare_op.
+         * FIXED BUG: an earlier version relied solely on compare_ok(),
+         * but compare_op is typically SPLC_OP_NONE for edge-type rules
+         * (e.g. ON_FALL with no threshold at all) -- "OP_NONE => always
+         * considered still holding" meant dwell was never cancelled even
+         * if the underlying signal flipped back mid-dwell. Fix: for
+         * is_edge_type, "level still holds" must be derived directly from
+         * current relative to the direction of trigger_type (ON_FALL =>
+         * still holds means current stays ==0; ON_RISE => stays !=0),
+         * THEN compare_ok() is applied on top as a secondary condition
+         * only if the rule declares a compare_op.
          */
         bool level_still_holds;
         if (is_edge_type) {
             bool trigger_level_holds =
-                (trigger_type == TRG_ON_FALL)  ? (current == 0) :
-                (trigger_type == TRG_ON_RISE)  ? (current != 0) :
-                                                  true; /* ON_CHANGE: không có "mức" cố định để giữ */
+                (trigger_type == SPLC_TRG_ON_FALL)  ? (current == 0) :
+                (trigger_type == SPLC_TRG_ON_RISE)  ? (current != 0) :
+                                                       true; /* ON_CHANGE: no fixed "level" to hold */
             level_still_holds = trigger_level_holds &&
-                ((rule->compare_op == OP_NONE) ||
-                 compare_ok((CompareOp)rule->compare_op, current, rule->threshold_lo, rule->threshold_hi));
+                ((rule->compare_op == SPLC_OP_NONE) ||
+                 compare_ok((SPLC_CompareOp)rule->compare_op, current, rule->threshold_lo, rule->threshold_hi));
         } else {
             level_still_holds = true;
         }
 
         if (!level_still_holds) {
-            /* Điều kiện bị gián đoạn giữa chừng -> huỷ dwell, về BLOCKED.
-             * BUG ĐÃ SỬA: prev_value phải được cập nhật ở MỌI nhánh
-             * thoát ra khỏi hàm, không chỉ ở case IDLE/BLOCKED -- nếu
-             * không, lần gọi kế tiếp sẽ so sánh current với 1 prev_value
-             * đã lỗi thời (từ trước khi dwell bắt đầu), làm mất đúng
-             * edge mới ngay sau khi huỷ dwell. */
+            /* Condition was interrupted mid-dwell -> cancel dwell, back to BLOCKED.
+             * FIXED BUG: prev_value must be updated on EVERY exit path out
+             * of this function, not only in the IDLE/BLOCKED case --
+             * otherwise the next call would compare current against a
+             * stale prev_value (from before dwell started), losing a new
+             * edge that occurs right after dwell is cancelled. */
             rt->prev_value       = current;
             rt->dwell_start_tick = DWELL_NOT_STARTED;
             rt->state = RULE_STATE_BLOCKED;
             return false;
         }
         if (now_ms - rt->dwell_start_tick < rule->for_ms) {
-            /* Chưa đủ thời gian, GIỮ NGUYÊN state = DWELLING, chờ vòng sau. */
+            /* Not enough time yet, STAY in state = DWELLING, wait for next scan. */
             rt->prev_value = current;
             return false;
         }
-        /* Đủ thời gian: chuyển tiếp sang Guard NGAY TRONG vòng quét này. */
+        /* Enough time elapsed: proceed to Guard within this same scan. */
         rt->state = RULE_STATE_GUARD_CHECK;
     }
     /* FALLTHROUGH */
 
     case RULE_STATE_GUARD_CHECK: {
-        uint16_t guard_idx = rule->guard_tag & 0x7FFF;
-        bool     negate    = (rule->guard_tag & 0x8000) != 0;
+        uint16_t guard_idx = rule->guard_tag & GUARD_TAG_INDEX_MASK;
+        bool     negate    = (rule->guard_tag & GUARD_TAG_NEGATE_BIT) != 0;
         bool     guard_open = (guard_idx == TAG_NONE) ||
                                (negate ? (tag_read(guard_idx) == 0) : (tag_read(guard_idx) != 0));
 
@@ -145,7 +226,7 @@ bool rule_state_machine_step(Rule *rule, RuleRuntimeSM *rt, uint32_t now_ms)
         execute_action(rule);
         rt->last_fire_tick   = now_ms;
         rt->dwell_start_tick = DWELL_NOT_STARTED;
-        rt->state = RULE_STATE_IDLE;   
+        rt->state = RULE_STATE_IDLE;
         return true;
     }
 

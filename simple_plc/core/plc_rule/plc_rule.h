@@ -81,16 +81,37 @@ typedef struct {
     uint16_t action_tag;      /* Tag index affected by the action */
     uint16_t guard_tag;       /* Packed guard tag index + NEGATE bit */
     uint8_t  enabled;
-    uint8_t  trigger_type;    /* One of TriggerType */
-    uint8_t  compare_op;      /* One of CompareOp */
-    uint8_t  action_type;     /* One of ActionType */
+    uint8_t  trigger_type;    /* One of SPLC_TriggerType */
+    uint8_t  compare_op;      /* One of SPLC_CompareOp */
+    uint8_t  action_type;     /* One of SPLC_ActionType */
     uint8_t reserved[6];      /* Padding to make the struct size a multiple of 4 bytes */
 } SPLC_RuleRecord;
 
+/*
+ * RuleExecState drives the explicit state machine used by
+ * rule_state_machine_step() (see plc_rule_state_machine.h). Every state is
+ * re-evaluated from scratch every scan cycle EXCEPT RULE_STATE_DWELLING,
+ * which is the only state that genuinely persists across multiple scan
+ * cycles. See docs/architecture.md section 2.2b for the full rationale.
+ */
+typedef enum {
+    RULE_STATE_IDLE = 0,
+    RULE_STATE_TRIGGERED,
+    RULE_STATE_COMPARED,
+    RULE_STATE_DWELLING,    /* The only state that persists across scans */
+    RULE_STATE_GUARD_CHECK,
+    RULE_STATE_FIRE,
+    RULE_STATE_BLOCKED,
+} RuleExecState;
+
+/* Sentinel meaning "dwell timer has not been armed yet". */
+#define DWELL_NOT_STARTED 0xFFFFFFFFu
+
 typedef struct {
-    int32_t  prev_value;
-    uint32_t condition_since_tick;
-    uint32_t last_fire_tick;
+    RuleExecState state;         /* Current position in the rule state machine */
+    int32_t  prev_value;         /* Value of trigger_tag observed last scan, for edge detection */
+    uint32_t dwell_start_tick;   /* Tick (ms) when DWELLING was entered; DWELL_NOT_STARTED if not dwelling */
+    uint32_t last_fire_tick;     /* Tick (ms) of this rule's last FIRE, used by SPLC_TRG_INTERVAL */
 } SPLC_RuleRuntime;
 
 typedef struct {
@@ -125,14 +146,16 @@ void rule_scan(void);
 /*
  * Replace the active rule table with new data. Called from Layer 3
  * (plc_modbus_cfg.c) only after the incoming data has already passed its
- * own CRC32 check.
+ * own CRC-16/MODBUS check (see docs/architecture.md section 2.6.2 and the
+ * v1.7 data contract; NOT CRC32).
  *
- * raw_data:    Buffer containing rule_count Rule structs, tightly packed
+ * raw_data:    Buffer containing rule_count SPLC_RuleRecord structs,
+ *              tightly packed (rule_count * sizeof(SPLC_RuleRecord) bytes)
  * rule_count:  Number of rules in raw_data
- * returns:     0 on success, negative value on error (e.g. rule_count
- *              exceeds MAX_RULES)
+ * returns:     true on success, false on error (e.g. rule_count exceeds
+ *              MAX_RULES)
  */
-int rule_table_commit(const uint8_t *raw_data, int rule_count);
+bool rule_table_commit(const uint8_t *raw_data, uint16_t rule_count);
 
 #ifdef __cplusplus
 }

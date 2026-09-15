@@ -46,10 +46,10 @@ void tag_write(uint16_t idx, int32_t value)
     g_tag_value[idx] = value;
 }
 
-TagKind tag_get_kind(uint16_t idx)
+SPLC_TagKind tag_get_kind(uint16_t idx)
 {
     if (idx >= MAX_TAGS) {
         return TAG_NONE;
     }
-    return (TagKind)g_tag_table[idx].kind;
+    return (SPLC_TagKind)g_tag_table[idx].kind;
 }

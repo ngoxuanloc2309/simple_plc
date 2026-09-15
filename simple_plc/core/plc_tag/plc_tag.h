@@ -46,7 +46,7 @@ typedef enum {
  * Size: 4 bytes per tag.
  */
 typedef struct {
-    uint8_t  kind;      /* One of TagKind */
+    uint8_t  kind;      /* One of SPLC_TagKind */
     uint8_t  channel;   /* Local physical channel, unused for VFLAG/VREG */
     uint16_t reg_addr;  /* Only meaningful for TAG_MB_COIL / TAG_MB_HOLDING */
 } Tag;
@@ -96,14 +96,14 @@ int32_t tag_read(uint16_t idx);
 void tag_write(uint16_t idx, int32_t value);
 
 /*
- * Return the TagKind of a given tag. Used by Layer 3 when it needs to know
- * a tag's meaning before mapping it to hardware (e.g. building the list of
- * tags that are of kind TAG_DO).
+ * Return the SPLC_TagKind of a given tag. Used by Layer 3 when it needs to
+ * know a tag's meaning before mapping it to hardware (e.g. building the
+ * list of tags that are of kind TAG_DO).
  *
  * idx: tag index, valid range 0 .. MAX_TAGS - 1
- * returns: one of TagKind
+ * returns: one of SPLC_TagKind
  */
-TagKind tag_get_kind(uint16_t idx);
+SPLC_TagKind tag_get_kind(uint16_t idx);
 
 #ifdef __cplusplus
 }

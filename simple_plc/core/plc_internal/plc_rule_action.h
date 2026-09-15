@@ -21,7 +21,7 @@ extern "C" {
  *
  * rule: The rule whose action should run. Must not be NULL.
  */
-void execute_action(Rule *rule);
+void execute_action(SPLC_RuleRecord *rule);
 
 #ifdef __cplusplus
 }
