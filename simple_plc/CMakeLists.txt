@@ -1,34 +1,89 @@
-# core/CMakeLists.txt - Layer 2 (PLC Core)
+# simple_plc/CMakeLists.txt
 #
-# Builds the Tag Table + Rule Engine as an independent static library,
-# splc_core. This is the designated build/port boundary (see
-# docs/architecture.md section 1, rule 3): it must not link against, or
-# include headers from, any Layer 0/1 target (splc_platform, driver
-# components) or any third-party library. This is what lets splc_core be
-# built and unit tested on a plain PC toolchain, with no target hardware.
+# Wires the layered simple_plc/ library into the parent STM32 firmware
+# target (RS485_IO_RF_V2, defined in the root CMakeLists.txt).
 #
-# Anyone adding target_link_libraries(splc_core PRIVATE <layer0/1 target>)
-# here is violating the layering rule -- that should be caught in review.
+# Layering approach: each layer that has real, compiling sources gets its
+# own CMakeLists.txt exposing a small static library target (e.g.
+# core/CMakeLists.txt -> splc_core for Layer 2). This is what makes it
+# possible to link only Layer 2 into a plain-PC unit test binary later,
+# without pulling in the STM32 HAL. Layers that are still empty
+# placeholders (see below) are not yet split out; they are added directly
+# to the executable for now and will get their own CMakeLists.txt as they
+# gain real content.
 
-add_library(splc_core STATIC
-    plc_tag/plc_tag.c
-    plc_rule/plc_rule.c
-    plc_internal/plc_rule_eval.c
-    plc_internal/plc_rule_action.c
+# --- Layer 2 - PLC Core -----------------------------------------------
+# splc_core is defined in core/CMakeLists.txt. It has no dependency on any
+# Layer 0/1 target by design (build/port boundary, see
+# docs/architecture.md section 1, rule 3).
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/core)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE splc_core)
+
+# --- Everything else: not yet split into its own CMakeLists.txt --------
+#
+# NOTE: Layer 3 (services/) and Layer 4 (app/) .c files exist but are
+# currently EMPTY placeholders (plc_engine.c, plc_io.c, plc_modbus_cfg.c,
+# plc_retain.c) -- see docs/architecture.md section 10, "still open".
+# They are intentionally left out of target_sources below; add them back
+# in as each is implemented, or the link step will fail on missing
+# definitions for symbols declared in their headers.
+
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+    # TODO: Layer 0 (platforms/) - add stm32h5_gpio.c, stm32h5_uart.c,
+    # stm32h5_timer.c once wired to a board pin map.
+    # TODO: Layer 1 (components/) - SX Driver Core sources, once present.
+    # TODO: Layer 3 (services/) - plc_io.c, plc_modbus_cfg.c, plc_retain.c
+    #       are currently empty; add once implemented.
+    # TODO: Layer 3.5 (port/) - port/modbus_serial/modbus_serial.c only
+    #       has #include lines today (no real logic yet); port/usb/
+    #       (modbus_usb, the actual App<->MCU channel per v1.7) has not
+    #       been started. Neither is added to target_sources yet.
+    # TODO: board/board.c and port/usb/usb_descriptors.c are currently
+    #       EMPTY (0 lines) -- left out of target_sources on purpose;
+    #       add once they contain real definitions, or the executable
+    #       will still link fine but silently do nothing useful.
+    # TODO: Layer 4 (app/) - plc_engine.c is currently empty; add once
+    #       implemented.
+
+    # Layer U - Utils (pure algorithms, no hardware dependency)
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/cqueue/cqueue.c
+    # TODO: utils/logger/logger.c still #includes <FreeRTOS.h>/<semphr.h>
+    # and calls xSemaphoreTake/Give/CreateMutex. docs/architecture.md
+    # section "Layer U" says this mutex must be stripped when porting from
+    # WS_v1, since SimplePLC runs bare-metal single-threaded with no
+    # FreeRTOS. Left out of target_sources until that port is done, or
+    # this will fail to compile/link without FreeRTOS present.
 )
 
-target_include_directories(splc_core PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/plc_tag
-    ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule
-)
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
+    # NOTE: Layer 2 (core/plc_tag, core/plc_rule) is no longer listed here
+    # -- splc_core exposes those as PUBLIC include dirs automatically via
+    # target_link_libraries() above.
 
-# plc_rule_eval.h / plc_rule_action.h / plc_rule_state_machine.h are internal
-# to plc_rule.c (see their own header comments) and are not meant to be
-# included by callers outside core/. PRIVATE keeps this path out of
-# splc_core's exported include interface, while still letting plc_rule.c's
-# own #include "plc_rule_eval.h" etc. resolve during splc_core's own build.
-target_include_directories(splc_core PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/plc_internal
-)
+    # Layer 3 / 3.5 / 4 (headers only referenced today)
+    ${CMAKE_CURRENT_SOURCE_DIR}/services/plc_io
+    ${CMAKE_CURRENT_SOURCE_DIR}/services/plc_modbus_cfg
+    ${CMAKE_CURRENT_SOURCE_DIR}/services/plc_retain
+    ${CMAKE_CURRENT_SOURCE_DIR}/port/modbus_serial
+    ${CMAKE_CURRENT_SOURCE_DIR}/port/usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/app/plc_app
+    ${CMAKE_CURRENT_SOURCE_DIR}/app
 
-target_compile_features(splc_core PUBLIC c_std_11)
+    # Layer 1 / 0
+    ${CMAKE_CURRENT_SOURCE_DIR}/components
+    ${CMAKE_CURRENT_SOURCE_DIR}/platforms/stm32/stm32h5/gpio
+    ${CMAKE_CURRENT_SOURCE_DIR}/platforms/stm32/stm32h5/uart
+    ${CMAKE_CURRENT_SOURCE_DIR}/platforms/stm32/stm32h5/timer
+    ${CMAKE_CURRENT_SOURCE_DIR}/board
+
+    # Layer U
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/cqueue
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/logger
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/filter/IIR_filter
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/filter/Kalman_filter
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/filter/MA_filter
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/filter/Median_filter
+
+    # Third-party (nanoMODBUS submodule, etc.)
+    ${CMAKE_CURRENT_SOURCE_DIR}/libs
+)
