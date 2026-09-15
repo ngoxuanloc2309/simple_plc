@@ -150,6 +150,21 @@ typedef struct {
     uint32_t max_scan_time_ms;  /* Max scan duration observed, in milliseconds */
 } SPLC_DeviceHealth; /* 20 bytes */
 
+typedef struct {
+    uint16_t wire_profile;          // SPLC_WireProfile; V1 = 1
+    uint16_t max_rules;             // 0..100; >0 => có Rule Engine
+    uint16_t runtime_tag_count;     // Tổng tag hợp lệ; không có nghĩa index 0..N-1 liên tục
+
+    uint16_t di_count;              // 0..8
+    uint16_t do_count;              // 0..8
+    uint16_t ai_count;              // 0..4
+    uint16_t vflag_count;           // 0..32
+    uint16_t vreg_count;            // 0..32
+    uint16_t vreg_retain_count;     // 0..32; >0 => có Retentive Memory
+    uint16_t counter_count;         // 0..8
+} SPLC_DeviceResourceInfo;          // CHANGED V1.9: 20 byte = 10 Modbus registers
+
+
 #ifdef __cplusplus
 }
 #endif
