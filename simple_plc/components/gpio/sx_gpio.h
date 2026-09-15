@@ -14,7 +14,9 @@ typedef enum {
 
 typedef enum {
     SX_GPIO_MODE_INPUT = 0,
-    SX_GPIO_MODE_OUTPUT_PP = 1,
+    SX_GPIO_MODE_INPUT_PULLUP = 1,
+    SX_GPIO_MODE_INPUT_PULLDOWN = 2,
+    SX_GPIO_MODE_OUTPUT_PP = 3,
 } sx_gpio_mode_t;
 
 typedef struct {

@@ -10,10 +10,24 @@ void sx_gpio_init(sx_gpio_pin_t *pin, sx_gpio_value_t initial_value)
     GPIO_InitStruct.Pull  = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 
-    if (pin->mode == SX_GPIO_MODE_OUTPUT_PP) {
-        GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    } else {
-        GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    switch (pin->mode) {
+        case SX_GPIO_MODE_INPUT:
+            GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+            break;
+        case SX_GPIO_MODE_INPUT_PULLUP:
+            GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+            GPIO_InitStruct.Pull = GPIO_PULLUP;
+            break;
+        case SX_GPIO_MODE_INPUT_PULLDOWN:
+            GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+            GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+            break;
+        case SX_GPIO_MODE_OUTPUT_PP:
+            GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+            break;
+        default:
+            // Invalid mode, handle error if necessary
+            return;
     }
 
     HAL_GPIO_Init((GPIO_TypeDef *)pin->port, &GPIO_InitStruct);
