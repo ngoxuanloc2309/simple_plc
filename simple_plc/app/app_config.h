@@ -1,6 +1,8 @@
 #ifndef APP_CONFIG_H
 #define APP_CONFIG_H
 
+#include <stdint.h>
+
 /*
  * Descriptor App read after connection.
  * HW/FW display accordance major.minor.patch, such as 1.1.0 / 1.3.2.
