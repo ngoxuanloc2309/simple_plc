@@ -8,8 +8,8 @@
 
 #include "plc_tag.h"
 
-Tag     g_tag_table[MAX_TAGS];
-int32_t g_tag_value[MAX_TAGS];
+SPLC_Tag    g_tag_table[MAX_TAGS];
+int32_t     g_tag_value[MAX_TAGS];
 
 void tag_table_load_from_flash(void)
 {

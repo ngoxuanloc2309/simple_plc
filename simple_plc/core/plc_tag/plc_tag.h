@@ -49,10 +49,10 @@ typedef struct {
     uint8_t  kind;      /* One of SPLC_TagKind */
     uint8_t  channel;   /* Local physical channel, unused for VFLAG/VREG */
     uint16_t reg_addr;  /* Only meaningful for TAG_MB_COIL / TAG_MB_HOLDING */
-} Tag;
+} SPLC_Tag;
 
 /* Tag metadata table. Populated once at boot, read-only afterwards. */
-extern Tag g_tag_table[MAX_TAGS];
+extern SPLC_Tag g_tag_table[MAX_TAGS];
 
 /*
  * Live value table. This is the single shared RAM area written and read
