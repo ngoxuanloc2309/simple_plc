@@ -20,6 +20,7 @@ add_library(splc_core STATIC
 target_include_directories(splc_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_tag
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_device
 )
 
 # plc_rule_eval.h / plc_rule_action.h / plc_rule_state_machine.h are internal
