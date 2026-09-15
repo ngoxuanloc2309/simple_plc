@@ -13,14 +13,22 @@
 add_library(splc_core STATIC
     plc_tag/plc_tag.c
     plc_rule/plc_rule.c
-    plc_internal/plc_rule_eval.c
-    plc_internal/plc_rule_action.c
+    plc_internal_rule/plc_rule_eval.c
+    plc_internal_rule/plc_rule_action.c
 )
 
+# plc_device/, plc_error/, plc_system_cmd/ are each header-only (struct/enum
+# type definitions, no matching .c -- see each header's own comment for why).
+# These must stay PUBLIC, not PRIVATE: their entire purpose is to be
+# #include'd by Layer 3/4 code (services/, app/) that links against
+# splc_core. PRIVATE would hide them from splc_core's exported include
+# interface and break every Layer 3/4 caller.
 target_include_directories(splc_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_tag
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule
-    
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_device
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_error
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_system_cmd
 )
 
 # plc_rule_eval.h / plc_rule_action.h / plc_rule_state_machine.h are internal
@@ -30,9 +38,6 @@ target_include_directories(splc_core PUBLIC
 # own #include "plc_rule_eval.h" etc. resolve during splc_core's own build.
 target_include_directories(splc_core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_internal_rule
-    ${CMAKE_CURRENT_SOURCE_DIR}/plc_device
-    ${CMAKE_CURRENT_SOURCE_DIR}/plc_error
-    ${CMAKE_CURRENT_SOURCE_DIR}/plc_system_cmd
 )
 
 target_compile_features(splc_core PUBLIC c_std_11)
