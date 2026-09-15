@@ -18,22 +18,22 @@
  * outright, and both the spec examples (4.4 R0a/R0b use TRG_TIME_WINDOW;
  * 4.5 R2 uses TRG_INTERVAL) fire in practice, so that default was wrong.
  */
-bool check_trigger_edge(TriggerType type,
+bool check_trigger_edge(SPLC_TriggerType type,
                          int32_t prev,
                          int32_t current)
 {
     switch (type) {
-        case TRG_ON_CHANGE:
+        case SPLC_TRG_ON_CHANGE:
             return current != prev;
 
-        case TRG_ON_RISE:
+        case SPLC_TRG_ON_RISE:
             return prev == 0 && current != 0;
 
-        case TRG_ON_FALL:
+        case SPLC_TRG_ON_FALL:
             return prev != 0 && current == 0;
 
-        case TRG_TIME_WINDOW:
-        case TRG_INTERVAL:
+        case SPLC_TRG_TIME_WINDOW:
+        case SPLC_TRG_INTERVAL:
             /* Not edge-based; gated by trigger_timing_ok() instead. */
             return true;
 
@@ -48,7 +48,7 @@ bool check_trigger_edge(TriggerType type,
  * a parameter (and Rule.for_ms) with edge-trigger dwell handling in
  * plc_rule.c. See plc_rule_eval.h for the full rationale.
  */
-bool trigger_timing_ok(TriggerType type,
+bool trigger_timing_ok(SPLC_TriggerType type,
                         uint32_t now_ms,
                         uint32_t now_hhmm,
                         int32_t threshold_lo,
@@ -57,14 +57,14 @@ bool trigger_timing_ok(TriggerType type,
                         uint32_t last_fire_ms)
 {
     switch (type) {
-        case TRG_TIME_WINDOW:
+        case SPLC_TRG_TIME_WINDOW:
             if (threshold_lo <= threshold_hi) {
                 return (int32_t)now_hhmm >= threshold_lo && (int32_t)now_hhmm <= threshold_hi;
             }
             /* Window wraps past midnight (e.g. 2300-0100). */
             return (int32_t)now_hhmm >= threshold_lo || (int32_t)now_hhmm <= threshold_hi;
 
-        case TRG_INTERVAL:
+        case SPLC_TRG_INTERVAL:
             return (now_ms - last_fire_ms) >= for_ms;
 
         default:
@@ -73,31 +73,31 @@ bool trigger_timing_ok(TriggerType type,
     }
 }
 
-bool compare_ok(CompareOp op, int32_t current, int32_t lo, int32_t hi)
+bool compare_ok(SPLC_CompareOp op, int32_t current, int32_t lo, int32_t hi)
 {
     switch (op) {
-        case OP_NONE:
+        case SPLC_OP_NONE:
             return true;
 
-        case OP_EQ:
+        case SPLC_OP_EQ:
             return current == lo;
 
-        case OP_NEQ:
+        case SPLC_OP_NEQ:
             return current != lo;
 
-        case OP_GT:
+        case SPLC_OP_GT:
             return current > lo;
 
-        case OP_LT:
+        case SPLC_OP_LT:
             return current < lo;
 
-        case OP_GTE:
+        case SPLC_OP_GTE:
             return current >= lo;
 
-        case OP_LTE:
+        case SPLC_OP_LTE:
             return current <= lo;
 
-        case OP_BETWEEN:
+        case SPLC_OP_BETWEEN:
             return current >= lo && current <= hi;
 
         default:

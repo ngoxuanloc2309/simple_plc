@@ -35,58 +35,43 @@ extern "C" {
  * rule's evaluation.
  */
 typedef enum {
-    TRG_ON_CHANGE = 0,  /* Fires whenever current value differs from previous */
-    TRG_ON_RISE,        /* Fires on a 0 -> nonzero transition */
-    TRG_ON_FALL,        /* Fires on a nonzero -> 0 transition */
-    TRG_TIME_WINDOW,     /* Fires while current time falls within a window */
-    TRG_INTERVAL,        /* Fires periodically at a fixed interval */
-} TriggerType;
+    SPLC_TRG_ON_CHANGE = 0,  /* Fires whenever current value differs from previous */
+    SPLC_TRG_ON_RISE,        /* Fires on a 0 -> nonzero transition */
+    SPLC_TRG_ON_FALL,        /* Fires on a nonzero -> 0 transition */
+    SPLC_TRG_TIME_WINDOW,     /* Fires while current time falls within a window */
+    SPLC_TRG_INTERVAL,        /* Fires periodically at a fixed interval */
+} SPLC_TriggerType;
 
 /*
  * CompareOp selects how the current tag value is compared against
  * threshold_lo/threshold_hi before a rule is allowed to fire.
  */
 typedef enum {
-    OP_NONE = 0,
-    OP_EQ,
-    OP_NEQ,
-    OP_GT,
-    OP_LT,
-    OP_GTE,
-    OP_LTE,
-    OP_BETWEEN,   /* threshold_lo <= current <= threshold_hi */
-} CompareOp;
+    SPLC_OP_NONE = 0,
+    SPLC_OP_EQ,
+    SPLC_OP_NEQ,
+    SPLC_OP_GT,
+    SPLC_OP_LT,
+    SPLC_OP_GTE,
+    SPLC_OP_LTE,
+    SPLC_OP_BETWEEN,   /* threshold_lo <= current <= threshold_hi */
+} SPLC_CompareOp;
 
 /*
  * ActionType selects what execute_action() does when a rule fires.
  */
 typedef enum {
-    ACT_SET_TAG = 0,     /* action_tag = action_param */
-    ACT_TOGGLE_TAG,      /* action_tag = !action_tag (as boolean) */
-    ACT_INC_COUNTER,     /* action_tag += action_param */
-    ACT_WRITE_REMOTE,    /* Flag a pending write to a remote Modbus tag */
-    ACT_LOG_EVENT,       /* Append an entry to the internal RAM event log */
-    ACT_SEND_ALARM,      /* Set an alarm code into a dedicated tag */
-    ACT_ADD_TAG,         /* action_tag += tag_read(trigger_tag) */
-    ACT_SCALE_TAG,       /* action_tag = tag_read(trigger_tag) * action_param / 1000 + threshold_hi */
-} ActionType;
+    SPLC_ACT_SET_TAG = 0,     /* action_tag = action_param */
+    SPLC_ACT_TOGGLE_TAG,      /* action_tag = !action_tag (as boolean) */
+    SPLC_ACT_INC_COUNTER,     /* action_tag += action_param */
+    SPLC_ACT_WRITE_REMOTE,    /* Flag a pending write to a remote Modbus tag */
+    SPLC_ACT_LOG_EVENT,       /* Append an entry to the internal RAM event log */
+    SPLC_ACT_SEND_ALARM,      /* Set an alarm code into a dedicated tag */
+    SPLC_ACT_ADD_TAG,         /* action_tag += tag_read(trigger_tag) */
+    SPLC_ACT_SCALE_TAG,       /* action_tag = tag_read(trigger_tag) * action_param / 1000 + threshold_hi */
+} SPLC_ActionType;
 
-/*
- * Rule describes a single trigger -> guard -> action unit. Field order is
- * chosen to minimize padding (largest members first); do not reorder
- * without re-checking the resulting struct size.
- *
- * Size: 28 bytes.
- *
- * Field reuse notes:
- *   - threshold_hi is reused for two purposes depending on trigger_type/
- *     action_type: the upper bound for OP_BETWEEN and TRG_TIME_WINDOW, or
- *     the offset added by ACT_SCALE_TAG. A rule must not rely on both
- *     meanings at once; the rule authoring tool is responsible for this
- *     invariant.
- *   - guard_tag packs a tag index (bits 0-14) plus a NEGATE flag
- *     (bit 15, see GUARD_TAG_NEGATE_BIT).
- */
+
 typedef struct {
     int32_t  threshold_lo;
     int32_t  threshold_hi;
@@ -99,23 +84,27 @@ typedef struct {
     uint8_t  trigger_type;    /* One of TriggerType */
     uint8_t  compare_op;      /* One of CompareOp */
     uint8_t  action_type;     /* One of ActionType */
-} Rule;
+    uint8_t reserved[6];      /* Padding to make the struct size a multiple of 4 bytes */
+} SPLC_RuleRecord;
 
-/*
- * RuleRuntime holds per-rule state that changes at runtime and must not be
- * persisted to Flash together with Rule itself.
- *
- * Size: 12 bytes.
- */
 typedef struct {
     int32_t  prev_value;
     uint32_t condition_since_tick;
     uint32_t last_fire_tick;
-} RuleRuntime;
+} SPLC_RuleRuntime;
 
-extern Rule        g_rule_table[MAX_RULES];
-extern RuleRuntime  g_rule_runtime[MAX_RULES];
-extern int          g_rule_count;
+typedef struct {
+    uint16_t rule_count;    //number of rules currently active in SPLC_RuleRecord g_rule_table[]
+} SPLC_RuleTableInfo;
+
+typedef struct {
+    uint16_t rule_count;    //number of rules app write in staging
+    uint16_t crc16;
+} SPLC_RuleTransferInfo;
+
+extern SPLC_RuleRecord          g_rule_table[MAX_RULES];
+extern SPLC_RuleRuntime         g_rule_runtime[MAX_RULES];
+extern SPLC_RuleTableInfo       g_rule_count;
 
 /*
  * Load the rule table (g_rule_table[]) from Flash. Called exactly once at

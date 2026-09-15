@@ -36,7 +36,7 @@ typedef enum {
     TAG_MB_COIL,      /* Coil on a remote Modbus device (future Gateway SKU) */
     TAG_MB_HOLDING,   /* Holding register on a remote Modbus device */
     TAG_VREG_RETAIN,  /* Virtual register retained through Flash snapshot */
-} TagKind;
+} SPLC_TagKind;
 
 /*
  * Tag describes the meaning of a single slot. It is metadata only and does

@@ -49,7 +49,7 @@ extern "C" {
  *
  * returns: true if the trigger condition is currently satisfied
  */
-bool check_trigger_edge(TriggerType type,
+bool check_trigger_edge(SPLC_TriggerType type,
                          int32_t prev,
                          int32_t current);
 
@@ -79,7 +79,7 @@ bool check_trigger_edge(TriggerType type,
  *
  * returns: true if the timing condition is currently satisfied
  */
-bool trigger_timing_ok(TriggerType type,
+bool trigger_timing_ok(SPLC_TriggerType type,
                         uint32_t now_ms,
                         uint32_t now_hhmm,
                         int32_t threshold_lo,
@@ -98,7 +98,7 @@ bool trigger_timing_ok(TriggerType type,
  *
  * returns: true if the comparison holds
  */
-bool compare_ok(CompareOp op, int32_t current, int32_t lo, int32_t hi);
+bool compare_ok(SPLC_CompareOp op, int32_t current, int32_t lo, int32_t hi);
 
 #ifdef __cplusplus
 }
