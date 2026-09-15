@@ -5,212 +5,258 @@
 > lịch sử chat. Đọc file này SAU KHI đã đọc `Readme.md` và
 > `docs/architecture.md` — file đó vẫn là nguồn kiến trúc chính, file này
 > chỉ ghi lại "đang làm tới đâu" và "làm gì tiếp theo".
+>
+> **Đây là bản cập nhật lần 2**, thay thế hoàn toàn bản trước (từng dừng ở
+> "Layer 2 còn thiếu plc_device/plc_system_cmd"). Layer 2 giờ đã xong hẳn —
+> xem mục 1 bên dưới.
 
 ## 0. Trạng thái repo tại thời điểm viết file này
 
 - Branch: `main`
-- Commit mới nhất đã verify: `03ed248` ("add cmake")
+- Commit mới nhất đã verify: `beac74a` ("modify cmake core")
 - Lệnh verify: `git log --oneline -8` để xem có commit mới hơn không trước
   khi đọc tiếp phần dưới — nếu có commit mới, ưu tiên đọc code thật hơn
   file này.
 
 ## 1. Việc đã xong (đã build + test thật, không chỉ đọc code)
 
-### 1.1 Layer 2 (`core/`) — HOÀN CHỈNH cho phạm vi hiện tại
+### 1.1 Layer 2 (`core/`) — HOÀN CHỈNH, đầy đủ theo checklist cũ
 
-Tất cả các lỗi build đã được sửa và verify bằng compile + chạy thật (gcc
-thủ công VÀ CMake thật, không chỉ đọc code):
+Cấu trúc thật hiện tại (6 module, mỗi module 1 thư mục con):
 
-- `core/plc_tag/plc_tag.h`, `.c` — sửa lỗi `TagKind` → `SPLC_TagKind`.
-- `core/plc_rule/plc_rule.h` — thêm `RuleExecState` enum, `DWELL_NOT_STARTED`,
-  thêm field `state` vào `SPLC_RuleRuntime`, đổi `rule_table_commit()` sang
-  `bool` + `uint16_t rule_count`.
-- `core/plc_rule/plc_rule_state_machine.h` — file mới, khai báo
-  `rule_state_machine_step()`.
-- `core/plc_rule/plc_rule.c` — viết lại, đồng bộ tên type sang `SPLC_*`,
-  **bổ sung implementation còn thiếu** cho `g_rule_table`/`g_rule_runtime`/
-  `g_rule_count`, `rule_table_load_from_flash()`, `rule_scan()`,
-  `rule_table_commit()` (trước đó hoàn toàn chưa có).
-- `core/plc_internal/plc_rule_action.h`, `.c` — đồng bộ tên type sang
-  `SPLC_*`.
-- `core/plc_internal/plc_rule_eval.h`, `.c` — đã đúng chuẩn từ trước,
-  không cần sửa.
+```
+core/
+├── plc_tag/
+│   ├── plc_tag.h, plc_tag.c       — Tag Table (SPLC_TagKind, g_tag_table[], g_tag_value[])
+│   └── plc_tag_def.h              — 69 #define cụ thể (TAG_DI0..TAG_VREG_R15), "Cách A"
+├── plc_rule/
+│   ├── plc_rule.h, plc_rule.c     — SPLC_RuleRecord (32 byte), rule_scan(), rule_table_commit()
+│   └── plc_rule_state_machine.h
+├── plc_internal_rule/             — ĐỔI TÊN từ plc_internal/ (commit ca8125a trở về sau)
+│   ├── plc_rule_eval.h/.c
+│   └── plc_rule_action.h/.c
+│   (chỉ plc_rule.c được include trực tiếp — PRIVATE trong CMake)
+├── plc_device/
+│   └── plc_device.h               — SPLC_DeviceClass, SPLC_*Variant, SPLC_DeviceDescriptor
+│                                     (20B), SPLC_ResetReason, SPLC_HealthFlags,
+│                                     SPLC_DeviceHealth (20B). CHỈ HEADER, không có .c.
+├── plc_error/
+│   └── plc_error.h                — SPLC_ErrorCode (dùng chung system_cmd + modbus_cfg sau này)
+└── plc_system_cmd/
+    └── plc_system_cmd.h           — SPLC_SystemCommand, SPLC_CommandStatus,
+                                      SPLC_SystemCommandRequest (2B), SPLC_SystemCommandResult (4B)
+                                      #include "plc_error.h". CHỈ HEADER, không có .c.
+```
 
-**Đã verify:** `sizeof(SPLC_RuleRecord) == 32` (đúng spec v1.7). Test
-end-to-end: commit 1 rule "ON_RISE DI1 → SET DO1" → `rule_scan()` →
-tag DO1 đổi giá trị đúng như kỳ vọng. PASS.
+**Điểm quan trọng — 3 module cuối (`plc_device`, `plc_error`, `plc_system_cmd`)
+KHÔNG có file `.c`, chỉ có `.h`.** Đây là quyết định có chủ đích, không phải
+thiếu sót: các struct này (device descriptor, error code, system command)
+không có logic nào thuần Layer 2 cả — mọi hàm thật sự đọc/ghi/xử lý chúng
+đều cần đụng Layer 0/1 (đọc Flash lấy HW version, gọi NVIC_SystemReset,
+board init gán device_class...). Layer 2 chỉ cung cấp *định nghĩa kiểu*, ai
+cần dùng thì tự khai báo instance ở layer của mình (dự kiến Layer 3/4).
+Đừng quay lại thêm `.c` + `extern g_device_descriptor` v.v. vào Layer 2 —
+việc đó đã cân nhắc và bác bỏ, xem comment đầu file `plc_device.h` để đọc
+lại lý do đầy đủ.
 
-### 1.2 CMake — đã tách theo layer, build thật qua CMake (không chỉ gcc tay)
+**Đã xoá 2 file nháp trùng lặp cũ** (từng nằm sai layer, gây lỗi compile
+"redefinition" nếu include chung với `plc_device.h`):
+- `app/app_config.h` — không xoá file, chỉ xoá nội dung struct trùng, để
+  lại shell rỗng chờ config thật của Layer 4.
+- `board/board_family.h` — xoá hẳn file, nội dung (3 variant enum) đã
+  chuyển hết sang `plc_device.h`. Đồng thời sửa 1 bug logic: file cũ dùng
+  `#ifdef SPLC_DEVICE_CLASS_REMOTE_IO` nhưng macro đó luôn `#define`'d
+  (chỉ đổi giá trị 0/1), nên `#ifdef` luôn đúng — cả 3 khối variant enum bị
+  compile cùng lúc bất kể SKU nào. `SPLC_DeviceClass` giờ là dữ liệu
+  runtime trong `SPLC_DeviceDescriptor.device_class`, KHÔNG dùng compile-time
+  macro nữa.
 
-- `simple_plc/core/CMakeLists.txt` — Layer 2 là 1 static library riêng
-  (`splc_core`), không link bất kỳ layer nào khác (đúng nguyên tắc "ranh
-  giới port" trong architecture.md).
-- `simple_plc/CMakeLists.txt` — `add_subdirectory(core)` +
-  `target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE splc_core)`. Các
-  layer khác (0/1/3/3.5/4/U) TẠM THỜI vẫn add trực tiếp vào executable
-  qua `target_sources()` vì chưa có `CMakeLists.txt` riêng — xem mục 2.3.
-- `CMakeLists.txt` (root) — thêm `add_subdirectory(simple_plc)`.
+**Đã chốt xong 1 câu hỏi mở cũ:** đơn vị `scan_time_ms`/`max_scan_time_ms`
+trong `SPLC_DeviceHealth` — xác nhận là **milliseconds** (đúng tên field),
+không phải microsecond như comment stray trong docx gốc, và
+`docs/architecture.md` ghi `scan_time_us` là **tên cũ/stale, không dùng**.
+Đã sửa comment trong `plc_device.h` phản ánh đúng quyết định này.
 
-**Đã verify bằng CMake thật** (cài `cmake` trong sandbox, không có sẵn ban
-đầu): mô phỏng full chain root→simple_plc→core, build ra
-`libsplc_core.a`, link vào executable giả lập tên `RS485_IO_RF_V2`, chạy
-đúng. Xem lệnh verify ở cuối file này để lặp lại khi cần.
+**Đã verify:**
+- `sizeof(SPLC_RuleRecord) == 32` (test cũ, vẫn pass)
+- `sizeof(SPLC_DeviceDescriptor) == 20`
+- `sizeof(SPLC_DeviceHealth) == 20`
+- `sizeof(SPLC_SystemCommandRequest) == 2`
+- `sizeof(SPLC_SystemCommandResult) == 4`
+- `plc_tag_def.h`: 69 `#define` liên tục 0..68, không trùng/lệch, khớp
+  `MAX_TAGS`. Test full range check `expected[i] == i` cho cả 69 giá trị.
+- Toàn bộ 6 header include chung 1 file `.c` không xung đột (biên dịch
+  test thật bằng gcc, không chỉ đọc mắt).
+- Build full chain root→simple_plc→core qua CMake thật, link executable
+  ngoài `splc_core`, tất cả `#include` resolve đúng (xác nhận PUBLIC/PRIVATE
+  đúng — xem mục 1.2).
+
+### 1.2 CMake (`core/CMakeLists.txt`) — đã sửa 2 lỗi thật sau lần đổi tên thư mục
+
+Lịch sử: đợt đổi tên `plc_internal/` → `plc_internal_rule/` (để dọn ranh
+giới rõ hơn) kèm theo request thêm `plc_device`/`plc_error`/`plc_system_cmd`
+vào build đã gây 2 lỗi, PHÁT HIỆN VÀ SỬA bằng compile thật (không chỉ đọc
+code), giữ lại đây để không lặp lại:
+
+1. **`add_library()` trỏ sai path** — vẫn ghi `plc_internal/plc_rule_eval.c`
+   sau khi thư mục đã đổi tên thành `plc_internal_rule/`. CMake báo lỗi
+   `Cannot find source file`, build fail hoàn toàn, không tạo được
+   Makefile. **Đã sửa** — path hiện tại đúng `plc_internal_rule/`.
+2. **`plc_device`/`plc_error`/`plc_system_cmd` bị để `PRIVATE` thay vì
+   `PUBLIC`** trong `target_include_directories()`. Hậu quả: bất kỳ ai
+   link `splc_core` từ layer khác (Layer 3/4) sẽ KHÔNG tự động thấy được
+   3 include path đó — `#include "plc_device.h"` từ file ngoài `core/` sẽ
+   báo lỗi "No such file" dù file tồn tại thật. **Đã sửa** — chuyển sang
+   `PUBLIC`. Ghi nhớ quy tắc: `PUBLIC` = cần cho cả bản thân `splc_core`
+   LẪN ai link nó; `PRIVATE` = chỉ bản thân `splc_core` cần, không lộ ra
+   ngoài (đúng cho `plc_internal_rule/` — chỉ `plc_rule.c` nội bộ dùng).
+
+Trạng thái CMake hiện tại (xem file thật để chắc chắn, đây chỉ tóm tắt):
+- `simple_plc/core/CMakeLists.txt` — `splc_core` build 4 file `.c`
+  (`plc_tag.c`, `plc_rule.c`, `plc_rule_eval.c`, `plc_rule_action.c`),
+  expose PUBLIC 5 include dir (`plc_tag`, `plc_rule`, `plc_device`,
+  `plc_error`, `plc_system_cmd`), PRIVATE 1 include dir
+  (`plc_internal_rule`).
+- `simple_plc/CMakeLists.txt`, root `CMakeLists.txt` — chưa có thay đổi gì
+  mới so với bản trước, vẫn `add_subdirectory()` xuyên suốt.
 
 ## 2. Việc CHƯA làm — theo đúng thứ tự ưu tiên
 
-### 2.1 Layer 2 — còn thiếu 2 file (chưa viết, chỉ mới có trong docs)
+### 2.1 Layer 0 + Layer 1 (`platforms/`, `components/`) — GẦN NHƯ TRỐNG, phải làm TRƯỚC Layer 3
 
-Đọc kỹ `docs/SimplePLC_App_MCU_Structs_v1.7.md` mục 1, 4, 6, 7 trước khi
-viết — mọi field/enum dưới đây đã có sẵn định nghĩa chính xác trong đó,
-KHÔNG cần tự nghĩ ra field mới.
+**Đây là phát hiện quan trọng nhất của phiên này, khác hẳn giả định trước
+đó.** Trước khi định viết `plc_io.c` (Layer 3), đã kiểm tra thật bằng `wc -l`
+và xác nhận Layer 0/1 gần như chưa có gì:
 
-- **`core/plc_device/plc_device.h` + `.c`** (chưa tồn tại):
-  - `SPLC_DeviceClass`, `SPLC_RemoteIoVariant`, `SPLC_DataloggerVariant`,
-    `SPLC_GatewayVariant`
-  - `SPLC_DeviceDescriptor` (20 byte, RO)
-  - `SPLC_ResetReason`, `SPLC_HealthFlags`
-  - `SPLC_DeviceHealth` (20 byte, RO) — **CHÚ Ý:** field tên
-    `scan_time_ms`/`max_scan_time_ms` trong v1.7 nhưng comment ghi đơn vị
-    thật là **microsecond** — mâu thuẫn tên/đơn vị nằm sẵn trong tài liệu
-    gốc (không phải lỗi bạn tạo ra). `architecture.md` lại ghi tên field
-    là `scan_time_us`/`max_scan_time_us`. **Cần hỏi lại người viết spec
-    xem đây có phải lỗi đánh máy trong docx gốc không, trước khi chốt tên
-    field cuối cùng trong code.** Đừng tự quyết định 1 trong 2, vì đây là
-    field nằm trong Modbus register map (0x0800-0x0809) — sai tên không
-    sao (nó chỉ là tên C), nhưng sai ĐƠN VỊ (ms vs µs) khi implement thật
-    sẽ khiến App hiển thị sai số cho người dùng.
-  - `extern SPLC_DeviceDescriptor g_device_descriptor;` (hằng số biên dịch)
-  - `extern SPLC_DeviceHealth g_device_health;` (cập nhật liên tục bởi
-    Layer 3/4)
+| Peripheral | Layer 1 (`components/`) | Layer 0 (`platforms/stm32/stm32h5/`) |
+|---|---|---|
+| GPIO | `.h` rỗng (chỉ include guard) | `.h`/`.c` rỗng (0 dòng) |
+| ADC | **CHƯA TỒN TẠI FILE NÀO CẢ** | **CHƯA TỒN TẠI FILE NÀO CẢ** |
+| Flash | **CHƯA TỒN TẠI FILE NÀO CẢ** | **CHƯA TỒN TẠI FILE NÀO CẢ** |
+| UART | có struct + 1 hàm signature (`sx_uart_init()`, chưa impl thật) | có `#if STM32H5_PLATFORM` skeleton, chưa impl |
+| USB CDC | `.h` có struct (24 dòng), `.c` rỗng | chưa tồn tại (`sx_usb_tiny` theo `architecture.md` chưa được tạo file) |
 
-- **`core/plc_system_cmd/plc_system_cmd.h` + `.c`** (chưa tồn tại), hoặc
-  gộp vào `plc_device` nếu thấy hợp lý hơn:
-  - `SPLC_SystemCommand` enum (NONE/REBOOT/FACTORY_RESET/CLEAR_RULES/
-    CLEAR_RETAIN)
-  - `SPLC_CommandStatus` enum (IDLE/ACCEPTED/BUSY/DONE/ERROR)
-  - `SPLC_SystemCommandRequest` (2 byte), `SPLC_SystemCommandResult`
-    (4 byte)
-  - `SPLC_ErrorCode` — cân nhắc đặt ở file riêng `plc_error.h` vì dùng
-    chung cho cả system command LẪN Modbus config service
-    (`plc_modbus_cfg.c`, chưa viết).
+Hệ quả trực tiếp: **`plc_io.c` (input_scan/output_scan) cần GPIO (DI/DO)
+VÀ ADC (AI) chạy thật — cả 2 đều chưa có 1 dòng code.** `plc_retain.c` cần
+Flash — cũng chưa có gì. Do đó **thứ tự trong bản handoff cũ
+("plc_retain.c trước vì độc lập nhất") vẫn đúng về mặt phụ thuộc Layer 2,
+nhưng cả 2 đều bị chặn bởi Layer 0/1 chưa xong**, không phải chỉ mỗi
+`plc_io.c` như tưởng ban đầu.
 
-**Sau khi viết xong 2 file này, nhớ verify bằng cách thêm vào
-`core/CMakeLists.txt`'s `target_sources()` và build lại + viết 1 test nhỏ
-kiểm tra `sizeof()` của từng struct khớp đúng số byte ghi trong v1.7.**
+**Việc tiếp theo, đã thống nhất với người dùng nhưng CHƯA CHỌN xong peripheral
+nào làm trước** (câu hỏi để ngỏ, dùng `ask_user_input` lần cuối trong phiên
+này nhưng chưa nhận được câu trả lời trước khi hết token) — 4 lựa chọn đã
+đưa ra:
+- GPIO trước (đơn giản nhất, cần cho DI/DO)
+- ADC trước (cần cho AI)
+- Flash trước (cần cho retain + rule table storage — xem mục 2.3 việc còn
+  mở "vị trí Flash lưu Active Rule Table" cũng đụng tới đây)
+- Làm GPIO+ADC cùng lúc vì cùng phục vụ `plc_io.c`
 
-### 2.2 `plc_tag_def.h` — bảng 69 tag cụ thể (chưa viết)
+**Khuyến nghị cá nhân (không phải quyết định đã chốt):** GPIO trước — đơn
+giản nhất trong 3 (chỉ cần `HAL_GPIO_ReadPin`/`WritePin`, không cần DMA/IT
+như ADC, không cần wear-leveling như Flash), và cho phép có ngay 1 vertical
+slice end-to-end nhỏ (DI vật lý → tag → rule → DO vật lý) để test thật sớm,
+thay vì làm xong hết cả 3 peripheral rồi mới test được gì.
 
-`architecture.md` mục 2.1 đã cho khung phân bổ:
-```
-1-8=DI, 9-16=DO, 17-20=AI, 21-36=VFLAG, 37-52=VREG, 53-68=VREG_RETAIN,
-69-127 dự trù Gateway
-```
-Cần viết thành `#define` cụ thể (theo đúng "Cách A" — không dùng `enum` tự
-đánh số, xem `architecture.md` mục 7), ví dụ:
+**Trước khi viết Layer 0/1 thật, cần đọc `.ioc` file** (`RS485_IO_RF_V2.ioc`
+ở root repo) hoặc hỏi người dùng về pin mapping thật (DI0-7/DO0-7 nối chân
+GPIO nào, AI0-3 nối ADC channel nào) — chưa có thông tin này trong bất kỳ
+doc nào đã đọc, cần hỏi trước khi viết phần map cụ thể trong `plc_io.c`
+sau này (`plc_io.c` bản thân cũng chưa viết, xem mục 2.4).
+
+### 2.2 CMake — tách tiếp Layer 0/1 khi có code thật
+
+Áp dụng đúng mẫu `core/CMakeLists.txt` (PUBLIC cho header cần lộ ra ngoài,
+PRIVATE cho header chỉ nội bộ — xem mục 1.2 để hiểu đúng khác biệt trước
+khi tự làm, đã có bài học thật từ lỗi PUBLIC/PRIVATE ở Layer 2):
+- `components/CMakeLists.txt` → library `splc_components` (Layer 1)
+- `platforms/CMakeLists.txt` → library `splc_platform` (Layer 0)
+Cả 2 đều CHƯA TỒN TẠI, `simple_plc/CMakeLists.txt` hiện add trực tiếp qua
+`target_sources()` (nếu còn — cần re-check file thật, phần này có thể đã
+đổi so với lần đọc gần nhất).
+
+### 2.3 `plc_tag_def.h` — ĐÃ XONG (khác bản handoff cũ)
+
+Bản handoff trước liệt việc này là "chưa viết, cần cho `plc_io.c`". Đã
+xong — xem mục 1.1. Không cần làm lại.
+
+### 2.4 Layer 3 (`services/`) — 3 file rỗng (0 dòng), CHƯA VIẾT, BỊ CHẶN BỞI 2.1
+
+Thứ tự khuyến nghị (không đổi so với bản cũ, nhưng giờ rõ ràng là BỊ CHẶN,
+không phải "có thể làm song song"):
+1. `plc_retain.c` — cần Flash (Layer 0/1) xong trước, KHÔNG còn "độc lập
+   nhất" như bản handoff cũ ghi nhầm — bản cũ chưa kiểm tra thật trạng thái
+   Layer 0/1 lúc viết câu đó.
+2. `plc_io.c` — cần GPIO + ADC (Layer 0/1) xong trước, VÀ cần
+   `plc_tag_def.h` (đã xong, xem mục 2.3) VÀ cần pin mapping thật
+   (xem mục 2.1, chưa có).
+3. `plc_modbus_cfg.c` — phức tạp nhất, cần USB CDC (Layer 0/1, hiện gần như
+   trống) + nanoMODBUS (có code thật ở `libs/nanomodbus/`, 2462 dòng,
+   nhưng CHƯA được nối vào build ở đâu). Vẫn nên làm SAU CÙNG trong Layer 3.
+
+### 2.5 `plc_system_cmd.c` (Layer 3/4, KHÔNG phải Layer 2) — chưa viết, đúng như kế hoạch
+
+Bản handoff cũ từng đề xuất viết `plc_system_cmd.c` NGAY TẠI Layer 2 — quyết
+định đó đã bị BÁC BỎ trong phiên này (xem mục 1.1, lý do đầy đủ). Việc thực
+thi command thật (reboot, factory reset, clear rules, clear retain) cần Flash/
+NVIC — thuộc Layer 3/4, viết SAU KHI Layer 0/1 (đặc biệt Flash) xong.
+
+### 2.6 Layer 4 (`app/plc_app/plc_engine.c`) — rỗng, CHƯA VIẾT
+
+Chỉ nên làm SAU KHI ít nhất `plc_io.c` xong (không đổi so với bản cũ).
+Khung hàm tham khảo `architecture.md` mục "Layer 4" vẫn đúng, không đổi.
+
+**Điểm mới đã thống nhất với người dùng, CHƯA THỰC HIỆN (chỉ mới bàn, chưa
+viết code):** việc chọn `device_class`/`device_variant` để gán vào
+`g_device_descriptor` (Layer 4 sẽ khai báo instance thật, xem mục 1.1) sẽ
+KHÔNG dùng compile-time `#ifdef` kiểu `board_family.h` cũ đã xoá — mà dùng
+**param truyền vào lúc runtime** cho `plc_engine_init()`, ví dụ:
+
 ```c
-#define TAG_DI0  1
-#define TAG_DI1  2
-...
-#define TAG_DO0  9
-...
+typedef struct {
+    SPLC_DeviceClass device_class;
+    uint16_t         device_variant;
+    uint16_t         hw_version_major;
+    uint16_t         hw_version_minor;
+    uint16_t         hw_version_patch;
+} plc_engine_init_params_t;
+
+void plc_engine_init(const plc_engine_init_params_t *params);
 ```
-File này cần xong TRƯỚC khi viết `plc_io.c` (Layer 3), vì `plc_io.c` cần
-biết chính xác index nào ánh xạ ra chân GPIO/ADC nào.
 
-### 2.3 CMake — tách tiếp các layer khác khi có code thật
+Board cụ thể (`main.c` của SKU đó) tự điền struct này và truyền vào lúc
+gọi init — không phải `#ifdef SPLC_DEVICE_CLASS_REMOTE_IO` nữa. Đây là hệ
+quả trực tiếp của quyết định bỏ macro ở mục 1.1, người dùng đã xác nhận
+hướng này, CHỈ CẦN ÁP DỤNG KHI THẬT SỰ VIẾT `plc_engine.c`, không cần hỏi
+lại.
 
-Hiện tại chỉ `core/` (Layer 2) có `CMakeLists.txt` riêng. Khi các layer
-sau có code thật (không còn rỗng), tách theo đúng mẫu `core/CMakeLists.txt`
-đã làm:
-- `utils/CMakeLists.txt` → library `splc_utils` (hiện `cqueue.c` đã có
-  code thật, `logger.c` thì CHƯA — xem cảnh báo bên dưới)
-- `services/CMakeLists.txt` → library `splc_services`, link `splc_core`
-- `port/CMakeLists.txt` → library `splc_port`, link `libs/nanomodbus`
-- `app/CMakeLists.txt` → library `splc_app`, link mọi thứ trên
-
-**CẢNH BÁO quan trọng đã phát hiện, CHƯA XỬ LÝ:**
-- `utils/logger/logger.c` **vẫn còn `#include <FreeRTOS.h>`/`<semphr.h>`**
-  và gọi `xSemaphoreTake/Give/CreateMutex`. `architecture.md` mục "Layer U"
-  đã ghi rõ: khi port từ `WS_v1` phải BỎ mutex FreeRTOS vì SimplePLC chạy
-  bare-metal đơn luồng. **Việc này CHƯA được làm.** File này hiện bị loại
-  khỏi `target_sources` trong `simple_plc/CMakeLists.txt` để tránh lỗi
-  compile/link (không có FreeRTOS trong build hiện tại). Ai làm tiếp cần
-  port lại `logger.c` bỏ mutex trước khi thêm nó vào build.
-- `board/board.c` và `port/usb/usb_descriptors.c` **rỗng (0 dòng)** —
-  cũng bị loại khỏi build vì lý do tương tự.
-- `port/modbus_serial/modbus_serial.c` chỉ có 2 dòng `#include`, chưa có
-  logic thật.
-- `libs/nanomodbus/nanomodbus.c` (2462 dòng) có code thật NHƯNG CHƯA được
-  add vào build ở đâu cả — chưa cần vì chưa ai gọi tới nó
-  (`plc_modbus_cfg.c` còn rỗng).
-- `libs/tinyusb/` hoàn toàn rỗng — TinyUSB chưa được vendor vào repo.
-
-### 2.4 Layer 3 (`services/`) — 3 file rỗng (0 dòng), CHƯA VIẾT
-
-Thứ tự khuyến nghị:
-1. `plc_retain.c` — độc lập nhất, không phụ thuộc `plc_tag_def.h`, có thể
-   làm trước hoặc song song.
-2. `plc_io.c` — cần `plc_tag_def.h` (mục 2.2) xong trước.
-   `input_scan()`/`output_scan()`.
-3. `plc_modbus_cfg.c` — phức tạp nhất: state machine #2
-   (`CFG_STATE_IDLE/RECEIVING/VERIFYING/READY/ERROR`), dùng nanoMODBUS,
-   CRC-16/MODBUS trên `rule_count * 32` byte, staging + atomic commit vào
-   `g_rule_table[]` qua `rule_table_commit()` (đã có sẵn ở Layer 2, xem
-   mục 1.1). Nên làm SAU CÙNG trong Layer 3 vì phụ thuộc hiểu đúng toàn bộ
-   register map ở `docs/SimplePLC_App_MCU_Structs_v1.7.md` mục 8.
-
-### 2.5 Layer 4 (`app/plc_app/plc_engine.c`) — rỗng, CHƯA VIẾT
-
-Chỉ nên làm SAU KHI ít nhất `plc_io.c` xong, vì scan loop
-(`plc_engine_scan_once()`) mới có ý nghĩa thực tế khi có I/O thật. Khung
-hàm đã có sẵn trong `architecture.md` mục "Layer 4":
-```c
-void plc_engine_init(void) {
-    tag_table_load_from_flash();
-    rule_table_load_from_flash();
-    plc_io_init();
-    retain_store_restore();
-    plc_modbus_cfg_init();
-    pvd_init();
-    watchdog_init();
-}
-
-void plc_engine_scan_once(void) {
-    input_scan();
-    rule_scan();
-    output_scan();
-    modbus_config_service();
-    retain_service();
-    watchdog_kick();
-}
-```
-**Lưu ý:** `rule_scan()` hiện tại (Layer 2) dùng biến `static uint32_t
-s_rule_scan_now_ms` nội bộ trong `plc_rule.c`, luôn = 0 — chưa có cách
-nào Layer 4 truyền tick thật vào. Đây là 1 vấn đề thiết kế cần giải quyết
-khi viết `plc_engine.c`: hoặc thêm tham số `now_ms` vào `rule_scan()`
-(đổi chữ ký hàm, cần sửa `plc_rule.h`), hoặc thêm 1 setter function như
-`rule_scan_set_tick(uint32_t now_ms)` gọi trước `rule_scan()` mỗi vòng
-quét. Chưa quyết định — cần bàn với người dùng trước khi tự chọn hướng.
+**Vẫn còn nguyên vấn đề cũ chưa giải quyết:** `rule_scan()` hiện tại
+(Layer 2) dùng biến `static uint32_t s_rule_scan_now_ms` nội bộ, luôn = 0.
+Cách Layer 4 truyền tick thật vào — thêm tham số hay setter function — vẫn
+CHƯA QUYẾT ĐỊNH, xem mục 3.
 
 ## 3. Các quyết định kiến trúc CHƯA CHỐT (đừng tự ý quyết định, hỏi lại)
 
-1. **Đơn vị `scan_time_ms` vs `scan_time_us`** trong `SPLC_DeviceHealth`
-   — xem mục 2.1.
-2. **Vị trí Flash lưu Active Rule Table** — địa chỉ, kích thước tối thiểu
-   `100*32=3200` byte, có cần wear-leveling như `plc_retain.c` hay ghi đè
-   1 chỗ cố định. Chưa quyết — xem `architecture.md` mục 10.
-3. **Cách Layer 4 truyền tick ms vào `rule_scan()`** — xem mục 2.5.
-4. **Nguồn RTC cho `SPLC_TRG_TIME_WINDOW`** — chưa có, hiện `plc_rule.c`
-   hardcode `now_hhmm = 0`, khiến trigger loại này KHÔNG hoạt động đúng.
-   Đã ghi rõ bằng TODO trong code.
-5. **Modbus Master cho Gateway** (`plc_modbus_master.c`) — RTU thôi hay
-   cả TCP? Chưa quyết, chưa cần làm ngay (chỉ ảnh hưởng SKU Gateway,
-   không ảnh hưởng Remote I/O đang làm).
+1. **Peripheral nào làm trước ở Layer 0/1** — GPIO/ADC/Flash/cả GPIO+ADC.
+   Câu hỏi đã đưa ra cho người dùng, CHƯA CÓ CÂU TRẢ LỜI khi phiên này kết
+   thúc. Hỏi lại đầu phiên sau nếu chưa thấy trả lời trong lịch sử chat.
+2. **Pin mapping thật** (DI0-7/DO0-7 → chân GPIO nào, AI0-3 → ADC channel
+   nào) — chưa có, cần đọc `RS485_IO_RF_V2.ioc` hoặc hỏi người dùng trực
+   tiếp trước khi viết phần map cụ thể trong `plc_io.c`.
+3. **Vị trí Flash lưu Active Rule Table** — địa chỉ, kích thước tối thiểu
+   `100*32=3200` byte, có cần wear-leveling như dự kiến cho `plc_retain.c`
+   hay ghi đè 1 chỗ cố định. Chưa quyết — không đổi so với bản cũ.
+4. **Cách Layer 4 truyền tick ms vào `rule_scan()`** — thêm tham số hay
+   setter function. Chưa quyết — không đổi so với bản cũ.
+5. **Nguồn RTC cho `SPLC_TRG_TIME_WINDOW`** — chưa có, hiện `plc_rule.c`
+   hardcode `now_hhmm = 0`. Không đổi so với bản cũ.
+6. **Modbus Master cho Gateway** (`plc_modbus_master.c`) — RTU thôi hay cả
+   TCP? Chưa quyết, chưa cần làm ngay. Không đổi so với bản cũ.
 
 ## 4. Lệnh verify nhanh (chạy lại bất cứ lúc nào để kiểm tra Layer 2 + CMake còn sạch)
 
 ```bash
-# Build test PC-only cho riêng Layer 2, dùng CMake thật (không cần STM32 toolchain):
 mkdir -p /tmp/splc_verify && cd /tmp/splc_verify
 cat > CMakeLists.txt << 'EOF'
 cmake_minimum_required(VERSION 3.22)
@@ -224,11 +270,27 @@ cat > test_main.c << 'EOF'
 #include <assert.h>
 #include <stdio.h>
 #include "plc_tag.h"
+#include "plc_tag_def.h"
 #include "plc_rule.h"
+#include "plc_device.h"
+#include "plc_error.h"
+#include "plc_system_cmd.h"
+
 int main(void) {
     tag_table_load_from_flash();
     rule_table_load_from_flash();
+
+    /* Layer 2 sizeof checks per v1.7 */
     assert(sizeof(SPLC_RuleRecord) == 32);
+    assert(sizeof(SPLC_DeviceDescriptor) == 20);
+    assert(sizeof(SPLC_DeviceHealth) == 20);
+    assert(sizeof(SPLC_SystemCommandRequest) == 2);
+    assert(sizeof(SPLC_SystemCommandResult) == 4);
+
+    /* plc_tag_def.h range check */
+    assert(TAG_DI0 == 1 && TAG_VREG_R15 == 68);
+
+    /* end-to-end rule test (unchanged from original handoff) */
     g_tag_table[1].kind = TAG_DI;
     g_tag_table[9].kind = TAG_DO;
     SPLC_RuleRecord r = {0};
@@ -238,6 +300,7 @@ int main(void) {
     assert(rule_table_commit(raw, 1));
     tag_write(1, 0); rule_scan(); assert(tag_read(9) == 0);
     tag_write(1, 1); rule_scan(); assert(tag_read(9) == 1);
+
     printf("ALL TESTS PASSED\n");
     return 0;
 }
@@ -254,11 +317,24 @@ Kỳ vọng output cuối: `ALL TESTS PASSED`.
 - Người dùng tự push code lên GitHub sau khi Claude sửa/viết xong — Claude
   KHÔNG có quyền push, chỉ sửa file cục bộ trong sandbox rồi báo lại. Khi
   bắt đầu phiên mới, LUÔN `git pull` trước để lấy thay đổi mới nhất người
-  dùng đã tự push, vì họ có thể tự sửa tay hoặc dùng Claude khác giữa các
-  phiên.
+  dùng đã tự push — và LUÔN `git checkout -- . && git clean -fd` trước
+  khi pull nếu sandbox có local edit, để tránh lỗi "would be overwritten
+  by merge" (đã gặp thật nhiều lần trong phiên này).
+- **Bài học quan trọng đã rút ra trong phiên này:** người dùng có thể tự
+  sửa/push code KHÔNG khớp với bản Claude đã đề xuất trước đó (ví dụ:
+  push lại bản `app_config.h`/`board_family.h` cũ dù đã thống nhất xoá,
+  hoặc đổi tên thư mục mà quên cập nhật CMakeLists.txt tương ứng). Sau
+  MỖI LẦN người dùng báo "đã push", PHẢI pull rồi verify lại bằng compile
+  thật (không chỉ đọc code bằng mắt) trước khi tiếp tục — đã phát hiện
+  nhiều lỗi thật theo cách này (redefinition conflict, sai path source,
+  sai PUBLIC/PRIVATE).
 - Người dùng đã đồng ý hướng "mỗi layer 1 CMakeLists riêng" (không gộp 1
-  file chung) — xem mục 2.3 để tiếp tục đúng hướng này.
+  file chung) — không đổi so với bản cũ.
 - Mọi thay đổi code nên được verify bằng compile/chạy thật (gcc hoặc
-  CMake thật trong sandbox), không chỉ đọc code bằng mắt — đây là thói
-  quen đã thiết lập xuyên suốt các phiên trước và người dùng có vẻ đánh
-  giá cao việc này.
+  CMake thật trong sandbox), không chỉ đọc code bằng mắt — người dùng
+  đánh giá cao việc này, đã áp dụng xuyên suốt phiên này, tiếp tục giữ.
+- Khi đề xuất quyết định kiến trúc có ảnh hưởng rộng (ví dụ: tách file,
+  đổi vị trí struct, gộp/tách module), LUÔN hỏi người dùng trước bằng
+  `ask_user_input_v0`, KHÔNG tự quyết — người dùng đã yêu cầu rõ điều này
+  và đã dùng cách này thành công nhiều lần trong phiên (ví dụ: quyết định
+  xoá `.c`/`extern` khỏi `plc_device`, quyết định tách `plc_error.h` riêng).
