@@ -20,7 +20,7 @@ add_library(splc_core STATIC
 target_include_directories(splc_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_tag
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule
-    ${CMAKE_CURRENT_SOURCE_DIR}/plc_device
+    
 )
 
 # plc_rule_eval.h / plc_rule_action.h / plc_rule_state_machine.h are internal
@@ -29,7 +29,10 @@ target_include_directories(splc_core PUBLIC
 # splc_core's exported include interface, while still letting plc_rule.c's
 # own #include "plc_rule_eval.h" etc. resolve during splc_core's own build.
 target_include_directories(splc_core PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/plc_internal
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_internal_rule
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_device
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_error
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_system_cmd
 )
 
 target_compile_features(splc_core PUBLIC c_std_11)
