@@ -8,7 +8,6 @@ extern "C" {
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include "app_config.h"
 
 #ifndef FREE_RTOS
 #define FREE_RTOS 0
