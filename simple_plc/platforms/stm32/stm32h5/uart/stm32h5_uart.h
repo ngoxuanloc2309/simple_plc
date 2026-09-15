@@ -9,6 +9,9 @@ extern "C" {
 
 #if STM32H5_PLATFORM
 
+#include "stm32h5xx_hal.h"
+#include "sx_uart.h"
+
 #endif
 
 #ifdef __cplusplus
