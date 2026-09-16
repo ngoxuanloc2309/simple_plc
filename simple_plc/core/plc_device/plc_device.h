@@ -5,9 +5,12 @@
  * plc_device.h - Layer 2 (PLC Core)
  *
  * Device identity and runtime health type definitions, per the official
- * data contract in docs/SimplePLC_App_MCU_Structs_v1.7.md, section 1
- * (DEVICE DESCRIPTOR) and the DEVICE_HEALTH register block (section 8.1,
- * 0x0800-0x0809). This file must not include anything from Layer 0/1
+ * data contract in
+ * docs/SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md, section
+ * 1 (DEVICE DESCRIPTOR) and the DEVICE_HEALTH register block (section 8.1,
+ * 0x0800-0x0809). SPLC_DeviceDescriptor and SPLC_DeviceHealth are
+ * unchanged between v1.7 and v1.9 -- only SPLC_DeviceResourceInfo below is
+ * new in v1.9. This file must not include anything from Layer 0/1
  * (platform or driver headers). This is the porting boundary: Layer 2 must
  * build and unit test on a plain PC toolchain, independent of any real
  * hardware.
@@ -150,19 +153,42 @@ typedef struct {
     uint32_t max_scan_time_ms;  /* Max scan duration observed, in milliseconds */
 } SPLC_DeviceHealth; /* 20 bytes */
 
-typedef struct {
-    uint16_t wire_profile;          // SPLC_WireProfile; V1 = 1
-    uint16_t max_rules;             // 0..100; >0 => có Rule Engine
-    uint16_t runtime_tag_count;     // Tổng tag hợp lệ; không có nghĩa index 0..N-1 liên tục
+/*
+ * V1.9: Wire profile identifies the layout/tag-addressing contract that
+ * App and MCU both understand. SPLC_WIRE_PROFILE_V1 is the only defined
+ * profile at this time.
+ */
+typedef enum {
+    SPLC_WIRE_PROFILE_UNKNOWN = 0,
+    SPLC_WIRE_PROFILE_V1      = 1
+} SPLC_WireProfile;
 
-    uint16_t di_count;              // 0..8
-    uint16_t do_count;              // 0..8
-    uint16_t ai_count;              // 0..4
-    uint16_t vflag_count;           // 0..32
-    uint16_t vreg_count;            // 0..32
-    uint16_t vreg_retain_count;     // 0..32; >0 => có Retentive Memory
-    uint16_t counter_count;         // 0..8
-} SPLC_DeviceResourceInfo;          // CHANGED V1.9: 20 byte = 10 Modbus registers
+/*
+ * V1.9 addition (did not exist in v1.7): self-describing resource profile.
+ * The App reads this right after SPLC_DeviceDescriptor and uses it to
+ * build its own ProductDefinition/TagCatalog at runtime, instead of
+ * looking up resources by device_variant. Wire Profile V1 (wire_profile ==
+ * SPLC_WIRE_PROFILE_V1) always provides Runtime Tags, Device Health, and
+ * System Commands -- there is no capability bitmask for those. Rule
+ * Engine presence is inferred from max_rules > 0; Retentive Memory
+ * presence is inferred from vreg_retain_count > 0.
+ *
+ * Wire size: 20 bytes (10 x uint16_t), exposed read-only at
+ * DEVICE_RESOURCE_INFO (0x0020-0x0029).
+ */
+typedef struct {
+    uint16_t wire_profile;       /* SPLC_WireProfile; V1 = 1 */
+    uint16_t max_rules;          /* 0..100; >0 => Rule Engine present */
+    uint16_t runtime_tag_count;  /* Total valid tags; NOT necessarily a contiguous 0..N-1 range */
+
+    uint16_t di_count;           /* 0..8 */
+    uint16_t do_count;           /* 0..8 */
+    uint16_t ai_count;           /* 0..4 */
+    uint16_t vflag_count;        /* 0..32 */
+    uint16_t vreg_count;         /* 0..32 */
+    uint16_t vreg_retain_count;  /* 0..32; >0 => Retentive Memory present */
+    uint16_t counter_count;      /* 0..8 */
+} SPLC_DeviceResourceInfo; /* 20 bytes */
 
 
 #ifdef __cplusplus

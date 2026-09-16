@@ -20,22 +20,31 @@ extern "C" {
 #endif
 
 /* Maximum number of tags supported system-wide.
- * Per the base spec: 69 tags used by the Remote I/O SKU, 59 slots reserved
- * for future Gateway SKU expansion. */
+ * Per docs/SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md
+ * section 5.1: DI 0-7, DO 8-15, AI 16-19, VFLAG 20-51, VREG 52-83,
+ * VREG_RETAIN 84-115, COUNTER 116-123, RESERVED 124-127 (128 total wire
+ * capacity; a product may use fewer -- see SPLC_DeviceResourceInfo). */
 #define MAX_TAGS 128
 
 /* TagKind identifies what a tag represents. It does not carry any live
- * value; live values live in g_tag_value[] instead. */
+ * value; live values live in g_tag_value[] instead.
+ *
+ * Numeric values are pinned explicitly per
+ * docs/SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md section
+ * 1.2 ("Chuẩn hóa numeric value để Domain/App và firmware/spec không lệch
+ * mã"). Do not rely on implicit enum auto-increment here -- a future
+ * insertion in the middle would silently renumber every kind after it. */
 typedef enum {
-    TAG_NONE = 0,     /* Unused slot */
-    TAG_DI,           /* Digital input; only input_scan() may write it */
-    TAG_DO,           /* Digital output; output_scan() reads it to drive a pin */
-    TAG_AI,           /* Analog input; only input_scan() may write it */
-    TAG_VFLAG,        /* Internal virtual flag, no physical pin backing it */
-    TAG_VREG,         /* Internal virtual register, not retained across power loss */
-    TAG_MB_COIL,      /* Coil on a remote Modbus device (future Gateway SKU) */
-    TAG_MB_HOLDING,   /* Holding register on a remote Modbus device */
-    TAG_VREG_RETAIN,  /* Virtual register retained through Flash snapshot */
+    TAG_NONE         = 0,  /* Unused slot */
+    TAG_DI           = 1,  /* Digital input; only input_scan() may write it */
+    TAG_DO           = 2,  /* Digital output; output_scan() reads it to drive a pin */
+    TAG_AI           = 3,  /* Analog input; only input_scan() may write it */
+    TAG_VFLAG        = 4,  /* Internal virtual flag, no physical pin backing it */
+    TAG_VREG         = 5,  /* Internal virtual register, not retained across power loss */
+    TAG_MB_COIL      = 6,  /* Coil on a remote Modbus device (future Gateway SKU) */
+    TAG_MB_HOLDING   = 7,  /* Holding register on a remote Modbus device */
+    TAG_VREG_RETAIN  = 8,  /* Virtual register retained through Flash snapshot */
+    TAG_COUNTER      = 9,  /* V1.9: dedicated counter tag, incremented by SPLC_ACT_INC_COUNTER */
 } SPLC_TagKind;
 
 /*
