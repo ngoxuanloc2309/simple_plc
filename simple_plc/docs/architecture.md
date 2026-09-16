@@ -7,10 +7,18 @@
 > - Tra cứu lại khi quên 1 khái niệm nào đó.
 >
 > **Cập nhật lần này:** đồng bộ lại toàn bộ nội dung theo tài liệu chính thức
-> mới nhất `SimplePLC_App_MCU_Structs_v1.7.docx` (data contract + Modbus
-> register map V1) — tài liệu này là **nguồn sự thật cao nhất hiện có**, ưu
-> tiên hơn mọi con số/quyết định cũ trong các bản trước của file này. Những
-> chỗ khác biệt so với bản trước đều được đánh dấu rõ.
+> mới nhất `SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md` (data
+> contract + Modbus register map V1, bản 1.9, update của v1.7) — tài liệu
+> này là **nguồn sự thật cao nhất hiện có**, ưu tiên hơn mọi con số/quyết
+> định cũ trong các bản trước của file này, kể cả v1.7. Những chỗ khác biệt
+> so với v1.7 đều được đánh dấu rõ bằng nhãn **"V1.9:"**. Những đoạn nào
+> trong bản v1.7 vẫn còn đúng (không đổi giữa 2 bản) thì giữ nguyên, không
+> lặp lại nhãn V1.9.
+>
+> **Cũng đã đồng bộ 1 bugfix thật đã áp dụng vào code** (`plc_rule.c`/
+> `plc_rule.h`, xem mục 2.2 và mục 9): sentinel "không có guard" trong
+> `guard_tag` đổi từ `0` sang `GUARD_TAG_NONE` (`0x7FFF`) — xem mục 2.2 để
+> biết lý do đầy đủ.
 
 ---
 
@@ -24,21 +32,37 @@ struct nén cố định, tách lớp rạch ròi"** là bắt buộc để port
 sau này (kể cả MCU nhỏ hơn như STM32G0/F1).
 
 **Nguồn tài liệu, theo đúng thứ tự ưu tiên (mới hơn ghi đè cũ hơn):**
-1. `SimplePLC_App_MCU_Structs_v1.7.docx` — **data contract + Modbus register
-   map V1 chính thức**, quy định wire format thật giữa App và MCU. Đây là bản
-   quan trọng nhất, mọi con số địa chỉ/kích thước struct phải khớp đúng file
-   này.
-2. `SimplePLC_RuleStruct_MCU_Spec_v0_1.md` — tài liệu spec gốc, vẫn đúng cho
+1. `SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md` — **data
+   contract + Modbus register map V1 chính thức, bản 1.9 (update của
+   v1.7)**, quy định wire format thật giữa App và MCU. Đây là bản quan
+   trọng nhất, mọi con số địa chỉ/kích thước struct phải khớp đúng file
+   này. Thay đổi chính so với v1.7: bỏ hẳn `CapabilityFlags`, thêm block
+   `SPLC_DeviceResourceInfo`/`SPLC_WireProfile` để App tự dựng
+   `ProductDefinition`/`TagCatalog` runtime thay vì lookup cứng theo
+   `device_variant`; tag layout cố định lại (DI=8, DO=8, AI=4, VFLAG=32,
+   VREG=32, VREG_RETAIN=32, COUNTER=8 — **không còn ô sentinel `TAG_NONE`
+   ở index 0** như v1.7); thêm `SPLC_TagKind` mới `COUNTER=9`;
+   `SPLC_DeviceHealth.scan_time_us/max_scan_time_us` đổi tên thành
+   `scan_time_ms/max_scan_time_ms` (wire size không đổi, xác nhận đơn vị
+   là **ms**). Xem mục 1, 2.1, 2.5, 2.6 để biết chi tiết từng phần.
+2. `SimplePLC_App_MCU_Structs_v1.7.md` — vẫn giữ làm tài liệu tham chiếu
+   lịch sử (để hiểu vì sao 1 số quyết định cũ trong code/comment nhắc tới
+   "v1.7"), nhưng **bất kỳ chỗ nào v1.9 nói khác thì v1.9 thắng**. Không
+   dùng v1.7 để tra số liệu mới.
+3. `SimplePLC_RuleStruct_MCU_Spec_v0_1.md` — tài liệu spec gốc, vẫn đúng cho
    phần **logic nghiệp vụ Rule Engine** (5 bước Trigger→Compare→Dwell→Guard→
-   Action, ý nghĩa từng ActionType/TriggerType/CompareOp) — chỉ riêng **kích
-   thước struct và CRC đã bị v1.7 ghi đè** (xem mục 2.2).
-3. File này (`architecture.md`) — diễn giải kiến trúc layer, không tự đặt ra
-   con số nào mâu thuẫn với 2 nguồn trên.
+   Action, ý nghĩa từng ActionType/TriggerType/CompareOp) — riêng **kích
+   thước struct và CRC đã bị v1.7/v1.9 ghi đè** (xem mục 2.2), và riêng
+   **cách encode sentinel "không có guard" trong `guard_tag` đã bị 1 bugfix
+   thật ghi đè thêm lần nữa** (xem mục 2.2, không phải `0` như spec gốc/v1.7
+   mà là `GUARD_TAG_NONE = 0x7FFF`).
+4. File này (`architecture.md`) — diễn giải kiến trúc layer, không tự đặt ra
+   con số nào mâu thuẫn với các nguồn trên.
 
 **Transport vật lý giữa App và MCU: USB (KHÔNG phải RS485/UART).** Đây là
-điểm quan trọng đã đổi so với giả định ban đầu trong dự án — v1.7 ghi rõ
-*"USB là transport vật lý; NanoModbus xử lý Modbus RTU"*. RS485 chỉ còn xuất
-hiện ở 1 chỗ khác hẳn: 1 **variant của sản phẩm Gateway**
+điểm quan trọng đã đổi so với giả định ban đầu trong dự án — v1.7/v1.9 đều
+ghi rõ *"USB là transport vật lý; NanoModbus xử lý Modbus RTU"*. RS485 chỉ
+còn xuất hiện ở 1 chỗ khác hẳn: 1 **variant của sản phẩm Gateway**
 (`SPLC_GATEWAY_VARIANT_RS485_ETH`) — dùng để Gateway (đóng vai Modbus
 **Master**) nói chuyện với các thiết bị Modbus khác ở hạ tầng bên dưới, không
 liên quan gì tới kênh App↔MCU. Xem mục 2.4b để biết ảnh hưởng cụ thể tới
@@ -127,9 +151,15 @@ là logic thuần, giống nhau dù giao thức vật lý là gì.
 #### 2.1 `plc_tag.h` / `plc_tag.c`
 
 ```c
+/*
+ * V1.9: numeric value chuan hoa theo
+ * docs/SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md muc 1.2 --
+ * pin cung tung gia tri, KHONG dung enum tu tang. TAG_COUNTER=9 la them
+ * moi so voi v1.7 (v1.7 chi co 0..8).
+ */
 typedef enum {
     TAG_NONE = 0, TAG_DI, TAG_DO, TAG_AI, TAG_VFLAG, TAG_VREG,
-    TAG_MB_COIL, TAG_MB_HOLDING, TAG_VREG_RETAIN,
+    TAG_MB_COIL, TAG_MB_HOLDING, TAG_VREG_RETAIN, TAG_COUNTER,
 } TagKind;
 
 typedef struct {
@@ -148,10 +178,19 @@ void     tag_write(uint16_t idx, int32_t value);
 TagKind  tag_get_kind(uint16_t idx);
 ```
 
-Tag Table cố định lúc dev viết code, KHÔNG cấu hình lại qua Modbus. Index 0 =
-`TAG_NONE` (sentinel "không tham chiếu", dùng làm default cho `guard_tag`).
-Phân bổ: 1-8=DI, 9-16=DO, 17-20=AI, 21-36=VFLAG, 37-52=VREG, 53-68=VREG_R,
-69-127 dự trù Gateway.
+Tag Table cố định lúc dev viết code, KHÔNG cấu hình lại qua Modbus.
+
+**V1.9 -- THAY ĐỔI QUAN TRỌNG so với v1.7:** không còn ô sentinel `TAG_NONE`
+chiếm index 0 nữa. Layout mới (per
+`SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md` mục 5.1, "FIXED
+TAG LAYOUT — WIRE PROFILE V1"): **0-7=DI, 8-15=DO, 16-19=AI, 20-51=VFLAG (32
+slot, không phải 16 như v1.7), 52-83=VREG (32 slot), 84-115=VREG_RETAIN (32
+slot), 116-123=COUNTER (8 slot, hoàn toàn mới so với v1.7), 124-127
+reserved** (dự trù Gateway remote Modbus tag). Remote I/O SKU hiện tại dùng
+124/128 slot. `TAG_DI0` giờ nằm ở index 0 — **là 1 tag thật, không còn là ô
+trống**. Điều này có hệ quả trực tiếp tới cách encode `guard_tag` trong Rule
+— xem mục 2.2 ngay dưới đây, đã có 1 bug thật liên quan tới đúng điểm này,
+đã sửa.
 
 #### 2.2 `plc_rule.h` / `plc_rule.c` — struct Rule chính thức 32 byte
 
@@ -179,7 +218,9 @@ typedef struct {
 
     uint16_t trigger_tag;
     uint16_t action_tag;
-    uint16_t guard_tag;      // bit 0-14: idx (TAG_NONE=0 = khong co guard); bit 15: NEGATE
+    uint16_t guard_tag;      // bit 0-14: idx; bit 15: NEGATE. Sentinel
+                              // "khong co guard" = GUARD_TAG_NONE (0x7FFF),
+                              // KHONG PHAI 0 -- xem canh bao ngay duoi day.
 
     uint8_t  enabled;
     uint8_t  trigger_type;
@@ -213,6 +254,41 @@ bool rule_table_commit(const uint8_t *raw_data, uint16_t rule_count);
 
 **Vị trí Flash lưu Rule Table: CHƯA ĐƯỢC ĐẶC TẢ CỤ THỂ** (xem mục 10) —
 khoảng trống kiến trúc thật sự.
+
+**BUGFIX ĐÃ ÁP DỤNG — sentinel "không có guard" trong `guard_tag`.**
+
+```c
+#define GUARD_TAG_NEGATE_BIT   0x8000u
+#define GUARD_TAG_INDEX_MASK   0x7FFFu
+#define GUARD_TAG_NONE         0x7FFFu   // MOI — thay cho 0
+```
+
+**Vấn đề:** Trước bugfix này, `RULE_STATE_GUARD_CHECK` so sánh
+`guard_idx == TAG_NONE` (tức `== 0`) để quyết định "rule này không có
+guard". Điều đó đúng dưới layout v1.7 (index 0 là ô sentinel vô nghĩa),
+nhưng sai dưới layout v1.9 (mục 2.1 ở trên) — index 0 giờ là `TAG_DI0`, một
+tag thật. Hệ quả: **`TAG_DI0` là tag duy nhất trong toàn hệ thống không thể
+dùng làm `guard_tag`** — bất kỳ rule nào set `guard_tag = TAG_DI0` (= 0) với
+ý định dùng DI0 làm điều kiện guard sẽ bị hiểu nhầm thành "không có guard"
+và luôn cho fire, bất kể giá trị thật của DI0.
+
+**Đã verify bằng compile + chạy thật** (không chỉ đọc code): 1 rule với
+`guard_tag = TAG_DI0`, DI0 giữ ở mức 0 — trước fix, rule vẫn fire (guard bị
+bỏ qua); sau fix, rule bị guard chặn đúng như kỳ vọng.
+
+**Cách sửa:** đổi sentinel "không có guard" từ `0` sang `GUARD_TAG_NONE`
+(`0x7FFF`) — giá trị này an toàn tuyệt đối vì `GUARD_TAG_INDEX_MASK` chỉ 15
+bit, còn `MAX_TAGS=128` (index 0..127), nên không tag hợp lệ nào có thể
+trùng `0x7FFF`. Code cấu hình rule (App/UI) từ giờ phải dùng
+`GUARD_TAG_NONE`, không phải `0`, để nói "rule này không cần guard".
+
+**Việc còn để ngỏ (chưa tự ý sửa):** `rule_table_commit()` hiện chưa
+validate `guard_tag` — nếu App gửi 1 giá trị index nằm trong khoảng
+128..32766 (không phải tag hợp lệ, cũng không phải `GUARD_TAG_NONE`),
+`tag_read()` sẽ tự chặn (trả về 0 vì `idx >= MAX_TAGS`) nên không crash,
+nhưng rule đó sẽ luôn bị coi guard "đóng" một cách âm thầm, không báo lỗi.
+Việc validate input từ Modbus thuộc phạm vi `plc_modbus_cfg.c` (Layer 3,
+chưa viết) — xem mục 10.
 
 #### 2.2b `plc_rule_state_machine.h` / `.c` — State Machine #1 (đã kiểm chứng)
 
@@ -296,7 +372,7 @@ void execute_action(Rule *r);
 - `ACT_LOG_EVENT` — Event Log buffer/format chưa thiết kế.
 - `ACT_SEND_ALARM` — cơ chế Alarm chưa thiết kế.
 
-#### 2.5 `plc_device.h` / `plc_device.c` — MỚI, theo v1.7
+#### 2.5 `plc_device.h` — MỚI so với bản gốc, theo v1.7/v1.9 (chỉ header, không có `.c`)
 
 ```c
 typedef enum {
@@ -310,7 +386,7 @@ typedef struct {
     uint16_t hw_version_major, hw_version_minor, hw_version_patch;
     uint16_t fw_version_major, fw_version_minor, fw_version_patch;
     uint16_t protocol_version, rule_format_version;
-} SPLC_DeviceDescriptor;   // 20 byte — RO
+} SPLC_DeviceDescriptor;   // 20 byte — RO, KHONG DOI giua v1.7 va v1.9
 
 typedef enum {
     SPLC_HEALTH_NONE = 0,
@@ -323,16 +399,52 @@ typedef struct {
     uint32_t uptime_s;
     uint16_t reset_reason, health_flags;
     uint16_t cpu_load_percent, ram_usage_percent;
-    uint32_t scan_time_us, max_scan_time_us;
-} SPLC_DeviceHealth;   // 20 byte — RO
+    uint32_t scan_time_ms, max_scan_time_ms;   // V1.9: doi ten tu *_us
+} SPLC_DeviceHealth;   // 20 byte — RO, wire size KHONG DOI
 
-extern SPLC_DeviceDescriptor g_device_descriptor;  // hằng số biên dịch
-extern SPLC_DeviceHealth     g_device_health;      // cập nhật liên tục
+/*
+ * V1.9 -- MOI HOAN TOAN, khong ton tai trong v1.7. App doc block nay ngay
+ * sau SPLC_DeviceDescriptor va tu dung ProductDefinition/TagCatalog runtime,
+ * khong lookup cung theo device_variant nua. Thay the hoan toan cach tiep
+ * can CapabilityFlags (da bi bo trong v1.9).
+ */
+typedef enum {
+    SPLC_WIRE_PROFILE_UNKNOWN = 0,
+    SPLC_WIRE_PROFILE_V1      = 1,
+} SPLC_WireProfile;
+
+typedef struct {
+    uint16_t wire_profile;          // SPLC_WireProfile; V1 = 1
+    uint16_t max_rules;             // 0..100; >0 => co Rule Engine
+    uint16_t runtime_tag_count;     // Tong tag hop le; KHONG lien tuc
+
+    uint16_t di_count;              // 0..8
+    uint16_t do_count;              // 0..8
+    uint16_t ai_count;              // 0..4
+    uint16_t vflag_count;           // 0..32
+    uint16_t vreg_count;            // 0..32
+    uint16_t vreg_retain_count;     // 0..32; >0 => co Retentive Memory
+    uint16_t counter_count;         // 0..8
+} SPLC_DeviceResourceInfo;          // 20 byte — RO, MOI trong V1.9
+
+extern SPLC_DeviceDescriptor    g_device_descriptor;   // hằng số biên dịch
+extern SPLC_DeviceHealth        g_device_health;       // cập nhật liên tục
+extern SPLC_DeviceResourceInfo  g_device_resource_info; // hằng số biên dịch
 ```
 
 Thay thế đề xuất `DeviceModel`/`DeviceRuntime` tự nghĩ ban đầu — v1.7 chi
-tiết hơn. `uptime_s`/`scan_time_us` do Layer 4 ghi; `cpu_load_percent`/
-`ram_usage_percent` do Layer 3 tính.
+tiết hơn, v1.9 thêm hẳn 1 block mới (`SPLC_DeviceResourceInfo`). `uptime_s`/
+`scan_time_ms` do Layer 4 ghi; `cpu_load_percent`/`ram_usage_percent` do
+Layer 3 tính. Rule Engine được suy ra từ `max_rules > 0`; Retentive Memory
+suy ra từ `vreg_retain_count > 0` — **không dùng bitmask riêng cho các tính
+năng này nữa** (khác v1.7-style CapabilityFlags từng được đề xuất, đã bị bỏ
+hẳn ở v1.9). Runtime Tags/Device Health/System Commands mặc định luôn có
+sẵn với mọi thiết bị dùng Wire Profile V1, không cần khai báo lại.
+
+**Quyết định "chỉ header, không có `.c`" cho `plc_device.h`:** xem
+`docs/handoff.md` mục 1.1 để biết lý do đầy đủ — tóm tắt: các struct này
+không có logic thuần Layer 2, mọi hàm đọc/ghi thật (Flash, board init) đều
+cần Layer 0/1, nên việc khai báo instance thật thuộc về Layer 3/4.
 
 ---
 
@@ -411,10 +523,12 @@ void plc_engine_scan_once(void) {
 
 ---
 
-## 2.6 Modbus Register Map (V1) — CHÍNH THỨC, theo v1.7
+## 2.6 Modbus Register Map (V1) — CHÍNH THỨC, theo v1.9 (update của v1.7)
 
 Đây là bảng địa chỉ CHÍNH THỨC, ưu tiên tuyệt đối so với mọi con số minh hoạ
-ở bản trước. 1 register = 16 bit. Rule = 32 byte = 16 register.
+ở bản trước. 1 register = 16 bit. Rule = 32 byte = 16 register. Toàn bộ
+vùng config transfer (0x9000-0xA001, mục 2.6.2) giữ nguyên giữa v1.7 và
+v1.9 — chỉ vùng Core/Runtime (2.6.1) có thêm block mới.
 
 ### 2.6.1 Core / Runtime
 
@@ -422,11 +536,23 @@ void plc_engine_scan_once(void) {
 |---|---|---|---|---|
 | 0x0000-0x0009 | RO | DEVICE_DESCRIPTOR | 10 | `SPLC_DeviceDescriptor` |
 | 0x0010 | RO | RULE_TABLE_INFO | 1 | Số rule active |
+| 0x0011-0x001F | - | RESERVED | 15 | Reserved cho core profile V1 |
+| **0x0020-0x0029** | **RO** | **DEVICE_RESOURCE_INFO** | **10** | **V1.9 — MỚI. `SPLC_DeviceResourceInfo`: wire profile, max_rules, resource counts. Thay thế vị trí từng dự trù cho `CapabilityFlags` (đã bị bỏ hẳn ở v1.9).** |
 | 0x0100-0x073F | RO | ACTIVE_RULE_TABLE | 1600 max | `SPLC_RuleRecord[100]` — App đọc lại toàn bộ Rule Table |
-| 0x0800-0x0809 | RO | DEVICE_HEALTH | 10 | `SPLC_DeviceHealth` |
-| 0x0900-0x09FF | RO | RUNTIME_TAG_VALUES | 256 max | `int32_t[128]`, **2 register/tag** (kể cả DI/DO — không dùng Coil ở đâu cả) |
+| 0x0800-0x0809 | RO | DEVICE_HEALTH | 10 | `SPLC_DeviceHealth` — **V1.9: scan_time đổi đơn vị hiển thị tên field thành `_ms`, wire size không đổi** |
+| 0x0900-0x09FF | RO | RUNTIME_TAG_VALUES | 256 max | `int32_t[128]`, **2 register/tag** (kể cả DI/DO — không dùng Coil ở đâu cả). V1.9: 128 là wire capacity cố định; sản phẩm cụ thể có thể dùng ít hơn, phần còn lại là slot invalid/reserved theo `SPLC_DeviceResourceInfo` |
 | 0x0A00 | WO | SYSTEM_COMMAND | 1 | Xem 2.6.4 |
 | 0x0A01-0x0A02 | RO | SYSTEM_COMMAND_RESULT | 2 | Xem 2.6.4 |
+
+**Flow discovery mới (V1.9):** sau khi connect, App đọc DEVICE_DESCRIPTOR
+(0x0000) rồi DEVICE_RESOURCE_INFO (0x0020) NGAY SAU ĐÓ, validate
+`wire_profile == SPLC_WIRE_PROFILE_V1`, rồi tự dựng `ProductDefinition` +
+`TagCatalog` runtime từ các count trong `SPLC_DeviceResourceInfo` — không
+còn lookup cứng theo `device_variant` như cách tiếp cận v1.7 từng ngụ ý.
+`device_variant` từ V1.8/V1.9 trở đi chỉ còn ý nghĩa identity/diagnostics.
+**Unknown `device_variant` không đồng nghĩa Unsupported** — App vẫn chấp
+nhận thiết bị miễn `protocol_version`/`wire_profile`/`resource profile` hợp
+lệ.
 
 ### 2.6.2 Rule transfer / commit
 
@@ -520,7 +646,8 @@ rule_scan():
     state=IDLE: check_trigger_edge(ON_RISE,0,1)=true
     -> fallthrough TRIGGERED (compare_op=NONE, dat)
     -> fallthrough COMPARED (for_ms=0, khong can dwell)
-    -> fallthrough GUARD_CHECK (guard=TAG_NONE, mo)
+    -> fallthrough GUARD_CHECK (guard=GUARD_TAG_NONE, mo -- xem canh bao ve
+       gia tri sentinel nay o muc 2.2, KHONG PHAI 0)
     -> fallthrough FIRE: execute_action() -> tag_write(tag_DO2, 1)
     state ve IDLE
 output_scan(): doc tag_DO2=1 -> sx_gpio_write(pin_DO2,1) -> den sang that
@@ -541,6 +668,7 @@ dừng ở `DWELLING`, cần nhiều vòng quét mới tới `FIRE`.
 | `g_rule_runtime[100]` | Trạng thái động | `rule_state_machine_step()` | Chính nó, vòng sau |
 | `g_device_descriptor` | Nhận dạng thiết bị | Hằng số biên dịch | Modbus |
 | `g_device_health` | Sức khoẻ runtime | Layer 3/4 | Modbus |
+| `g_device_resource_info` | V1.9 — wire profile + resource counts | Hằng số biên dịch | Modbus |
 
 ---
 
@@ -553,8 +681,14 @@ bên khác chủ động đọc lại theo lịch cố định.
 
 ## 7. Tag Index — `#define` số cố định (Cách A), không dùng `enum` tự đánh số
 
-`guard_tag = 0` (`TAG_NONE`) là sentinel chính thức "không guard" — đã xác
-nhận từ spec gốc, KHÔNG phải `0xFFFF`.
+**ĐÃ SỬA — không còn đúng nữa, xem mục 2.2 để biết bugfix đầy đủ:**
+`guard_tag = 0` (`TAG_NONE`) TỪNG là sentinel "không guard" dưới layout
+v1.7 (index 0 là ô trống). Dưới layout v1.9 (mục 2.1), index 0 là `TAG_DI0`
+— một tag thật — nên sentinel "không guard" chính thức giờ là
+**`GUARD_TAG_NONE` (`0x7FFF`)**, KHÔNG phải `0` và cũng KHÔNG phải
+`0xFFFF`. Đây là 1 bug thật đã được phát hiện bằng compile+chạy thật và đã
+sửa trong `plc_rule.h`/`plc_rule.c` — trước khi sửa, `TAG_DI0` là tag duy
+nhất trong hệ thống không thể dùng làm `guard_tag`.
 
 ---
 
@@ -576,6 +710,12 @@ nhận từ spec gốc, KHÔNG phải `0xFFFF`.
 - [ ] `modbus_master_poll()` (khi có, cho Gateway) PHẢI chạy TRƯỚC `rule_scan()`.
 - [ ] `DWELLING`: kiểm tra "mức còn giữ" phải suy từ `current` theo hướng
       `trigger_type`, KHÔNG chỉ dựa `compare_ok()` (sai khi `OP_NONE`).
+- [ ] `guard_tag` dùng sentinel `GUARD_TAG_NONE` (`0x7FFF`) cho "không có
+      guard" — KHÔNG dùng `0` (đó là `TAG_DI0` thật dưới layout v1.9).
+- [ ] Khi Modbus config service (Layer 3, chưa viết) nhận `guard_tag` từ
+      App, nên validate index nằm trong `0..MAX_TAGS-1` hoặc đúng bằng
+      `GUARD_TAG_NONE` — hiện `rule_table_commit()` chưa làm việc này (xem
+      mục 10).
 
 ---
 
@@ -587,9 +727,13 @@ nhận từ spec gốc, KHÔNG phải `0xFFFF`.
 | Rule 28 byte | **32 byte chính thức**, có `reserved[6]` |
 | CRC32 verify Rule Transfer | **CRC-16/MODBUS**, 1 register |
 | Cần `rule_id` | v1.7: KHÔNG cần — dùng RuleIndex (vị trí) |
+| `guard_tag = 0` luôn là sentinel "không guard" | **CHỈ đúng dưới v1.7.** Dưới v1.9 (index 0 = `TAG_DI0` thật), sentinel chính thức là `GUARD_TAG_NONE` (`0x7FFF`) — bug thật đã phát hiện + sửa bằng compile/chạy thật, xem mục 2.2 |
+| Tag layout v1.9 giống hệt v1.7, chỉ đổi số lượng slot | Sai — v1.9 còn **bỏ hẳn ô sentinel `TAG_NONE` ở index 0**, khiến mọi index dịch xuống 1 so với file `plc_tag_def.h` bản v1.7 cũ. Giá trị `TAG_DI0..TAG_VREG_R15` cũ (nếu có lưu ở đâu) phải tính lại, không tái sử dụng được |
+| `SPLC_DeviceHealth.scan_time_us` | V1.9 đổi tên field thành `scan_time_ms`/`max_scan_time_ms` — xác nhận đơn vị **milliseconds** (đúng tên field), KHÔNG phải microsecond như comment cũ trong docx v1.7 |
+| `SPLC_DeviceResourceInfo` dùng `CapabilityFlags` để khai báo tính năng | V1.9 bỏ hẳn `CapabilityFlags` — Rule Engine suy từ `max_rules > 0`, Retain suy từ `vreg_retain_count > 0`, còn lại (Runtime Tags/Health/System Commands) mặc định luôn có với Wire Profile V1 |
 | switch/case + state machine luôn an toàn hơn if/continue | Không tự nhiên đúng — bản đầu có 3 bug tinh vi hơn, phải test thực nghiệm |
 | Dwell chỉ 2 kết quả | Có 3: `dwell_ok`, `dwell_waiting`, `dwell_interrupted` |
-| DI/DO nên dùng Coil (FC01/05) | v1.7: dùng Holding Register (FC03/16) cho MỌI tag |
+| DI/DO nên dùng Coil (FC01/05) | v1.7/v1.9 đều: dùng Holding Register (FC03/16) cho MỌI tag — không đổi giữa 2 bản |
 | Cần API "Load Rule from Device" riêng | Không cần — `ACTIVE_RULE_TABLE` (0x0100) đã cho đọc lại toàn bộ |
 | "Layer 2 nên tự gọi tiếp Layer 3 khi có tag_write" | `tag_write` chỉ ghi RAM rồi dừng — mô hình kéo |
 | "rule_scan ghi kết quả vào g_do_tag_map" | `g_do_tag_map` chỉ là bảng tra cứu; `rule_scan` chỉ ghi `g_tag_value[]` qua `tag_write()` |
@@ -600,24 +744,71 @@ nhận từ spec gốc, KHÔNG phải `0xFFFF`.
 
 ## 10. Việc còn để ngỏ / có thể làm tiếp
 
+**Đã cập nhật lại theo tình trạng code thật đã đọc/verify** (không chỉ đọc
+`docs/handoff.md`, vốn đã lạc hậu so với code trên 1 số điểm — xem
+`docs/handoff.md` để biết phiên bản của chính nó có được cập nhật theo hay
+chưa). Những mục dưới đây **đã xong** ở phiên soát code gần nhất, khác với
+danh sách cũ:
+- Layer 0/1 cho GPIO, ADC, Flash, UART, Time: **đã có implementation thật**
+  (`platforms/stm32/stm32h5/{gpio,adc,flash,uart,time}/*.c`), không còn là
+  file rỗng/chưa tồn tại như 1 số ghi chú cũ (kể cả `docs/handoff.md`) từng
+  liệt kê.
+- USB CDC (Layer 1, `components/usb_cdc/sx_usb_cdc.c`): **đã có
+  implementation thật dùng TinyUSB** (`tusb_init`, `tud_cdc_read/write`,
+  `tud_task`), không còn "`.c` rỗng" như từng ghi.
+- Bugfix `guard_tag` sentinel (mục 2.2 ở trên): **đã sửa và verify bằng
+  compile+chạy thật.**
+
+Việc thật sự còn mở, theo đúng thứ tự phụ thuộc:
+
+- [ ] **Layer 3 (`services/`) HOÀN TOÀN RỖNG** (`plc_io.c/h`,
+      `plc_retain.c/h`, `plc_modbus_cfg.c/h` — cả 3 module đều 0 dòng thật
+      sự, đã verify bằng `wc -l`). Đây là khoảng trống lớn nhất hiện tại.
+      Layer 0/1 mà `plc_io.c`/`plc_retain.c` cần (GPIO, ADC, Flash) giờ đã
+      sẵn sàng, không còn là lý do chặn nữa — có thể bắt đầu viết Layer 3.
+- [ ] **Layer 4 (`app/plc_app/plc_engine.c/h`) HOÀN TOÀN RỖNG** (0 dòng).
+      Chỉ nên viết sau khi ít nhất `plc_io.c` xong.
+- [ ] **Pin mapping thật** (DI0-7/DO0-7 → chân GPIO nào, AI0-3 → ADC
+      channel nào) — cần đọc `RS485_IO_RF_V2.ioc` hoặc hỏi trực tiếp trước
+      khi viết phần map cụ thể trong `plc_io.c`.
 - [ ] **Vị trí Flash lưu Active Rule Table CHƯA đặc tả** — địa chỉ, kích
-      thước (tối thiểu `100*32=3200 byte`), có cần wear-leveling như
-      `plc_retain.c` hay ghi đè 1 chỗ cố định là đủ.
+      thước (tối thiểu `100*32=3200 byte`), có cần wear-leveling như dự
+      kiến cho `plc_retain.c` hay ghi đè 1 chỗ cố định là đủ.
+- [ ] **Cách Layer 4 truyền tick ms vào `rule_scan()`** — hiện `plc_rule.c`
+      dùng `static uint32_t s_rule_scan_now_ms` nội bộ, luôn = 0 (xem TODO
+      trong chính file đó). Thêm tham số hay setter function — chưa quyết.
+- [ ] **Nguồn RTC cho `TRG_TIME_WINDOW` chưa quyết định** — `plc_rule.c`
+      hiện hardcode `now_hhmm = 0`.
 - [ ] **Modbus Master cho Gateway — `plc_modbus_master.c` CHƯA TỒN TẠI.**
-      Cần quyết định RTU thôi hay cả TCP.
+      Cần quyết định RTU thôi hay cả TCP. `port/modbus_serial/` hiện chỉ có
+      2 file stub gần như rỗng (`modbus_serial.h` 5 dòng, `.c` 3 dòng).
 - [ ] **Event Log (`ACT_LOG_EVENT`) — buffer/format CHƯA THIẾT KẾ.**
 - [ ] **Alarm (`ACT_SEND_ALARM`) — cơ chế CHƯA THIẾT KẾ** (mức độ nghiêm
       trọng? cơ chế ACK?).
-- [ ] **Nguồn RTC cho `TRG_TIME_WINDOW` chưa quyết định.**
-- [ ] **`SYSTEM_COMMAND` — chưa có implementation Layer 3.**
+- [ ] **`SYSTEM_COMMAND` — chưa có implementation Layer 3/4** (`plc_device.h`
+      và `plc_system_cmd.h` chỉ có type definition, có chủ đích không có
+      `.c` — xem `docs/handoff.md` mục 1.1 để biết lý do).
 - [ ] **API đăng ký kênh cho `plc_io.c`** (`plc_io_register_di/do/ai`) — đề
-      xuất thay thế 2 mảng song song dễ lệch index — chưa triển khai.
+      xuất thay thế 2 mảng song song dễ lệch index — chưa triển khai (vì
+      `plc_io.c` chưa được viết).
 - [ ] **Validate `guard_tag`/`trigger_tag`/`action_tag` trong biên
-      `MAX_TAGS`** trước khi `rule_table_commit()` — chưa có.
-- [ ] Soạn `plc_tag_def.h` đầy đủ 69 tag — chưa làm.
-- [ ] Port `sx_usb_tiny_cdc.c/.h` và `logger.c/.h` từ `WS_v1` vào đúng cấu
-      trúc layer `simple_plc` (bỏ `sx_malloc`, bỏ mutex FreeRTOS) — đã lên kế
-      hoạch, CHƯA thực hiện.
+      `MAX_TAGS`** trước khi `rule_table_commit()` — chưa có. Cụ thể: nếu
+      App gửi `guard_tag` với index bits nằm trong khoảng
+      `128..(0x7FFF - 1)` (không phải tag hợp lệ, cũng không phải
+      `GUARD_TAG_NONE`), hiện `tag_read()` tự chặn (trả 0) nên không crash,
+      nhưng rule sẽ luôn bị coi guard "đóng" một cách âm thầm, không báo
+      lỗi gì. Nên validate ở `plc_modbus_cfg.c` (Layer 3, khi giải mã dữ
+      liệu từ Modbus) — chưa quyết định có nên validate thêm lần nữa ở
+      `rule_table_commit()` (Layer 2) hay không.
+- [ ] `port/modbus_usb/` (Layer 3.5, kênh App-MCU chính thức qua USB) —
+      hiện chỉ có `port/usb/` với `tusb_config.h`/`usb_descriptors.c` (cấu
+      hình TinyUSB CDC), CHƯA có file `modbus_usb.c/.h` nối nanoMODBUS với
+      `sx_usb_tiny_read/write` như kiến trúc mục 2.4b mô tả.
+- [ ] nanoMODBUS (`libs/nanomodbus/`, ~3000 dòng, đã có sẵn code) — root
+      `CMakeLists.txt` mới chỉ thêm `libs/` vào include path chung (comment
+      "Third-party (nanoMODBUS submodule, etc.)"), **chưa có
+      `add_library`/`target_sources` nào thật sự compile file `.c` của
+      nanoMODBUS vào bất kỳ target nào.**
 - [ ] Xác nhận tốc độ poll App cần cho `RUNTIME_TAG_VALUES` — 2 register/tag
       cho mọi tag có thể là nút thắt cổ chai với RTU baudrate thấp.
 - [ ] Xác nhận RAM đủ cho `ACTIVE_RULE_TABLE`+`STAGING_RULE_TABLE` (tổng
@@ -626,5 +817,8 @@ nhận từ spec gốc, KHÔNG phải `0xFFFF`.
 ---
 
 *File này được biên soạn lại từ toàn bộ nội dung hỏi-đáp giữa người dùng và
-Claude qua nhiều phiên làm việc, đồng bộ theo tài liệu chính thức
-`SimplePLC_App_MCU_Structs_v1.7.docx`.*
+Claude qua nhiều phiên làm việc. Bản cập nhật gần nhất đồng bộ theo tài liệu
+chính thức `SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md`
+(update của v1.7), và theo kết quả đọc/verify code thật (compile + chạy
+thật, không chỉ đọc mắt) trên toàn bộ 7 layer tại thời điểm cập nhật, bao
+gồm 1 bugfix thật đã áp dụng (`guard_tag` sentinel, mục 2.2).*

@@ -6,14 +6,18 @@
 > `docs/architecture.md` — file đó vẫn là nguồn kiến trúc chính, file này
 > chỉ ghi lại "đang làm tới đâu" và "làm gì tiếp theo".
 >
-> **Đây là bản cập nhật lần 2**, thay thế hoàn toàn bản trước (từng dừng ở
-> "Layer 2 còn thiếu plc_device/plc_system_cmd"). Layer 2 giờ đã xong hẳn —
-> xem mục 1 bên dưới.
+> **Đây là bản cập nhật lần 3**, thay thế hoàn toàn bản lần 2 (từng ghi
+> Layer 0/1 "gần như trống" — KHÔNG còn đúng, xem mục 1.3 bên dưới). Layer 2
+> vẫn hoàn chỉnh như bản lần 2 mô tả, cộng thêm 1 bugfix thật mới
+> (`guard_tag` sentinel, mục 1.4). Layer 0/1 giờ đã có implementation thật
+> cho GPIO/ADC/Flash/UART/Time/USB-CDC — khác hẳn giả định "phải chọn 1
+> peripheral làm trước" mà bản lần 2 để ngỏ.
 
 ## 0. Trạng thái repo tại thời điểm viết file này
 
 - Branch: `main`
-- Commit mới nhất đã verify: `beac74a` ("modify cmake core")
+- Commit mới nhất đã verify: `c45be5e` ("fix code according to Claude
+  recommended")
 - Lệnh verify: `git log --oneline -8` để xem có commit mới hơn không trước
   khi đọc tiếp phần dưới — nếu có commit mới, ưu tiên đọc code thật hơn
   file này.
@@ -28,7 +32,13 @@ Cấu trúc thật hiện tại (6 module, mỗi module 1 thư mục con):
 core/
 ├── plc_tag/
 │   ├── plc_tag.h, plc_tag.c       — Tag Table (SPLC_TagKind, g_tag_table[], g_tag_value[])
-│   └── plc_tag_def.h              — 69 #define cụ thể (TAG_DI0..TAG_VREG_R15), "Cách A"
+│   └── plc_tag_def.h              — 124 #define cụ thể (TAG_DI0..TAG_COUNTER7),
+│                                     "Cách A". ĐÃ CẬP NHẬT THEO V1.9: layout
+│                                     mới bỏ sentinel TAG_NONE ở index 0 (v1.7
+│                                     có 69 #define, TAG_DI0 ở index 1; v1.9 có
+│                                     124 #define, TAG_DI0 ở index 0 — mọi index
+│                                     dịch xuống 1 so với bản v1.7 cũ, và thêm
+│                                     hẳn range COUNTER0-7 mới).
 ├── plc_rule/
 │   ├── plc_rule.h, plc_rule.c     — SPLC_RuleRecord (32 byte), rule_scan(), rule_table_commit()
 │   └── plc_rule_state_machine.h
@@ -120,46 +130,77 @@ Trạng thái CMake hiện tại (xem file thật để chắc chắn, đây ch�
 - `simple_plc/CMakeLists.txt`, root `CMakeLists.txt` — chưa có thay đổi gì
   mới so với bản trước, vẫn `add_subdirectory()` xuyên suốt.
 
-## 2. Việc CHƯA làm — theo đúng thứ tự ưu tiên
+### 1.3 Layer 0 + Layer 1 (`platforms/`, `components/`) — ĐÃ CÓ IMPLEMENTATION THẬT, KHÔNG CÒN "GẦN NHƯ TRỐNG"
 
-### 2.1 Layer 0 + Layer 1 (`platforms/`, `components/`) — GẦN NHƯ TRỐNG, phải làm TRƯỚC Layer 3
-
-**Đây là phát hiện quan trọng nhất của phiên này, khác hẳn giả định trước
-đó.** Trước khi định viết `plc_io.c` (Layer 3), đã kiểm tra thật bằng `wc -l`
-và xác nhận Layer 0/1 gần như chưa có gì:
+**Thông tin này đã LỖI THỜI trong bản handoff lần 2** (từng ghi "GẦN NHƯ
+TRỐNG, phải làm TRƯỚC Layer 3" và để ngỏ câu hỏi "peripheral nào làm
+trước"). Đã đọc lại thật bằng `wc -l` + đọc từng file `.c` ở phiên này:
 
 | Peripheral | Layer 1 (`components/`) | Layer 0 (`platforms/stm32/stm32h5/`) |
 |---|---|---|
-| GPIO | `.h` rỗng (chỉ include guard) | `.h`/`.c` rỗng (0 dòng) |
-| ADC | **CHƯA TỒN TẠI FILE NÀO CẢ** | **CHƯA TỒN TẠI FILE NÀO CẢ** |
-| Flash | **CHƯA TỒN TẠI FILE NÀO CẢ** | **CHƯA TỒN TẠI FILE NÀO CẢ** |
-| UART | có struct + 1 hàm signature (`sx_uart_init()`, chưa impl thật) | có `#if STM32H5_PLATFORM` skeleton, chưa impl |
-| USB CDC | `.h` có struct (24 dòng), `.c` rỗng | chưa tồn tại (`sx_usb_tiny` theo `architecture.md` chưa được tạo file) |
+| GPIO | `.h` sạch (contract rõ ràng, 47 dòng) | **`.c` đã implement thật** (53 dòng) — `HAL_GPIO_Init/ReadPin/WritePin`, xử lý đủ 4 mode (input/pullup/pulldown/output_pp) |
+| ADC | `.h` có contract (42 dòng) | **`.c` đã implement thật** (55 dòng) — `HAL_ADC_Init/Start/PollForConversion/GetValue`, blocking với timeout 5ms |
+| Flash | `.h` có contract (45 dòng) | **`.c` đã implement thật** (109 dòng) — `HAL_FLASH_Program` theo quad-word 16 byte, `HAL_FLASHEx_Erase` theo sector, có comment giải thích kỹ lý do KHÔNG dùng macro `FLASH_SIZE`/`FLASH_BANK_SIZE` của CMSIS header (gây Hard Fault thật trên STM32H5, và macro fallback sai kích thước 512KB thay vì 256KB thật của chip) |
+| UART | `.h` có contract (71 dòng) | **`.c` đã implement thật** (116 dòng) — dùng `HAL_UART_Receive_IT` + binding table cố định (không malloc) để `HAL_UART_RxCpltCallback` dùng chung cho nhiều instance UART |
+| USB CDC | **`.c` đã implement thật** (151 dòng, không còn rỗng) — dùng TinyUSB thật (`tud_cdc_read/write`, `tud_task`), có log qua `logger.h` | `port/usb/` có `tusb_config.h` (78 dòng, cấu hình CDC-only) + `usb_descriptors.c` (193 dòng) |
+| Time | `.h` (13 dòng) | `.c` đã có (24 dòng) |
+| I2C, Timer | `.h` tồn tại nhưng **0 dòng** (chỉ include guard) | Timer: `.c`/`.h` tồn tại nhưng **0 dòng** cả 2. I2C chưa có gì ở Layer 0. |
 
-Hệ quả trực tiếp: **`plc_io.c` (input_scan/output_scan) cần GPIO (DI/DO)
-VÀ ADC (AI) chạy thật — cả 2 đều chưa có 1 dòng code.** `plc_retain.c` cần
-Flash — cũng chưa có gì. Do đó **thứ tự trong bản handoff cũ
-("plc_retain.c trước vì độc lập nhất") vẫn đúng về mặt phụ thuộc Layer 2,
-nhưng cả 2 đều bị chặn bởi Layer 0/1 chưa xong**, không phải chỉ mỗi
-`plc_io.c` như tưởng ban đầu.
+**Kết luận: KHÔNG còn phải chọn "peripheral nào làm trước" như bản handoff
+lần 2 để ngỏ — GPIO, ADC, Flash, UART đều đã xong phần cốt lõi.** Timer và
+I2C vẫn trống nhưng Remote I/O SKU hiện tại (8DI/8DO/4AI) không cần chúng
+để chạy `plc_io.c`/`plc_retain.c`.
 
-**Việc tiếp theo, đã thống nhất với người dùng nhưng CHƯA CHỌN xong peripheral
-nào làm trước** (câu hỏi để ngỏ, dùng `ask_user_input` lần cuối trong phiên
-này nhưng chưa nhận được câu trả lời trước khi hết token) — 4 lựa chọn đã
-đưa ra:
-- GPIO trước (đơn giản nhất, cần cho DI/DO)
-- ADC trước (cần cho AI)
-- Flash trước (cần cho retain + rule table storage — xem mục 2.3 việc còn
-  mở "vị trí Flash lưu Active Rule Table" cũng đụng tới đây)
-- Làm GPIO+ADC cùng lúc vì cùng phục vụ `plc_io.c`
+**Việc còn thiếu ở Layer 0/1 (không phải "chưa bắt đầu", mà là các mảnh
+nhỏ hơn):**
+- `sx_usb_tiny_read()` có tham số `_timeoutMS` nhưng thân hàm đếm số vòng
+  lặp (`time++`), không phải mili-giây thực — timeout không chính xác đơn
+  vị. Chưa gây lỗi chức năng rõ ràng nào, nhưng nên sửa trước khi dựa vào
+  timeout này cho logic quan trọng (ví dụ Modbus response timeout).
+- Timer (`components/timer/`, `platforms/.../timer/`) và I2C
+  (`components/i2c/`) vẫn hoàn toàn trống (0 dòng) — không chặn Remote I/O
+  SKU hiện tại, nhưng sẽ cần cho Datalogger/Gateway sau này nếu chúng cần
+  timer phần cứng hay cảm biến I2C.
+- Pin mapping thật (DI0-7/DO0-7 → chân GPIO cụ thể nào, AI0-3 → ADC channel
+  nào) chưa có ở đâu trong code — xem mục 3.
 
-**Khuyến nghị cá nhân (không phải quyết định đã chốt):** GPIO trước — đơn
-giản nhất trong 3 (chỉ cần `HAL_GPIO_ReadPin`/`WritePin`, không cần DMA/IT
-như ADC, không cần wear-leveling như Flash), và cho phép có ngay 1 vertical
-slice end-to-end nhỏ (DI vật lý → tag → rule → DO vật lý) để test thật sớm,
-thay vì làm xong hết cả 3 peripheral rồi mới test được gì.
+Xin **KHÔNG lặp lại việc đọc "Layer 0/1 gần như trống" từ bản handoff cũ
+hơn** — điều đó không còn đúng với code hiện tại trong repo.
 
-**Trước khi viết Layer 0/1 thật, cần đọc `.ioc` file** (`RS485_IO_RF_V2.ioc`
+### 1.4 Bugfix `guard_tag` sentinel — MỚI, đã sửa và verify bằng compile+chạy thật
+
+**Vấn đề phát hiện:** `RULE_STATE_GUARD_CHECK` trong `plc_rule.c` từng so
+sánh `guard_idx == TAG_NONE` (tức `== 0`) để quyết định "rule này không có
+guard". Đúng dưới layout v1.7 (index 0 là ô sentinel vô nghĩa), nhưng SAI
+dưới layout v1.9 (mục 1.1 ở trên, `plc_tag_def.h` đã cập nhật) — index 0
+giờ là `TAG_DI0`, một tag thật. Hậu quả: **`TAG_DI0` từng là tag duy nhất
+trong toàn hệ thống không thể dùng làm `guard_tag`** — bất kỳ rule nào set
+`guard_tag = TAG_DI0` (= 0) với ý định gate theo DI0 sẽ bị hiểu nhầm thành
+"không có guard" và luôn cho fire, bất kể DI0 thật sự bằng gì.
+
+**Đã verify bằng compile+chạy thật** trước và sau khi sửa: viết 1 rule với
+`guard_tag = TAG_DI0`, giữ DI0 = 0 — trước fix, rule vẫn fire (guard bị bỏ
+qua hoàn toàn); sau fix, rule bị guard chặn đúng như kỳ vọng.
+
+**Đã sửa** (`plc_rule.h`, `plc_rule.c`): thêm sentinel mới
+`#define GUARD_TAG_NONE 0x7FFFu` (dùng toàn bộ 15 bit index — an toàn vì
+`MAX_TAGS=128` << 32767, không tag hợp lệ nào trùng được). Logic
+`RULE_STATE_GUARD_CHECK` giờ so sánh với `GUARD_TAG_NONE` thay vì `TAG_NONE`
+(0). Đã comment rõ lý do ngay tại chỗ định nghĩa và tại chỗ dùng. Đã
+regression-test lại toàn bộ Layer 2 sau khi sửa (dwell, edge trigger,
+compare_op, sizeof checks) — không phá gì khác, `sizeof(SPLC_RuleRecord)`
+vẫn = 32.
+
+**Việc còn để ngỏ (chưa tự ý sửa, cần bàn khi viết Layer 3):**
+`rule_table_commit()` hiện chưa validate `guard_tag` nhận từ App/Modbus —
+nếu index bits nằm trong khoảng `128..(0x7FFF-1)` (không phải tag hợp lệ,
+cũng không phải `GUARD_TAG_NONE`), `tag_read()` tự chặn (trả 0, không
+crash) nhưng rule sẽ luôn bị coi guard "đóng" âm thầm, không báo lỗi gì.
+Nên validate ở đâu — `plc_modbus_cfg.c` (Layer 3, lúc giải mã dữ liệu từ
+Modbus) hay thêm validate ở `rule_table_commit()` (Layer 2) — CHƯA QUYẾT
+ĐỊNH, xem mục 3.
+
+**Trước khi bổ sung Layer 0/1 (timer/I2C hay sửa timeout USB), vẫn nên đọc `.ioc` file** (`RS485_IO_RF_V2.ioc`
 ở root repo) hoặc hỏi người dùng về pin mapping thật (DI0-7/DO0-7 nối chân
 GPIO nào, AI0-3 nối ADC channel nào) — chưa có thông tin này trong bất kỳ
 doc nào đã đọc, cần hỏi trước khi viết phần map cụ thể trong `plc_io.c`
@@ -181,19 +222,32 @@ Cả 2 đều CHƯA TỒN TẠI, `simple_plc/CMakeLists.txt` hiện add trực t
 Bản handoff trước liệt việc này là "chưa viết, cần cho `plc_io.c`". Đã
 xong — xem mục 1.1. Không cần làm lại.
 
-### 2.4 Layer 3 (`services/`) — 3 file rỗng (0 dòng), CHƯA VIẾT, BỊ CHẶN BỞI 2.1
+### 2.4 Layer 3 (`services/`) — 3 file rỗng (0 dòng), CHƯA VIẾT — KHÔNG CÒN BỊ CHẶN NHƯ TRƯỚC
 
-Thứ tự khuyến nghị (không đổi so với bản cũ, nhưng giờ rõ ràng là BỊ CHẶN,
-không phải "có thể làm song song"):
-1. `plc_retain.c` — cần Flash (Layer 0/1) xong trước, KHÔNG còn "độc lập
-   nhất" như bản handoff cũ ghi nhầm — bản cũ chưa kiểm tra thật trạng thái
-   Layer 0/1 lúc viết câu đó.
-2. `plc_io.c` — cần GPIO + ADC (Layer 0/1) xong trước, VÀ cần
-   `plc_tag_def.h` (đã xong, xem mục 2.3) VÀ cần pin mapping thật
-   (xem mục 2.1, chưa có).
-3. `plc_modbus_cfg.c` — phức tạp nhất, cần USB CDC (Layer 0/1, hiện gần như
-   trống) + nanoMODBUS (có code thật ở `libs/nanomodbus/`, 2462 dòng,
-   nhưng CHƯA được nối vào build ở đâu). Vẫn nên làm SAU CÙNG trong Layer 3.
+**Cập nhật quan trọng so với bản handoff lần 2:** lúc đó Layer 3 bị coi là
+"BỊ CHẶN BỞI 2.1" (Layer 0/1 chưa xong). Giờ Layer 0/1 đã có GPIO/ADC/Flash/
+UART thật (xem mục 1.3) — **Layer 3 không còn bị chặn về mặt hạ tầng
+peripheral nữa**, chỉ còn thiếu pin mapping thật (mục 3) và việc nối
+nanoMODBUS vào build (bên dưới).
+
+Thứ tự khuyến nghị (không đổi thứ tự so với bản cũ, chỉ cập nhật lý do
+chặn/không chặn từng bước):
+1. `plc_retain.c` — Flash (Layer 0/1) đã xong, **không còn bị chặn**. Vẫn
+   là lựa chọn "độc lập nhất" để bắt đầu vì không cần pin mapping.
+2. `plc_io.c` — GPIO + ADC (Layer 0/1) đã xong, **không còn bị chặn về mặt
+   driver**. Vẫn cần `plc_tag_def.h` (đã xong, xem mục 2.3) VÀ pin mapping
+   thật (DI0-7/DO0-7 → GPIO port/pin nào, AI0-3 → ADC channel nào) — vẫn
+   CHƯA CÓ ở đâu trong code, xem mục 3.
+3. `plc_modbus_cfg.c` — phức tạp nhất. USB CDC (Layer 1) đã có
+   implementation thật (mục 1.3), nhưng còn 2 việc chưa xong: (a)
+   `port/modbus_usb/` (Layer 3.5, nối nanoMODBUS với `sx_usb_tiny_read/
+   write`) chưa tồn tại — hiện `port/` chỉ có `port/usb/` (cấu hình TinyUSB
+   descriptor, không phải Modbus porting layer) và `port/modbus_serial/`
+   (2 file stub gần rỗng, dành cho Gateway); (b) nanoMODBUS
+   (`libs/nanomodbus/`, ~3000 dòng, code có sẵn) chưa được compile vào bất
+   kỳ target CMake nào — root `CMakeLists.txt` mới thêm `libs/` vào include
+   path chung, chưa có `add_library`/`target_sources` thật. Vẫn nên làm
+   SAU CÙNG trong Layer 3.
 
 ### 2.5 `plc_system_cmd.c` (Layer 3/4, KHÔNG phải Layer 2) — chưa viết, đúng như kế hoạch
 
