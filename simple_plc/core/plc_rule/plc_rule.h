@@ -31,6 +31,34 @@ extern "C" {
 #define GUARD_TAG_INDEX_MASK   0x7FFFu
 
 /*
+ * Sentinel meaning "this rule has no guard at all" -- GUARD_TAG_INDEX_MASK
+ * (all 15 index bits set = 0x7FFF = 32767) is used instead of 0.
+ *
+ * WHY NOT 0: under the v1.9 tag layout (plc_tag_def.h), tag index 0 is
+ * TAG_DI0 -- a real, addressable tag, not an unused slot. v1.7 reserved
+ * index 0 as a dedicated TAG_NONE sentinel with no physical meaning, so
+ * "guard_tag == 0 means no guard" was safe back then. v1.9 removed that
+ * reserved slot to fit the fixed wire layout (DI 0-7, DO 8-15, ...), which
+ * silently broke that assumption: a rule author who set
+ * guard_tag = TAG_DI0 (0) *intending* to gate on DI0's real value would
+ * instead have had that guard treated as "absent" and always pass,
+ * regardless of DI0's actual level -- DI0 would have been the one tag in
+ * the whole system that could never be used as a guard. Confirmed by an
+ * actual compiled/run test before this fix: a rule with guard_tag=TAG_DI0
+ * still fired even with DI0 held at 0.
+ *
+ * 0x7FFF is safe as the new sentinel because GUARD_TAG_INDEX_MASK is only
+ * 15 bits wide, so it can never equal a real tag index: MAX_TAGS is 128
+ * (indices 0..127), far below 32767. Every valid tag index (0..127) is
+ * therefore always distinguishable from "no guard".
+ *
+ * rule_table_commit() does not currently reject a guard_tag whose index
+ * bits fall in 128..32766 (a value that is neither a valid tag nor this
+ * sentinel) -- see the TODO in plc_rule.c's rule_state_machine_step().
+ */
+#define GUARD_TAG_NONE         0x7FFFu
+
+/*
  * TriggerType selects which edge/condition on trigger_tag activates a
  * rule's evaluation.
  */
@@ -79,7 +107,11 @@ typedef struct {
     int32_t  action_param;
     uint16_t trigger_tag;     /* Tag index used as the trigger condition */
     uint16_t action_tag;      /* Tag index affected by the action */
-    uint16_t guard_tag;       /* Packed guard tag index + NEGATE bit */
+    uint16_t guard_tag;       /* Packed guard tag index (bits 0-14) + NEGATE
+                                 bit (bit 15). Index bits == GUARD_TAG_NONE
+                                 (0x7FFF) means "no guard" -- NOT 0, since 0
+                                 is the real index of TAG_DI0 under the v1.9
+                                 tag layout. See GUARD_TAG_NONE above. */
     uint8_t  enabled;
     uint8_t  trigger_type;    /* One of SPLC_TriggerType */
     uint8_t  compare_op;      /* One of SPLC_CompareOp */

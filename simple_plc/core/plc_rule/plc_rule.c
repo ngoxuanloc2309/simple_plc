@@ -211,7 +211,20 @@ bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt, uint32
     case RULE_STATE_GUARD_CHECK: {
         uint16_t guard_idx = rule->guard_tag & GUARD_TAG_INDEX_MASK;
         bool     negate    = (rule->guard_tag & GUARD_TAG_NEGATE_BIT) != 0;
-        bool     guard_open = (guard_idx == TAG_NONE) ||
+        /*
+         * FIXED BUG: this used to compare guard_idx against TAG_NONE (0),
+         * which was correct under the v1.7 tag layout (index 0 was a
+         * reserved, meaningless sentinel slot) but became wrong once
+         * plc_tag_def.h moved to the v1.9 layout, where index 0 is
+         * TAG_DI0 -- a real tag. That made TAG_DI0 the one tag in the
+         * whole system that could never be used as a guard: any rule
+         * with guard_tag = TAG_DI0 (0) had its guard silently treated as
+         * "absent" and always passed, regardless of DI0's actual value.
+         * Verified by an actual compiled/run test before this fix.
+         * Fix: compare against GUARD_TAG_NONE (0x7FFF) instead, a value
+         * no real tag index can ever reach (see plc_rule.h).
+         */
+        bool     guard_open = (guard_idx == GUARD_TAG_NONE) ||
                                (negate ? (tag_read(guard_idx) == 0) : (tag_read(guard_idx) != 0));
 
         if (!guard_open) {

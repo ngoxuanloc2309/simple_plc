@@ -61,28 +61,15 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # target_link_libraries() above.
 
     # Layer 3 / 3.5 / 4 (headers only referenced today)
-    ${CMAKE_CURRENT_SOURCE_DIR}/services/plc_io
-    ${CMAKE_CURRENT_SOURCE_DIR}/services/plc_modbus_cfg
-    ${CMAKE_CURRENT_SOURCE_DIR}/services/plc_retain
-    ${CMAKE_CURRENT_SOURCE_DIR}/port/modbus_serial
-    ${CMAKE_CURRENT_SOURCE_DIR}/port/usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/app/plc_app
+    ${CMAKE_CURRENT_SOURCE_DIR}/services
+    ${CMAKE_CURRENT_SOURCE_DIR}/port
     ${CMAKE_CURRENT_SOURCE_DIR}/app
 
     # Layer 1 / 0
     ${CMAKE_CURRENT_SOURCE_DIR}/components
-    ${CMAKE_CURRENT_SOURCE_DIR}/platforms/stm32/stm32h5/gpio
-    ${CMAKE_CURRENT_SOURCE_DIR}/platforms/stm32/stm32h5/uart
-    ${CMAKE_CURRENT_SOURCE_DIR}/platforms/stm32/stm32h5/timer
-    ${CMAKE_CURRENT_SOURCE_DIR}/board
 
     # Layer U
-    ${CMAKE_CURRENT_SOURCE_DIR}/utils/cqueue
-    ${CMAKE_CURRENT_SOURCE_DIR}/utils/logger
-    ${CMAKE_CURRENT_SOURCE_DIR}/utils/filter/IIR_filter
-    ${CMAKE_CURRENT_SOURCE_DIR}/utils/filter/Kalman_filter
-    ${CMAKE_CURRENT_SOURCE_DIR}/utils/filter/MA_filter
-    ${CMAKE_CURRENT_SOURCE_DIR}/utils/filter/Median_filter
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils
 
     # Third-party (nanoMODBUS submodule, etc.)
     ${CMAKE_CURRENT_SOURCE_DIR}/libs
