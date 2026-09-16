@@ -244,15 +244,37 @@ chặn/không chặn từng bước):
    thật (DI0-7/DO0-7 → GPIO port/pin nào, AI0-3 → ADC channel nào) — vẫn
    CHƯA CÓ ở đâu trong code, xem mục 3.
 3. `plc_modbus_cfg.c` — phức tạp nhất. USB CDC (Layer 1) đã có
-   implementation thật (mục 1.3), nhưng còn 2 việc chưa xong: (a)
-   `port/modbus_usb/` (Layer 3.5, nối nanoMODBUS với `sx_usb_tiny_read/
-   write`) chưa tồn tại — hiện `port/` chỉ có `port/usb/` (cấu hình TinyUSB
-   descriptor, không phải Modbus porting layer) và `port/modbus_serial/`
-   (2 file stub gần rỗng, dành cho Gateway); (b) nanoMODBUS
-   (`libs/nanomodbus/`, ~3000 dòng, code có sẵn) chưa được compile vào bất
-   kỳ target CMake nào — root `CMakeLists.txt` mới thêm `libs/` vào include
-   path chung, chưa có `add_library`/`target_sources` thật. Vẫn nên làm
-   SAU CÙNG trong Layer 3.
+   implementation thật (mục 1.3). Tình trạng 2 việc từng chặn nó:
+   (a) **`port/modbus_usb/modbus_usb.c`/`.h` (Layer 3.5) đã viết xong**
+   (phiên làm việc này) — wrap `sx_usb_tiny_read/write` (Layer 1) đúng chữ
+   ký `nmbs_platform_conf.read/write` mà nanoMODBUS yêu cầu. Quy ước quan
+   trọng cần biết trước khi viết `plc_modbus_cfg.c`: `arg` trong
+   `nmbs_platform_conf` phải là một `sx_usb_tiny_t*` do caller sở hữu
+   (không có instance global nào trong `modbus_usb.c`, khớp đúng pattern
+   "caller truyền con trỏ tường minh" của `sx_usb_cdc.c`) — tức
+   `plc_modbus_cfg.c` cần tự giữ 1 biến `sx_usb_tiny_t` (hoặc con trỏ tới
+   nó), gọi `sx_usb_tiny_init()` một lần, rồi truyền địa chỉ của nó làm
+   `platform_conf.arg` khi gọi `nmbs_client_create()`/`nmbs_server_create()`.
+   Có 2 điểm chưa hoàn hảo cố ý để lại làm TODO, xem comment chi tiết
+   ngay trong `modbus_usb.c`/`.h`:
+     - `modbus_usb_write()` bỏ qua `timeout_ms` vì `sx_usb_tiny_write()`
+       không có tham số timeout của riêng nó (luôn block tới khi ghi
+       xong hoặc phát hiện mất kết nối) — nếu `plc_modbus_cfg.c` từng gọi
+       `nmbs_set_byte_timeout(nmbs, 0)` (non-blocking write) thì hành vi
+       thật sẽ KHÔNG khớp hợp đồng của nanoMODBUS.
+     - `modbus_usb_write()` luôn trả về `count` trên đường thành công vì
+       `sx_usb_tiny_write()` không có giá trị trả về báo partial-write
+       thật.
+   Đã tự build+test riêng bằng gcc với fake `sx_usb_tiny_read/write/
+   connected` (không cần TinyUSB/HAL thật) — 4 test case pass, bao gồm cả
+   phép dịch `timeout_ms < 0 → UINT32_MAX` (không phải `0`, tránh nghĩa
+   "không chờ" bị đảo ngược thành "chờ vô hạn").
+   (b) nanoMODBUS (`libs/nanomodbus/`, ~3000 dòng, code có sẵn) **vẫn
+   CHƯA** được compile vào bất kỳ target CMake nào — root `CMakeLists.txt`
+   mới thêm `libs/` vào include path chung, chưa có `add_library`/
+   `target_sources` thật cho nó, và `port/modbus_usb/` cũng chưa có
+   CMakeLists.txt riêng để link vào `simple_plc/CMakeLists.txt`. Vẫn nên
+   làm SAU CÙNG trong Layer 3.
 
 ### 2.5 `plc_system_cmd.c` (Layer 3/4, KHÔNG phải Layer 2) — chưa viết, đúng như kế hoạch
 
