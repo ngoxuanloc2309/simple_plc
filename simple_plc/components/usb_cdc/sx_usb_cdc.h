@@ -1,16 +1,25 @@
-#ifndef __SX_USB_CDC_H__
-#define __SX_USB_CDC_H__
+#ifndef __SX_USB_TINY_H
+#define __SX_USB_TINY_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "cqueue.h"
 #include "tusb_types.h"
-
+  
+/*  Config  */
 typedef struct sx_usb_tiny_config {
     uint32_t rx_buf_size;
     uint32_t tx_buf_size;
 } sx_usb_tiny_config_t;
 
-typedef struct sx_usb_tiny {
+/*  Handle  */
+typedef struct sx_usb_tiny sx_usb_tiny_t;
+
+struct sx_usb_tiny {
     sx_usb_tiny_config_t *config;
 
     uint8_t  *rxBuffer;
@@ -20,6 +29,23 @@ typedef struct sx_usb_tiny {
     CQueue_t  txQueue;
 
     bool      connected;
-} sx_usb_tiny_t;
+};
 
+void sx_usb_tiny_init(sx_usb_tiny_t *_usb, sx_usb_tiny_config_t *_config);
+void sx_usb_tiny_process(sx_usb_tiny_t *_usb);
+void sx_usb_tiny_write(sx_usb_tiny_t *_usb, const uint8_t *_data, uint32_t _len);
+bool sx_usb_tiny_connected(sx_usb_tiny_t *_usb);
+int sx_usb_tiny_available(sx_usb_tiny_t *_usb);
+int sx_usb_tiny_read(sx_usb_tiny_t *_usb, uint8_t *_data, uint32_t _len, uint32_t _timeoutMS);
+void sx_usb_tiny_printf(sx_usb_tiny_t *_usb, const char *fmt, ...);
+
+void tud_mount_cb(void);
+void tud_umount_cb(void);
+void tud_suspend_cb(bool remote_wakeup_en);
+void tud_resume_cb(void);
+
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* __SX_USB_TINY_H__ */
