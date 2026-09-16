@@ -1,8 +1,7 @@
 #include "stm32h5_adc.h"
-#include "adc.h"
 
 #if STM32H5_PLATFORM
-
+#include "adc.h"
 /* Blocking conversion timeout, in milliseconds. Generous for a 10ms scan
  * loop budget -- a real timeout here means a hardware/config problem, not
  * a value worth waiting longer for. */

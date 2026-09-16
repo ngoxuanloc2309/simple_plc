@@ -66,7 +66,7 @@ enum {
 #if CFG_TUD_HID
     ITF_NUM_HID,
 #endif
-#ifdef CFG_TUD_MSC
+#if CFG_TUD_MSC
     ITF_NUM_MSC,             /* MSC */
     ITF_NUM_TOTAL
 #endif
