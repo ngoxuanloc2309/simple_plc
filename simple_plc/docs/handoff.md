@@ -16,8 +16,13 @@
 ## 0. Trạng thái repo tại thời điểm viết file này
 
 - Branch: `main`
-- Commit mới nhất đã verify: `c45be5e` ("fix code according to Claude
-  recommended")
+- Commit mới nhất đã verify: `0e097e3` ("hi" -- commit này chỉ sửa
+  `architecture.md`/`handoff.md`, không đổi code; code thật (`plc_rule.c`/
+  `plc_rule.h`) mới nhất là ở `164f9ff`, "fix bug guard_idx==0 accrding to
+  claude recommend" -- đây chính là commit áp dụng bugfix `guard_tag`
+  sentinel mô tả ở mục 1.4/1.1). **Đã sửa so với bản trước của file này**,
+  vốn còn ghi `c45be5e` -- commit đó đã cũ hơn 2 commit tại thời điểm viết
+  lại đoạn này.
 - Lệnh verify: `git log --oneline -8` để xem có commit mới hơn không trước
   khi đọc tiếp phần dưới — nếu có commit mới, ưu tiên đọc code thật hơn
   file này.
@@ -310,6 +315,22 @@ CHƯA QUYẾT ĐỊNH, xem mục 3.
 
 ## 4. Lệnh verify nhanh (chạy lại bất cứ lúc nào để kiểm tra Layer 2 + CMake còn sạch)
 
+> **Cập nhật (đã re-verify bằng compile + chạy thật):** bản trước của script
+> này còn sót giá trị theo layout **v1.7** (`TAG_DI0 == 1`, `TAG_VREG_R15 ==
+> 68`) dù phần còn lại của file đã nói rõ code đang ở v1.9 — chỉ riêng script
+> verify thì bị quên cập nhật. Dưới layout v1.9 thật (`plc_tag_def.h`,
+> không còn sentinel `TAG_NONE` ở index 0), `TAG_DI0 == 0`, và không có tag
+> nào tên `TAG_VREG_R15 == 68` cả — range `VREG_RETAIN` v1.9 rộng gấp đôi (32
+> slot, không phải 16) và dịch xuống, nên `TAG_VREG_R15` giờ ở index **99**,
+> không phải 68. Script bên dưới đã sửa lại đúng theo `plc_tag_def.h` thật,
+> và **thêm 1 test case mới cho chính bugfix `guard_tag`** (mục 2.2 của
+> `architecture.md`) — bản cũ verify xong Rule Engine cơ bản nhưng chưa từng
+> test riêng kịch bản "guard trên TAG_DI0" mà bugfix đó nhắm tới.
+>
+> Môi trường sandbox lúc verify lần này không có `cmake`, nên đã build thẳng
+> bằng `gcc` (tương đương, không cần CMake nếu chỉ muốn verify nhanh); cách
+> CMake gốc bên dưới vẫn giữ nguyên cho ai có sẵn CMake.
+
 ```bash
 mkdir -p /tmp/splc_verify && cd /tmp/splc_verify
 cat > CMakeLists.txt << 'EOF'
@@ -334,26 +355,47 @@ int main(void) {
     tag_table_load_from_flash();
     rule_table_load_from_flash();
 
-    /* Layer 2 sizeof checks per v1.7 */
+    /* Layer 2 sizeof checks per v1.9 (v1.7 struct sizes unchanged) */
     assert(sizeof(SPLC_RuleRecord) == 32);
     assert(sizeof(SPLC_DeviceDescriptor) == 20);
     assert(sizeof(SPLC_DeviceHealth) == 20);
+    assert(sizeof(SPLC_DeviceResourceInfo) == 20);   /* V1.9-only block */
     assert(sizeof(SPLC_SystemCommandRequest) == 2);
     assert(sizeof(SPLC_SystemCommandResult) == 4);
 
-    /* plc_tag_def.h range check */
-    assert(TAG_DI0 == 1 && TAG_VREG_R15 == 68);
+    /* plc_tag_def.h range check -- V1.9 LAYOUT, no more index-0 sentinel */
+    assert(TAG_DI0 == 0);
+    assert(TAG_VREG_R15 == 99);   /* NOT 68 -- that was the v1.7 value */
+    assert(TAG_COUNTER7 == 123);  /* V1.9-only range, did not exist in v1.7 */
 
-    /* end-to-end rule test (unchanged from original handoff) */
-    g_tag_table[1].kind = TAG_DI;
-    g_tag_table[9].kind = TAG_DO;
+    /* end-to-end rule test: DI1 rise -> DO2 set, no guard */
+    g_tag_table[TAG_DI1].kind = TAG_DI;
+    g_tag_table[TAG_DO2].kind = TAG_DO;
     SPLC_RuleRecord r = {0};
-    r.trigger_tag = 1; r.action_tag = 9; r.action_param = 1;
+    r.trigger_tag = TAG_DI1; r.action_tag = TAG_DO2; r.action_param = 1;
     r.trigger_type = SPLC_TRG_ON_RISE; r.action_type = SPLC_ACT_SET_TAG; r.enabled = 1;
+    r.guard_tag = GUARD_TAG_NONE;   /* explicit -- 0 would now mean "guard on TAG_DI0" */
     uint8_t raw[sizeof(r)]; memcpy(raw, &r, sizeof(r));
     assert(rule_table_commit(raw, 1));
-    tag_write(1, 0); rule_scan(); assert(tag_read(9) == 0);
-    tag_write(1, 1); rule_scan(); assert(tag_read(9) == 1);
+    tag_write(TAG_DI1, 0); rule_scan(); assert(tag_read(TAG_DO2) == 0);
+    tag_write(TAG_DI1, 1); rule_scan(); assert(tag_read(TAG_DO2) == 1);
+
+    /* guard_tag bugfix regression test (architecture.md section 2.2):
+     * a rule guarded on TAG_DI0 (real index 0) must actually be gated by
+     * DI0's value, not silently treated as "no guard". */
+    g_tag_table[TAG_DI0].kind = TAG_DI;
+    g_tag_table[TAG_DI3].kind = TAG_DI;
+    g_tag_table[TAG_DO3].kind = TAG_DO;
+    SPLC_RuleRecord r2 = {0};
+    r2.trigger_tag = TAG_DI3; r2.action_tag = TAG_DO3; r2.action_param = 1;
+    r2.trigger_type = SPLC_TRG_ON_RISE; r2.action_type = SPLC_ACT_SET_TAG; r2.enabled = 1;
+    r2.guard_tag = TAG_DI0;   /* guard on real tag index 0, NOT "no guard" */
+    uint8_t raw2[sizeof(r2)]; memcpy(raw2, &r2, sizeof(r2));
+    assert(rule_table_commit(raw2, 1));
+    tag_write(TAG_DI0, 0);            /* guard held closed */
+    tag_write(TAG_DI3, 0); rule_scan();
+    tag_write(TAG_DI3, 1); rule_scan();
+    assert(tag_read(TAG_DO3) == 0);   /* must NOT fire -- pre-fix this fired */
 
     printf("ALL TESTS PASSED\n");
     return 0;
@@ -363,6 +405,11 @@ mkdir build && cd build && cmake .. && make && ./test_bin
 ```
 
 Kỳ vọng output cuối: `ALL TESTS PASSED`.
+
+**Đã re-run thật** (bằng `gcc -std=c11 -Wall -Wextra`, không dùng CMake vì
+sandbox lúc đó không có `cmake`, nhưng nội dung test giống hệt script trên,
+chỉ khác cách build) — biên dịch 0 warning, output đúng `ALL TESTS PASSED`,
+bao gồm cả assertion mới cho guard_tag bugfix.
 
 ## 5. Ghi chú quy trình làm việc với người dùng (bối cảnh, không phải kỹ thuật)
 
