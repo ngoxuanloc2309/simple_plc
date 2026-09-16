@@ -1,5 +1,5 @@
-#ifndef __SX_USB_TINY_H
-#define __SX_USB_TINY_H
+#ifndef __SX_USB_CDC_H
+#define __SX_USB_CDC_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,6 +19,14 @@ typedef struct sx_usb_tiny_config {
 /*  Handle  */
 typedef struct sx_usb_tiny sx_usb_tiny_t;
 
+/*
+ * rxBuffer/txBuffer are caller-owned static storage, NOT allocated by
+ * sx_usb_tiny_init(). Caller must set rxBuffer/txBuffer (sized to match
+ * config->rx_buf_size/tx_buf_size) BEFORE calling sx_usb_tiny_init() --
+ * same ownership pattern as sx_uart_t (components/uart/sx_uart.h). No
+ * malloc anywhere in this driver, per the project's no-dynamic-heap rule
+ * (docs/architecture.md, Design principles).
+ */
 struct sx_usb_tiny {
     sx_usb_tiny_config_t *config;
 
@@ -48,4 +56,4 @@ void tud_resume_cb(void);
 }
 #endif
 
-#endif /* __SX_USB_TINY_H__ */
+#endif /* __SX_USB_TINY_H */

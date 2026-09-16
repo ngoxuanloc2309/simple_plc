@@ -4,15 +4,12 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include "sx_time.h"
 static const char *TAG = "SX_USB_TINY";
 
-#if (SX_PLATFORM == SX_PLATFORM_STM32H5) 
+#if STM32H5_PLATFORM
     #include "stm32h5xx_hal.h"
     #include "tusb.h"
     #include "usb.h"
-#elif (SX_PLATFORM == SX_PLATFORM_STM32H7)
-    #include "stm32h7xx_hal_uart.h"
 #endif
 
 void sx_usb_tiny_init(sx_usb_tiny_t *_usb, sx_usb_tiny_config_t *_config)
@@ -20,19 +17,19 @@ void sx_usb_tiny_init(sx_usb_tiny_t *_usb, sx_usb_tiny_config_t *_config)
     _usb->config    = _config;
     _usb->connected = false;
 
-    _usb->rxBuffer = sx_malloc(_config->rx_buf_size);
+    /* rxBuffer/txBuffer must already be set by the caller to static
+     * storage sized to match rx_buf_size/tx_buf_size -- no malloc here,
+     * per the project's no-dynamic-heap rule. Same contract as
+     * sx_uart_t (components/uart/sx_uart.h). */
     cqueue_init_static(&_usb->rxQueue, _usb->rxBuffer,
                         _config->rx_buf_size, 1);
-
-    _usb->txBuffer = sx_malloc(_config->tx_buf_size);
     cqueue_init_static(&_usb->txQueue, _usb->txBuffer,
                         _config->tx_buf_size, 1);
 
-    #if (SX_USE_OS == 1)
-    sx_os_mutex_new(&_usb->rxMutex);
-    #endif
+    /* No mutex here -- this project is bare-metal single-threaded
+     * (no RTOS), unlike the WS_v1 reference this was ported from. */
 
-#if SX_PLATFORM == SX_PLATFORM_STM32H5 || SX_PLATFORM == SX_PLATFORM_STM32H7
+#if STM32H5_PLATFORM
     //dcd_fs_msp_init(0);
 
     tusb_rhport_init_t dev_init = {
@@ -49,7 +46,7 @@ void sx_usb_tiny_init(sx_usb_tiny_t *_usb, sx_usb_tiny_config_t *_config)
 /*RX_TASK*/
 static void usb_rx_task(sx_usb_tiny_t *_usb)
 {
-#if SX_PLATFORM == SX_PLATFORM_STM32H5 || SX_PLATFORM == SX_PLATFORM_STM32H7
+#if STM32H5_PLATFORM
     if(!tud_cdc_connected()) return;
     if(!tud_cdc_available()) return;
 
@@ -67,7 +64,7 @@ static void usb_rx_task(sx_usb_tiny_t *_usb)
 }
 
 void sx_usb_tiny_process(sx_usb_tiny_t *_usb){
-#if SX_PLATFORM == SX_PLATFORM_STM32H5 || SX_PLATFORM == SX_PLATFORM_STM32H7
+#if STM32H5_PLATFORM
     tud_task();
     _usb->connected = sx_usb_tiny_connected(_usb);
     usb_rx_task(_usb);
@@ -79,7 +76,7 @@ void sx_usb_tiny_write(sx_usb_tiny_t *_usb, const uint8_t *_data, uint32_t _len)
         return;
     log_debug(TAG, "USB write: %lu bytes", _len);
 
-#if SX_PLATFORM == SX_PLATFORM_STM32H5 || SX_PLATFORM == SX_PLATFORM_STM32H7
+#if STM32H5_PLATFORM
     uint32_t sent = 0;
     while(sent < _len){
         uint32_t written = tud_cdc_write(_data + sent, _len - sent);
@@ -100,8 +97,9 @@ int sx_usb_tiny_read(sx_usb_tiny_t *_usb, uint8_t *_data,
         if(cqueue_receive(&_usb->rxQueue, _data + len)){
             len++;
         } else {
+#if STM32H5_PLATFORM
             tud_task();
-            //sx_delay_ms(1);
+#endif
             time++;
         }
     }
@@ -109,7 +107,12 @@ int sx_usb_tiny_read(sx_usb_tiny_t *_usb, uint8_t *_data,
 }
 
 bool sx_usb_tiny_connected(sx_usb_tiny_t *_usb){
+    (void)_usb;
+#if STM32H5_PLATFORM
     return tud_cdc_connected();
+#else
+    return false;
+#endif
 }
 
 int sx_usb_tiny_available(sx_usb_tiny_t *_usb){

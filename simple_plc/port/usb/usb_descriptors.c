@@ -68,8 +68,8 @@ enum {
 #endif
 #if CFG_TUD_MSC
     ITF_NUM_MSC,             /* MSC */
-    ITF_NUM_TOTAL
 #endif
+    ITF_NUM_TOTAL             /* Always defined: total interface count regardless of which optional classes are enabled. */
 };
 
 /*  Endpoints  */
@@ -88,18 +88,24 @@ enum {
 #endif
 
 /*  Config Descriptor total length  */
-#if CFG_TUD_MSC
 #define CONFIG_TOTAL_LEN  ( TUD_CONFIG_DESC_LEN                      \
                           + TUD_CDC_DESC_LEN                         \
                           + (CFG_TUD_HID ? TUD_HID_DESC_LEN : 0)   \
                           + (CFG_TUD_MSC ? TUD_MSC_DESC_LEN : 0) )
-#endif
 
 /*  Configuration Descriptor  */
 static uint8_t const desc_fs_configuration[] = {
-#if CFG_TUD_MSC
+    /* The 9-byte config descriptor header (TUD_CONFIG_DESCRIPTOR) and
+     * CONFIG_TOTAL_LEN above must ALWAYS be present, regardless of which
+     * classes are enabled -- this is not MSC-specific. Previously this
+     * was wrapped in #if CFG_TUD_MSC; with CFG_TUD_MSC == 0 that deleted
+     * the header entirely, leaving the CDC interface's IAD (0x0B) as the
+     * first byte the host would see instead of the required Configuration
+     * Descriptor type (0x02) -- confirmed by compiling against real
+     * TinyUSB and inspecting the emitted bytes. USB enumeration would
+     * fail completely on real hardware. */
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0x00, 100),
-#endif
+
     TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_0, 4, EPNUM_CDC_0_NOTIF, 8,
                        EPNUM_CDC_0_OUT, EPNUM_CDC_0_IN, 64),
 
