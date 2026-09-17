@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "adc.h"
 #include "gpdma.h"
 #include "icache.h"
 #include "iwdg.h"
@@ -106,6 +107,7 @@ int main(void)
   MX_TIM5_Init();
   MX_SPI4_Init();
   MX_USB_PCD_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
