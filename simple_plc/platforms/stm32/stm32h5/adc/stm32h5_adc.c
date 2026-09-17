@@ -31,7 +31,24 @@ void sx_adc_init(sx_adc_config_t *config, sx_adc_resolution_t resolution)
     ADC_ChannelConfTypeDef sConfig = {0};
     sConfig.Channel      = config->channel;
     sConfig.Rank         = ADC_REGULAR_RANK_1;
-    sConfig.SamplingTime = ADC_SAMPLETIME_COMMON_1;
+    /* BUGFIX: was ADC_SAMPLETIME_COMMON_1, which does not exist anywhere
+     * in the real STM32H5 HAL (Drivers/STM32H5xx_HAL_Driver/Inc/
+     * stm32h5xx_hal_adc.h) -- confirmed by grepping every ADC_SAMPLETIME_*
+     * macro that header actually defines. This only surfaced once
+     * Core/Inc/adc.h existed (CubeMX-generated after configuring IN1 in
+     * the .ioc) and this .c file actually got compiled for the first
+     * time; it was never reachable before that.
+     *
+     * ADC_SAMPLETIME_247CYCLES_5 chosen as a reasonable default for a
+     * general-purpose 4AI analog input (not a high-speed/high-frequency
+     * signal) -- long enough sampling time for a stable reading on a
+     * source with moderate impedance, short enough to comfortably fit
+     * inside the 10ms scan-loop budget this driver is designed for (see
+     * SX_ADC_POLL_TIMEOUT_MS above). This is a real design choice, not
+     * just a compile-fix -- revisit if the actual analog input source
+     * impedance/bandwidth for this product's 4AI channels is specified
+     * elsewhere and calls for a different value. */
+    sConfig.SamplingTime = ADC_SAMPLETIME_247CYCLES_5;
     HAL_ADC_ConfigChannel(hadc, &sConfig);
 }
 
