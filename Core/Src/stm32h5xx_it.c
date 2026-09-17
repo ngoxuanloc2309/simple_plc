@@ -212,6 +212,20 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
+  * @brief This function handles PVD/AVD through EXTI Line detection Interrupt.
+  */
+void PVD_AVD_IRQHandler(void)
+{
+  /* USER CODE BEGIN PVD_AVD_IRQn 0 */
+
+  /* USER CODE END PVD_AVD_IRQn 0 */
+  HAL_PWR_PVD_IRQHandler();
+  /* USER CODE BEGIN PVD_AVD_IRQn 1 */
+
+  /* USER CODE END PVD_AVD_IRQn 1 */
+}
+
+/**
   * @brief This function handles GPDMA1 Channel 0 global interrupt.
   */
 void GPDMA1_Channel0_IRQHandler(void)
