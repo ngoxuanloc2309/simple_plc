@@ -33,17 +33,18 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE splc_components)
 
 # --- Layer 0 - Platform (platforms/stm32/stm32h5/) -----------------------
 # splc_platform_stm32h5 is defined in
-# platforms/stm32/stm32h5/CMakeLists.txt. Builds gpio/flash/uart/time
-# today. NOTE: stm32h5_adc.c is included in that target's source list but
-# will FAIL TO COMPILE as of this writing -- it #includes "adc.h", a
-# CubeMX-generated header that does not exist yet because ADC is not
-# configured in RS485_IO_RF_V2.ioc (see the VERIFIED BUILD GAP comment in
-# platforms/stm32/stm32h5/CMakeLists.txt for the full explanation). This
-# add_subdirectory() will therefore make the very first real build fail
-# on adc.h until someone opens the .ioc in STM32CubeMX, configures the
-# ADC instance/channels for the 4AI SKU, and regenerates code. Left in
-# rather than worked around, so that failure is loud and points at the
-# right fix instead of silently shipping firmware with AI reads missing.
+# platforms/stm32/stm32h5/CMakeLists.txt. Builds all 5 real sources today
+# (gpio/adc/flash/uart/time) -- ADC's Core/Inc/adc.h gap (see the old
+# comment this replaces) is closed: ADC1/IN1 is now configured in
+# RS485_IO_RF_V2.ioc and regenerated, and two real bugs that only surfaced
+# once stm32h5_adc.c actually got compiled for the first time have been
+# fixed (missing #include "sx_adc.h" in stm32h5_adc.h; and
+# ADC_SAMPLETIME_COMMON_1, a macro that never existed in the real STM32H5
+# HAL, replaced with ADC_SAMPLETIME_247CYCLES_5 -- see docs/handoff.md
+# section 1.3 for the full story and docs/handoff.md section 3 for the
+# still-open question of whether 247.5 cycles is the right value for this
+# product's actual analog input sources). Verified by direct gcc compile
+# of all 5 .c files against this exact include path, 0 errors.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/platforms/stm32/stm32h5)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE splc_platform_stm32h5)
 
