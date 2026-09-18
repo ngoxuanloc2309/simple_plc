@@ -26,6 +26,18 @@
 #define DO3_PORT    GPIOB
 #define DO3_PIN     GPIO_PIN_1
 
+/* UART_LOG: pDriver in board_hw_init() points at &hlpuart1 (extern in
+ * Core/Inc/usart.h, CubeMX-generated) -- LPUART1_IRQHandler already
+ * exists in Core/Src/stm32h5xx_it.c, so RX interrupt-driven logging
+ * works without further .ioc changes. */
 #define UART_LOG    lpuart1
+#define UART_RS485  huart1
+#define UART_ZIGBEE huart2
+
+/* USB CDC (App<->MCU Modbus channel, per docs/architecture.md section 0
+ * -- USB, not RS485). Buffer sizes are a starting point, not yet tuned
+ * against real Modbus RTU frame sizes/throughput. */
+#define USB_RX_BUF_SIZE   256
+#define USB_TX_BUF_SIZE   256
 
 #endif
