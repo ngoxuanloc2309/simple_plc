@@ -3,13 +3,13 @@
 
 /*This is the board for test PLC_SIMPLE, this board has 4DI, 4DO, 0AI*/
 #define DI0_PORT    GPIOB
-#define DIO_PIN     GPIO_PIN_6
+#define DI0_PIN     GPIO_PIN_6
+
+#define DI1_PORT    GPIOB
+#define DI1_PIN     GPIO_PIN_5
 
 #define DI2_PORT    GPIOB
-#define DI2_PIN     GPIO_PIN_5
-
-#define DI3_PORT    GPIOB
-#define DI3_PIN     GPIO_PIN_4
+#define DI2_PIN     GPIO_PIN_4
 
 #define DI3_PORT    GPIOB
 #define DI3_PIN     GPIO_PIN_3
