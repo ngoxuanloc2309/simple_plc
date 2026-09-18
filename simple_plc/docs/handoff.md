@@ -6,24 +6,34 @@
 > nguồn kiến trúc chính, file này chỉ ghi lại "đang làm tới đâu" và "làm
 > gì tiếp theo".
 >
-> **Đây là bản VÁ TIẾP** (không viết lại toàn bộ như lần trước) trên nền
-> bản 519 dòng trước đó. Thay đổi chính từ bản trước tới giờ: Layer 3
-> (`services/`) không còn rỗng — `plc_io.c` và `plc_retain.c` đã viết
-> xong và build+test thật (mục 1.7 mới); PVD (nguồn giám sát sụt áp cho
-> Retain) đã xong cả 3 lớp code+cấu hình (mục 1.8 mới); `services/
-> CMakeLists.txt` đã viết và wire xong (mục 1.4.4 mới); `splc_flash_define.h`
-> đã DI CHUYỂN VỊ TRÍ, không còn ở `app/` (mục 1.5 đã cập nhật); và một
-> lỗi CMake thật nghiêm trọng (plain vs keyword `target_link_libraries`
-> signature, chỉ lộ ra khi build bằng toolchain ARM thật trên Windows,
-> sandbox Linux không bao giờ tự phát hiện được) đã được tìm và sửa (mục
-> 1.4.4). `build.bat` cũng đã có ở gốc repo (mục 1.9 mới).
+> **Đây là bản VÁ TIẾP** trên nền bản trước (544 dòng, verify tại commit
+> `52a9ef7`). Thay đổi chính từ bản trước tới giờ: **`plc_modbus_cfg.c`/
+> `.h` (Layer 3) đã viết xong và build-verify thật** — server nanoMODBUS
+> đầy đủ, toàn bộ register map v1.9 (mục 8/9 của tài liệu structs), Rule
+> Transfer staging/CRC/commit protocol (mục 1.10 mới); và ngay sau đó,
+> **giao diện `modbus_transport_t` (Layer 3.5, mục 1.11 mới) đã được
+> thêm để tách `plc_modbus_cfg.c` khỏi USB cụ thể** — trả lời câu hỏi
+> "sau này dùng Gateway thì có phải viết lại toàn bộ code không" bằng
+> cách làm `plc_modbus_cfg.c` không còn include `sx_usb_cdc.h` nữa, chỉ
+> biết một interface `read/write/process` chung. Không có quyết định
+> kiến trúc lớn nào khác bị đảo ngược trong đợt vá này.
 
 ## 0. Trạng thái repo tại thời điểm viết file này
 
 - Branch: `main`
-- Commit mới nhất đã verify: `52a9ef7` ("cmake simple_plc change" — sửa
-  lỗi CMake plain/keyword `target_link_libraries` signature conflict,
-  xem mục 1.4.4 mới).
+- Commit mới nhất đã verify: `70c0704` ("add modbus transport to cmake").
+  Lịch sử gần nhất dẫn tới đây: `df367e8`/`baf1f03` (thêm
+  `plc_modbus_cfg.h`/`.c`) rồi `3c94bd2`/`70c0704` (thêm
+  `modbus_transport.h` + sửa `plc_modbus_cfg`/`modbus_usb` để dùng nó).
+- **1 sửa cục bộ CHƯA PUSH tại thời điểm viết file này:**
+  `port/CMakeLists.txt` — chỉ dọn lại comment lỗi thời (từng viết
+  "plc_modbus_cfg.c, Layer 3, not yet written" và một khối "TODO(wiring)"
+  nói nanoMODBUS chưa link được vào target nào — cả 2 điều đó không còn
+  đúng nữa, `plc_modbus_cfg.c` đã tồn tại và `services/CMakeLists.txt`
+  đã link `nanomodbus` từ lâu). **Không đổi logic/include path nào** —
+  `target_include_directories`/`target_link_libraries` giữ nguyên hệt
+  bản đã push. Cần tự áp lại patch này hoặc lấy file đã sửa nếu muốn
+  đồng bộ hoàn toàn với repo.
 - Lệnh verify: `git log --oneline -10` để xem có commit mới hơn không
   trước khi đọc tiếp phần dưới — nếu có commit mới, ưu tiên đọc code thật
   hơn file này. **Bài học đã rút ra nhiều lần (xem mục 6):** người dùng có
@@ -336,35 +346,151 @@ việc `plc_io.c` (Layer 3, chưa viết) nhiều khả năng sẽ cần dùng t
 nào dùng thì `plc_io.c`/`services/CMakeLists.txt` tự thêm source khi cần
 — CHƯA HỎI người dùng, xem mục 3.
 
+### 1.10 `services/plc_modbus_cfg/plc_modbus_cfg.c` (Layer 3) — HOÀN CHỈNH, build-verify bằng gcc thật (không cần toolchain ARM)
+
+**Đây là module lớn nhất từng viết cho Layer 3** (~670 dòng `.c`, đúng
+scope tài liệu `SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md`
+mục 8/9). Sở hữu RAM instance của `g_device_descriptor`/
+`g_device_resource_info`/`g_device_health` (Layer 4 ghi vào lúc boot,
+file này chỉ expose read-only qua Modbus).
+
+**Thiết kế: 1 bảng dispatch theo địa chỉ (`s_blocks[]`)**, không phải
+switch/case khổng lồ — mỗi block map `[start_addr, end_addr]` tới
+`read_cb`/`write_multi_cb`. `cb_read_holding_registers()`/
+`cb_write_multiple_registers()` (2 callback nanoMODBUS gọi) tự động xử
+lý 1 request tràn qua nhiều block liên tiếp, và mọi gap không map (ví dụ
+`0x0011-0x001F` reserved) đọc trả về 0, ghi bị từ chối bằng
+`NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS` — không bao giờ âm thầm chấp nhận
+1 write mà App tưởng đã thành công.
+
+Đã cài đủ toàn bộ block trong register map: `DEVICE_DESCRIPTOR`,
+`RULE_TABLE_INFO`, `DEVICE_RESOURCE_INFO`, `ACTIVE_RULE_TABLE` (encode
+16 register/rule, high-word-first, đúng field order `SPLC_RuleRecord`
+Layer 2 đã có sẵn — không cần copy field thủ công), `DEVICE_HEALTH`
+(tính `uptime_s` lazy lúc đọc, không tính mỗi scan cycle vì không ai
+khác trong firmware cần giá trị này liên tục), `RUNTIME_TAG_VALUES` (2
+register/tag cho MỌI loại tag, đúng checklist mục 8 file này —
+`architecture.md`), `SYSTEM_COMMAND`/`_RESULT`.
+
+**Rule Transfer staging protocol (0x9000-0xA001) đầy đủ:**
+- `s_staging_rule_table[MAX_RULES]` là buffer RAM RIÊNG, không đụng
+  `g_rule_table[]` (Layer 2) đang chạy — App có thể ghi dở dang qua
+  nhiều Modbus transaction mà Rule Engine vẫn chạy bình thường trên
+  bảng cũ suốt thời gian đó.
+- `CONFIG_STATUS` state machine: IDLE → RECEIVING (App ghi
+  `RULE_COUNT_STAGED`) → VERIFYING (App ghi `COMMIT_COMMAND = 0xA5A5`)
+  → READY (CRC khớp, `rule_table_commit()` Layer 2 thành công) hoặc
+  ERROR (CRC sai/magic sai/`rule_count_staged > MAX_RULES`).
+- CRC verify dùng `nmbs_crc_calc()` có sẵn trong nanoMODBUS (CRC-16/
+  MODBUS) — không viết thêm 1 bản CRC riêng cho việc này.
+- `s_active_rule_version` tăng sau mỗi commit thành công — App có thể
+  poll `ACTIVE_RULE_VERSION` (0xA001) để biết rule table vừa đổi mà
+  không cần đọc lại toàn bộ `ACTIVE_RULE_TABLE` mỗi lần.
+
+**`write_system_command()` (SYSTEM_COMMAND, 0x0A00) mới chỉ decode +
+đổi `status` sang ACCEPTED — CHƯA THỰC THI lệnh thật** (không tự
+`NVIC_SystemReset()`, không tự xoá Flash) — đúng ranh giới đã ghi trong
+`plc_system_cmd.h`: thực thi thuộc Layer 4, chưa viết (xem mục 2.2).
+
+**Build-verify:** compile bằng `gcc -std=c11 -Wall -Wextra` với stub
+tối thiểu cho `tusb_types.h`/`cqueue.h`/`sx_time.h` (không cần toolchain
+ARM lẫn TinyUSB thật, vì lúc verify này `plc_modbus_cfg.c` chưa include
+gì từ USB nữa — xem mục 1.11) — 0 lỗi, 0 warning. Verify thêm bằng `nm`:
+object file chỉ còn undefined symbol về Layer 2 (`tag_read`,
+`rule_table_commit`, `g_rule_table`, `g_rule_count`) và nanoMODBUS, không
+còn symbol nào tên `sx_usb_*`.
+
+### 1.11 `port/modbus_transport/modbus_transport.h` (Layer 3.5, MỚI) — tách `plc_modbus_cfg.c` khỏi USB cụ thể
+
+**Câu hỏi khởi nguồn:** "sau này dùng Gateway thay vì Remote I/O thì có
+phải viết lại toàn bộ code không?" — và tiếp theo, "dùng macro để chuyển
+đổi SKU được không?". Câu trả lời thứ hai đã có bài học thật trong chính
+`plc_device.h` (1 bản nháp `#ifdef SPLC_DEVICE_CLASS_REMOTE_IO` từng
+thất bại vì macro luôn được `#define`, `#ifdef` luôn đúng bất kể build
+gì) — kết luận: chọn SKU là quyết định runtime + build-target khác file
+(`board_remoteio.c`/`board_gateway.c`), không phải `#ifdef` trong 1 file
+dùng chung.
+
+**Vấn đề cụ thể phát hiện khi áp dụng nguyên tắc đó vào
+`plc_modbus_cfg.c` vừa viết (mục 1.10):** hàm `plc_modbus_cfg_init()`
+nhận thẳng `sx_usb_tiny_t *`, và `modbus_config_service()` gọi thẳng
+`sx_usb_tiny_process()` theo tên — nghĩa là chữ ký hàm public của
+Layer 3 đã "biết" nó chạy trên USB, dù `.c` không dùng macro nào. Nếu
+viết `board_remoteio.c` trước với chữ ký này, sau này thêm Gateway
+(RS485/UART) hoặc Modbus TCP sẽ phải sửa lại `plc_modbus_cfg_init()`
+VÀ mọi board đã gọi nó theo chữ ký cũ.
+
+**Giải pháp: `modbus_transport_t`** (`port/modbus_transport/
+modbus_transport.h`, header-only, không include bất kỳ driver Layer 1
+nào) — 1 struct nhỏ chỉ có `ctx` (opaque, `void*`), `read`/`write`
+(khớp NGUYÊN VĂN chữ ký `nmbs_platform_conf.read/write` để gán thẳng
+không cần adapter), `process` (bơm lớp dưới mỗi scan cycle, có thể
+NULL), và `kind` (RTU hay TCP — thay cho `plc_modbus_cfg.c` cũ hard-code
+`NMBS_TRANSPORT_RTU`).
+
+**Cách wire:**
+- `port/modbus_usb/modbus_usb.h`/`.c` thêm 1 hàm dựng
+  `modbus_transport_usb_create(sx_usb_tiny_t *usb)` trả về
+  `modbus_transport_t` đã điền sẵn — bọc `modbus_usb_read()`/
+  `modbus_usb_write()` ĐÃ CÓ TỪ TRƯỚC, không viết lại logic transport
+  thật, chỉ thêm 1 lớp đóng gói.
+- `plc_modbus_cfg.h`/`.c`: bỏ hẳn `#include "sx_usb_cdc.h"`, đổi
+  `plc_modbus_cfg_init(sx_usb_tiny_t *usb)` thành
+  `plc_modbus_cfg_init(const modbus_transport_t *transport)` (copy theo
+  giá trị vào biến static `s_transport`, không giữ con trỏ ngoài).
+  `modbus_config_service()` gọi `s_transport.process(s_transport.ctx)`
+  nếu khác NULL, thay vì gọi thẳng `sx_usb_tiny_process()`.
+- Board init (Layer 4, chưa viết) sẽ gọi:
+  ```c
+  sx_usb_tiny_init(&usb, &usb_cfg);
+  modbus_transport_t transport = modbus_transport_usb_create(&usb);
+  plc_modbus_cfg_init(&transport);
+  ```
+
+**Việc KHÔNG đổi:** `modbus_usb_read()`/`modbus_usb_write()` (logic
+transport thật) và toàn bộ 600+ dòng dispatch table/staging/CRC/commit
+trong `plc_modbus_cfg.c` — chỉ đổi phần khởi tạo transport ở đầu/cuối
+file.
+
+**Việc CHƯA làm, cố ý để ngỏ:** MQTT (người dùng nhắc tới cho nạp rule
+tương lai) KHÔNG dùng chung được interface `read/write` byte-stream này
+— MQTT là pub/sub theo topic, không phải request/response theo địa chỉ
+thanh ghi kiểu Modbus. Nếu sau này cần nạp rule qua MQTT, đó sẽ là 1
+service Layer 3 khác hẳn (`plc_mqtt_cfg.c`?), dùng lại
+`s_staging_rule_table`/CRC/commit logic nhưng đóng gói payload khác —
+KHÔNG nằm trong phạm vi `modbus_transport_t`. `port/modbus_serial/` và
+`port/modbus_tcp/` vẫn còn là stub gần như rỗng (không đổi từ mục
+1.4.3) — chưa viết `modbus_transport_uart_create()`/
+`modbus_transport_tcp_create()`, vì Gateway chưa tới lượt làm (xem mục
+6, người dùng đã xác nhận chỉ cần USB lúc này).
+
+**Bug đã biết, VẪN CÒN, không liên quan gì tới đợt sửa transport này**
+(đã ghi từ mục 1.4.3, nhắc lại ở đây để không quên): `modbus_usb_write()`
+bỏ qua `timeout_ms` vì `sx_usb_tiny_write()` không có chế độ
+non-blocking thật — nếu App gọi với `nmbs_set_byte_timeout(nmbs, 0)`
+(đúng như `plc_modbus_cfg_init()` đang làm), hành vi thật vẫn có thể
+block quá ngân sách 10ms scan cycle nếu USB tạm nghẽn. Cần quyết định
+thật trước khi coi kênh USB là production-ready.
+
 ## 2. Việc CHƯA làm — theo layer, có ghi rõ cái gì đang chặn cái gì
 
-### 2.1 Layer 3 (`services/`) — 3 file rỗng (0 dòng), KHÔNG còn bị chặn về hạ tầng
+### 2.1 Layer 3 (`services/`) — CẢ 3 FILE ĐÃ VIẾT XONG (`plc_io.c`, `plc_retain.c`, `plc_modbus_cfg.c`)
 
-Layer 0/1 (GPIO/ADC/Flash/UART) đã xong (mục 1.3), CMake đã wire (mục
-1.4), Flash layout đã chốt (mục 1.5) — chỉ còn thiếu quyết định thiết
-kế cụ thể cho từng file, không phải hạ tầng thiếu.
+**Không còn file nào rỗng ở Layer 3.** `plc_retain.c` và `plc_io.c` đã
+xong từ bản handoff trước (mục 1.7/1.8); `plc_modbus_cfg.c` là bổ sung
+mới nhất của đợt vá này (mục 1.10), cùng lớp transport-agnostic mới
+(mục 1.11). Layer 3 không còn là điểm chặn của dự án nữa — điểm chặn
+lớn nhất giờ chuyển hẳn sang **Layer 4** (mục 2.3 ngay dưới đây) và
+**pin mapping thật** (mục 3).
 
-**Thứ tự khuyến nghị, không đổi qua nhiều phiên:**
-
-1. **`plc_retain.c`** — lựa chọn bắt đầu tốt nhất, chỉ cần Flash (đã
-   xong) + `app/splc_flash_define.h` (đã xong, mục 1.5), không cần pin
-   mapping hay USB. **Đang dở dang khi phiên này tạm dừng để viết
-   handoff** — câu hỏi cuối cùng chưa có câu trả lời: xác nhận giữ đúng
-   cơ chế **5 phút + PVD** như spec gốc mục 7.1, và cách xử lý phần PVD
-   (PVD hoàn toàn CHƯA cấu hình trong `.ioc`, không có `PVD_IRQHandler`
-   nào tồn tại — đề xuất: viết `plc_retain.c` đầy đủ cơ chế, có 1 hàm
-   `retain_snapshot_write_emergency()` gọi được từ đâu cũng được, KHÔNG
-   tự viết `PVD_IRQHandler` — giống cách đã xử lý gap ADC, chờ người
-   dùng tự cấu hình `.ioc` sau). **Chưa có câu trả lời từ người dùng khi
-   phiên này kết thúc — hỏi lại đầu phiên sau.**
-2. **`plc_io.c`** — cần pin mapping thật (DI0-7/DO0-7 → GPIO port/pin,
-   AI0-3 → ADC channel) — vẫn CHƯA CÓ ở đâu, xem mục 3. Có thể sẽ cần
-   dùng `utils/filter/` để lọc tín hiệu AI (mục 1.6) — chưa quyết định
-   dùng loại nào.
-3. **`plc_modbus_cfg.c`** — phức tạp nhất, cần `port/modbus_usb/` (đã
-   xong, mục 1.4.3) + nanoMODBUS link vào target (chưa, vì
-   `services/CMakeLists.txt` chưa tồn tại) + sửa bug timeout USB (mục
-   1.3.1) trước khi dùng cho response timeout thật.
+Bug/TODO còn sót lại ở Layer 3, chưa phải việc mới:
+- Bug timeout USB (mục 1.3.1, `sx_usb_tiny_read()` đếm vòng lặp thay vì
+  mili-giây thật) — vẫn còn nguyên, chưa sửa.
+- `modbus_usb_write()` không tôn trọng `byte_timeout_ms == 0` thật sự
+  non-blocking (nhắc lại ở mục 1.11) — vẫn còn nguyên, chưa sửa.
+- `plc_modbus_cfg.c`'s `write_system_command()` mới decode + đổi status,
+  CHƯA thực thi lệnh thật (reboot/factory reset/clear) — đúng kế hoạch,
+  việc đó thuộc Layer 4 (mục 2.2).
 
 ### 2.2 `plc_system_cmd.c` (Layer 3/4) — chưa viết, đúng kế hoạch
 
@@ -372,10 +498,11 @@ Từng bị đề xuất viết ở Layer 2 rồi bị bác bỏ (xem mục 1.1)
 thi command thật (reboot, factory reset, clear rules/retain) cần
 Flash/NVIC, thuộc Layer 3/4, viết sau khi các file Layer 3 khác xong.
 
-### 2.3 Layer 4 (`app/plc_app/plc_engine.c`) — rỗng, chưa viết
+### 2.3 Layer 4 (`app/plc_app/plc_engine.c`) — rỗng, chưa viết, GIỜ LÀ ĐIỂM CHẶN LỚN NHẤT
 
-Chỉ nên làm SAU KHI ít nhất `plc_io.c` xong. Đã thống nhất (chưa viết
-code): `device_class`/`device_variant` truyền runtime qua
+Cả 3 file Layer 3 đã xong (mục 2.1), nên `plc_engine.c` không còn gì
+chặn về hạ tầng nữa ngoài pin mapping thật (mục 3). Đã thống nhất (chưa
+viết code): `device_class`/`device_variant` truyền runtime qua
 `plc_engine_init_params_t`, KHÔNG dùng compile-time `#ifdef`:
 
 ```c
@@ -390,11 +517,41 @@ typedef struct {
 void plc_engine_init(const plc_engine_init_params_t *params);
 ```
 
+**Cập nhật mới (mục 1.11):** `plc_engine_init()` giờ cũng là nơi gọi
+`plc_modbus_cfg_init(&transport)`, với `transport` được board init xây
+sẵn qua `modbus_transport_usb_create(&usb)` — KHÔNG phải
+`plc_engine_init()` tự biết USB, mà board init truyền `modbus_transport_t`
+đã dựng sẵn vào (qua tham số của `plc_engine_init_params_t`, hoặc gọi
+`plc_modbus_cfg_init()` trực tiếp từ board init trước khi gọi
+`plc_engine_init()` — CHƯA QUYẾT ĐỊNH cách nào, xem mục 3).
+
 **Vẫn còn vấn đề cũ chưa giải quyết:** `rule_scan()` dùng biến
 `static uint32_t s_rule_scan_now_ms` nội bộ, luôn = 0. Cách Layer 4
 truyền tick thật vào (tham số hay setter) — CHƯA QUYẾT ĐỊNH, mục 3.
 
 ### 2.4 `utils/filter/` chưa wire vào CMake — xem mục 1.6 và mục 3
+
+### 2.5 `board/` — chỉ có include guard rỗng, thảo luận thiết kế đã có nhưng CHƯA VIẾT CODE
+
+`board/board.h`, `board/board.c`, `board/board_config.h` đều gần như
+trống (12/0/5 dòng, chỉ include guard). Đã thống nhất pattern qua thảo
+luận (KHÔNG viết code) — xem mục 3 câu hỏi 10 để biết 3 điểm cần chốt
+trước khi viết thật:
+- `board.h` khai báo `board_init()` (tầng chung) VÀ `board_hw_init()`
+  (mỗi SKU tự implement, tránh đụng tên hàm khi cả 2 file cùng compile
+  vào 1 target).
+- Mỗi SKU (`board_remoteio.c`, sau này `board_gateway.c`) dùng macro
+  CubeMX đã sinh sẵn trong `Core/Inc/gpio.h` (`OUT0_Pin`,
+  `OUT0_GPIO_Port`, đã xác nhận thật tồn tại) — KHÔNG tự đánh số
+  `GPIOA`/`GPIO_PIN_8` bằng tay, để tránh lệch pha khi regenerate CubeMX.
+- Mỗi SKU tự gọi `plc_io_register_di/do/ai()` (Layer 3, đã có sẵn API
+  đăng ký) trực tiếp trong `board_hw_init()` của nó — `board_gateway.c`
+  có thể bỏ qua hoàn toàn phần này nếu không có I/O vật lý.
+
+Pin mapping thật (DI/DO GPIO, AI ADC channel) vẫn CHƯA CÓ — cần đọc kỹ
+`RS485_IO_RF_V2.ioc` (đã xác nhận `Core/Inc/gpio.h` có `OUT0_Pin` v.v.,
+nhưng chưa liệt kê đủ cho cả 8DI/8DO/4AI) trước khi viết
+`board_remoteio.c` thật.
 
 ## 3. Các quyết định kiến trúc CHƯA CHỐT (đừng tự ý quyết định, hỏi lại)
 
@@ -422,6 +579,28 @@ truyền tick thật vào (tham số hay setter) — CHƯA QUYẾT ĐỊNH, mụ
    nguồn tín hiệu 4AI thật của sản phẩm không — cần spec trở
    kháng/băng thông thật để xác nhận, hiện đang dùng giá trị mặc định
    hợp lý.
+10. **3 điểm cần chốt trước khi viết `board.h`/`board_remoteio.c` thật**
+    (mục 2.5, MỚI) — đã thảo luận và có hướng đồng ý sơ bộ nhưng CHƯA
+    CHỐT bằng code thật:
+    - Tên hàm `board_init()` (tầng chung) vs `board_hw_init()` (mỗi
+      SKU) — tránh đụng tên khi cả 2 file cùng compile vào 1 target.
+    - Dùng macro CubeMX sinh sẵn (`OUT0_Pin`, ...) thay vì tự đánh số
+      `GPIOA`/`GPIO_PIN_8` bằng tay trong `board_remoteio.c`.
+    - Mỗi SKU tự gọi `plc_io_register_di/do/ai()` trực tiếp trong
+      `board_hw_init()` của nó, `board_gateway.c` có thể bỏ hoàn toàn.
+11. **Layer 4 gọi `plc_modbus_cfg_init()` từ đâu, với transport nào**
+    (mục 1.11/2.3, MỚI) — `plc_engine_init()` có tự nhận
+    `modbus_transport_t` làm tham số (board init dựng sẵn rồi truyền
+    vào), hay board init tự gọi `plc_modbus_cfg_init()` trực tiếp
+    TRƯỚC khi gọi `plc_engine_init()`? Ảnh hưởng trực tiếp tới chữ ký
+    `plc_engine_init_params_t` — nên chốt trước khi viết `plc_engine.c`
+    thật, không phải sau.
+12. **Xác nhận `nmbs_set_byte_timeout(nmbs, 0)` có thực sự an toàn với
+    `modbus_usb_write()` không** (mục 1.11, bug cũ nhắc lại) — trước khi
+    coi kênh USB Modbus config service là production-ready, cần quyết
+    định: sửa `sx_usb_tiny_write()` có chế độ non-blocking thật, hay
+    xác nhận use case hiện tại không bao giờ cần write không-block thật
+    sự (App luôn đợi được write xong trong ngân sách scan cycle).
 
 ## 4. Sửa nhỏ đã làm nhưng dễ quên — checklist tránh lặp lại lỗi cũ
 
@@ -508,6 +687,63 @@ mkdir build && cd build && cmake .. && make && ./test_bin
 Kỳ vọng: `ALL TESTS PASSED`. Đã re-run nhiều lần qua các phiên, luôn
 pass (gcc trực tiếp lẫn cmake thật đều đã dùng, tuỳ sandbox có cmake hay
 không).
+
+## 5.1 Lệnh verify nhanh `plc_modbus_cfg.c`/`modbus_usb.c` (MỚI — không cần toolchain ARM, không cần TinyUSB thật)
+
+`plc_modbus_cfg.c` include `sx_time.h` trực tiếp (không qua USB) và,
+sau đợt vá mục 1.11, KHÔNG còn include `sx_usb_cdc.h`/`modbus_usb.h`
+nữa — chỉ `modbus_transport.h` (header-only, chỉ `<stdint.h>`). Nhờ
+vậy, compile riêng file này bằng `gcc` thường vẫn khả thi, chỉ cần 3
+header stub tối thiểu cho `modbus_usb.c` (không phải cho
+`plc_modbus_cfg.c`):
+
+```bash
+mkdir -p /tmp/splc_verify_modbus/stubs && cd /tmp/splc_verify_modbus
+cat > stubs/tusb_types.h << 'EOF'
+#ifndef TUSB_TYPES_STUB_H
+#define TUSB_TYPES_STUB_H
+#endif
+EOF
+cat > stubs/cqueue.h << 'EOF'
+#ifndef CQUEUE_STUB_H
+#define CQUEUE_STUB_H
+typedef struct { int dummy; } CQueue_t;
+#endif
+EOF
+cat > stubs/sx_time.h << 'EOF'
+#ifndef SX_TIME_STUB_H
+#define SX_TIME_STUB_H
+#include <stdint.h>
+uint32_t sx_get_tick_ms(void);
+#endif
+EOF
+
+cd <đường-dẫn-tới-repo>/simple_plc
+
+gcc -c -std=c11 -Wall -Wextra \
+  -I/tmp/splc_verify_modbus/stubs \
+  -Iport/modbus_transport -Iport/modbus_usb -Icomponents/usb_cdc \
+  port/modbus_usb/modbus_usb.c -o /tmp/splc_verify_modbus/modbus_usb.o
+
+gcc -c -std=c11 -Wall -Wextra \
+  -I/tmp/splc_verify_modbus/stubs \
+  -Iport/modbus_transport -Iport/modbus_usb -Icomponents/usb_cdc \
+  -Icore/plc_tag -Icore/plc_rule -Icore/plc_device -Icore/plc_error -Icore/plc_system_cmd \
+  -Ilibs/nanomodbus \
+  services/plc_modbus_cfg/plc_modbus_cfg.c -o /tmp/splc_verify_modbus/plc_modbus_cfg.o
+
+# Xác nhận ranh giới layer thật sự có hiệu lực ở cấp linker, không chỉ comment:
+nm -u /tmp/splc_verify_modbus/plc_modbus_cfg.o   # KHÔNG được có symbol nào tên sx_usb_*
+nm /tmp/splc_verify_modbus/modbus_usb.o          # phải thấy sx_usb_tiny_* là undefined ở đây, không phải ở plc_modbus_cfg.o
+```
+
+Kỳ vọng: cả 2 lệnh `gcc -c` đều exit 0, 0 warning kể cả với `-Wall
+-Wextra`. `nm -u plc_modbus_cfg.o` chỉ liệt kê symbol Layer 2
+(`tag_read`, `rule_table_commit`, `g_rule_table`, `g_rule_count`) và
+nanoMODBUS (`nmbs_*`) — không có `sx_usb_tiny_*` nào. Nếu sau này có ai
+vô tình include lại `sx_usb_cdc.h` vào `plc_modbus_cfg.c`, lệnh `nm`
+này sẽ lộ ra ngay (symbol `sx_usb_tiny_*` xuất hiện lại trong
+`plc_modbus_cfg.o`), coi đây là dấu hiệu ranh giới Layer 3/3.5 bị vỡ.
 
 ## 6. Ghi chú quy trình làm việc với người dùng (bối cảnh, không phải kỹ thuật)
 
