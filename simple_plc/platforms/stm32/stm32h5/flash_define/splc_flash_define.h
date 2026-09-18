@@ -1,6 +1,8 @@
 #ifndef SPLC_FLASH_DEFINE_H
 #define SPLC_FLASH_DEFINE_H
 
+#include "sx_platform_config.h"
+
 /*
  * app/splc_flash_define.h - Layer 4 (App / product-specific configuration)
  *
@@ -70,6 +72,8 @@
  * endurance budget shrinks proportionally -- worth re-checking before
  * allowing very short periods.
  */
+
+#if STM32H5_PLATFORM
 
 #include <stdint.h>
 
@@ -165,6 +169,8 @@ extern "C" {
 #define SPLC_RETAIN_RECORD_SIZE         (SPLC_RETAIN_HEADER_SIZE + SPLC_RETAIN_ENTRY_SIZE * SPLC_RETAIN_TAG_COUNT) /* 200 bytes */
 #define SPLC_RETAIN_RECORDS_PER_SECTOR  (SPLC_FLASH_SECTOR_SIZE / SPLC_RETAIN_RECORD_SIZE) /* 40 */
 #define SPLC_RETAIN_TOTAL_RECORDS       (SPLC_RETAIN_RECORDS_PER_SECTOR * SPLC_FLASH_RETAIN_SECTOR_COUNT) /* 160 */
+
+#endif // STM32H5_PLATFORM
 
 #ifdef __cplusplus
 }

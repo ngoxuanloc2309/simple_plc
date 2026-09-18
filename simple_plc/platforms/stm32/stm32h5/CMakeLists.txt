@@ -65,6 +65,8 @@ target_include_directories(splc_platform_stm32h5 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/uart
     ${CMAKE_CURRENT_SOURCE_DIR}/time
     ${CMAKE_CURRENT_SOURCE_DIR}/timer
+    ${CMAKE_CURRENT_SOURCE_DIR}/flash_define
+    ${CMAKE_CURRENT_SOURCE_DIR}/pwd
 )
 
 # TODO(wiring): sx_platform_config.h (the STM32H5_PLATFORM=1 / *_PLATFORM=0
