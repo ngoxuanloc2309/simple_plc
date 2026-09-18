@@ -17,7 +17,6 @@
 # Layer 0/1 target by design (build/port boundary, see
 # docs/architecture.md section 1, rule 3).
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/core)
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE splc_core)
 
 # --- Layer 1 - SX Driver Core (components/) -----------------------------
 # splc_components is defined in components/CMakeLists.txt. Currently an
@@ -29,7 +28,6 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE splc_core)
 # features, no object code, so this line will keep working unchanged
 # once sx_usb_cdc.c is added there and the target becomes STATIC.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/components)
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE splc_components)
 
 # --- Layer 0 - Platform (platforms/stm32/stm32h5/) -----------------------
 # splc_platform_stm32h5 is defined in
@@ -46,13 +44,11 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE splc_components)
 # product's actual analog input sources). Verified by direct gcc compile
 # of all 5 .c files against this exact include path, 0 errors.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/platforms/stm32/stm32h5)
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE splc_platform_stm32h5)
 
 # --- Library - nanoMODBUS (libs/) ---------------------------------------
 # nanomodbus is defined in libs/CMakeLists.txt. Portable, builds cleanly
 # standalone (verified independently), no platform dependency.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/libs)
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE nanomodbus)
 
 # --- Layer 3.5 - Protocol / Library Porting (port/) ---------------------
 # splc_port is defined in port/CMakeLists.txt. Builds
@@ -62,7 +58,6 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE nanomodbus)
 # -- Gateway-variant transports, out of scope for the current Remote I/O
 # SKU per docs/architecture.md).
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/port)
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE splc_port)
 
 # --- Layer 3 - PLC Application Services (services/) ---------------------
 # splc_services is defined in services/CMakeLists.txt. Builds
@@ -74,7 +69,36 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE splc_port)
 # remains unwritten (0 bytes) and is deliberately excluded from
 # services/CMakeLists.txt's source list until it exists.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/services)
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE splc_services)
+
+# --- Link everything into the top-level executable ----------------------
+#
+# IMPORTANT: this must be a single PLAIN-signature target_link_libraries()
+# call, not one PRIVATE-keyword call per library as this file used to
+# have. Root cause (found by actually building with the real ARM
+# toolchain on Windows -- this sandbox's own verification used a
+# hand-written INTERFACE stand-in for the stm32cubemx target and never
+# caught it): cmake/stm32cubemx/CMakeLists.txt (CubeMX-generated, not
+# ours to edit -- see its own "generated only once" header comment) does
+# `target_link_libraries(${CMAKE_PROJECT_NAME} ${MX_LINK_LIBS})` with NO
+# PRIVATE/PUBLIC/INTERFACE keyword -- the "plain" signature. CMake
+# forbids mixing plain and keyword target_link_libraries() calls on the
+# same target (RS485_IO_RF_V2 here): once any call on a target is plain,
+# every other call on that same target must also be plain, or configure
+# fails with "All uses of target_link_libraries with a target must be
+# either all-keyword or all-plain." Since cmake/stm32cubemx/CMakeLists.txt
+# runs first (root CMakeLists.txt's add_subdirectory(cmake/stm32cubemx)
+# comes before add_subdirectory(simple_plc)) and cannot be changed, this
+# file must use plain signature too -- PRIVATE/PUBLIC only make sense
+# between static libraries anyway; for the final top-level executable
+# they have no real effect beyond satisfying CMake's consistency check.
+target_link_libraries(${CMAKE_PROJECT_NAME}
+    splc_core
+    splc_components
+    splc_platform_stm32h5
+    nanomodbus
+    splc_port
+    splc_services
+)
 
 # --- Everything else: not yet split into its own CMakeLists.txt --------
 #
