@@ -21,6 +21,8 @@
 
 #include "plc_io.h"
 #include "plc_tag_def.h"
+#include "tim.h"
+#include "stm32h5xx_hal.h"
 
 /*
  * board_zigbee_io.c - Layer 4
@@ -172,7 +174,7 @@ void board_hw_init(void)
      * explanation, not a verified root cause. */
     {
         uint32_t t0 = HAL_GetTick();
-        while ((HAL_GetTick() - t0) < 300U) {
+        while ((HAL_GetTick() - t0) < 500U) {
             sx_usb_tiny_process(&s_board.usb);
         }
     }
@@ -192,4 +194,11 @@ modbus_transport_t board_get_modbus_transport(void)
 void USB_DRD_FS_IRQHandler(void)
 {
     tud_int_handler(0);
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim == &htim1) {
+        tud_task();
+    }
 }

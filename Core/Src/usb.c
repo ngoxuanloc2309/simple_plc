@@ -84,7 +84,7 @@ void HAL_PCD_MspInit(PCD_HandleTypeDef* pcdHandle)
     __HAL_RCC_USB_CLK_ENABLE();
 
     /* USB_DRD_FS interrupt Init */
-    HAL_NVIC_SetPriority(USB_DRD_FS_IRQn, 0, 0);
+    HAL_NVIC_SetPriority(USB_DRD_FS_IRQn, 1, 0);
     HAL_NVIC_EnableIRQ(USB_DRD_FS_IRQn);
   /* USER CODE BEGIN USB_DRD_FS_MspInit 1 */
 

@@ -33,6 +33,7 @@
 #define UART_LOG    hlpuart1
 #define UART_RS485  huart1
 #define UART_ZIGBEE huart2
+#define ZIGBEE_TIM1 htim1
 
 /* USB CDC (App<->MCU Modbus channel, per docs/architecture.md section 0
  * -- USB, not RS485). Buffer sizes are a starting point, not yet tuned
