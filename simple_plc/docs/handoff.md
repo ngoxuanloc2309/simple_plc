@@ -6,22 +6,24 @@
 > nguồn kiến trúc chính, file này chỉ ghi lại "đang làm tới đâu" và "làm
 > gì tiếp theo".
 >
-> **Đây là bản viết lại hoàn toàn (thay bản cũ 463 dòng)**, không phải vá
-> từng đoạn — khối lượng thay đổi từ bản trước quá lớn để vá an toàn: 5
-> CMakeLists mới (Layer 0/1/libs/port/root đã wire xong), gap ADC đã đóng
-> (kèm 2 bug thật phát hiện khi build lần đầu), Flash memory map đã chốt
-> xong (`app/splc_flash_define.h`), và phát hiện ra `utils/filter/` (819
-> dòng, 11 loại filter tín hiệu, có sẵn từ lâu nhưng chưa hề được nhắc
-> tới trong bản handoff nào trước đây). Nội dung Layer 2 (mục 1.1-1.2,
-> 1.5) và các quyết định chưa chốt (mục 3) hầu hết giữ nguyên từ bản
-> trước — không có thay đổi mới ở đó, chỉ đánh số lại mục cho gọn.
+> **Đây là bản VÁ TIẾP** (không viết lại toàn bộ như lần trước) trên nền
+> bản 519 dòng trước đó. Thay đổi chính từ bản trước tới giờ: Layer 3
+> (`services/`) không còn rỗng — `plc_io.c` và `plc_retain.c` đã viết
+> xong và build+test thật (mục 1.7 mới); PVD (nguồn giám sát sụt áp cho
+> Retain) đã xong cả 3 lớp code+cấu hình (mục 1.8 mới); `services/
+> CMakeLists.txt` đã viết và wire xong (mục 1.4.4 mới); `splc_flash_define.h`
+> đã DI CHUYỂN VỊ TRÍ, không còn ở `app/` (mục 1.5 đã cập nhật); và một
+> lỗi CMake thật nghiêm trọng (plain vs keyword `target_link_libraries`
+> signature, chỉ lộ ra khi build bằng toolchain ARM thật trên Windows,
+> sandbox Linux không bao giờ tự phát hiện được) đã được tìm và sửa (mục
+> 1.4.4). `build.bat` cũng đã có ở gốc repo (mục 1.9 mới).
 
 ## 0. Trạng thái repo tại thời điểm viết file này
 
 - Branch: `main`
-- Commit mới nhất đã verify: `7b8486e` ("fix code adc" — sửa
-  `ADC_SAMPLETIME_COMMON_1` thành `ADC_SAMPLETIME_247CYCLES_5`, xem mục
-  1.3.2).
+- Commit mới nhất đã verify: `52a9ef7` ("cmake simple_plc change" — sửa
+  lỗi CMake plain/keyword `target_link_libraries` signature conflict,
+  xem mục 1.4.4 mới).
 - Lệnh verify: `git log --oneline -10` để xem có commit mới hơn không
   trước khi đọc tiếp phần dưới — nếu có commit mới, ưu tiên đọc code thật
   hơn file này. **Bài học đã rút ra nhiều lần (xem mục 6):** người dùng có
@@ -238,13 +240,28 @@ tự link `nanomodbus` (đã verify: `modbus_usb.c`/`.h` không hề
 chuẩn C). Việc link `nanomodbus` sẽ rơi vào tay ai viết
 `services/CMakeLists.txt` sau này (chưa tồn tại).
 
-### 1.5 `app/splc_flash_define.h` — Flash memory map đã chốt xong (mới, phiên này)
+### 1.5 `platforms/stm32/stm32h5/flash_define/splc_flash_define.h` — Flash memory map đã chốt xong, ĐÃ ĐỔI VỊ TRÍ
+
+**Đổi vị trí so với bản handoff trước:** ban đầu Claude đặt file này ở
+`app/splc_flash_define.h` (Layer 4) với lý do "quyết định sản phẩm cụ
+thể". Người dùng đã tự di chuyển sang
+`platforms/stm32/stm32h5/flash_define/splc_flash_define.h` (Layer 0) và
+Claude xác nhận đây là vị trí hợp lý hơn: file này dùng thẳng macro
+`FLASH_BASE` (CMSIS) không qua bất kỳ trừu tượng nào, và gắn chết với 1
+chip cụ thể ngay từ nội dung — đúng bản chất Layer 0, không phải Layer 4.
+Đã thêm `#include "sx_platform_config.h"` ở đầu file (theo đúng pattern
+mọi file `stm32h5_*.h` khác trong Layer 0). Wire vào
+`platforms/stm32/stm32h5/CMakeLists.txt`'s PUBLIC include dirs — bất kỳ
+target nào link `splc_platform_stm32h5` tự động có header này, không cần
+thêm include path riêng.
+
+**QUAN TRỌNG cho ai đọc code cũ/tài liệu cũ:** mọi tham chiếu tới
+`app/splc_flash_define.h` trong lịch sử chat/commit trước đây đều đã LỖI
+THỜI — dùng đường dẫn mới ở trên.
 
 Layout đã thống nhất với người dùng qua nhiều bước hỏi-đáp (vị trí Flash
 → kích thước cần → cơ chế retain có sẵn trong spec gốc → số sector cụ
-thể → chấp nhận trade-off tuổi thọ), đặt ở `app/` (Layer 4, cùng chỗ
-`sx_platform_config.h`) vì đây là quyết định SẢN PHẨM cụ thể, không phải
-chip driver hay business logic:
+thể → chấp nhận trade-off tuổi thọ):
 
 ```
 STM32H523CCU6: 256KB, 32 sector x 8KB, dual-bank (Bank1=sector 0-15, Bank2=16-31)
@@ -259,7 +276,8 @@ mục 7.1** (không phải thiết kế mới) — ghi định kỳ (mặc đị
 `RETAIN_SNAPSHOT_PERIOD_MS`, cấu hình qua Modbus) + ghi khẩn cấp khi PVD
 phát hiện sụt áp; mỗi bản ghi có header (`seq_num`+`count`+`crc16`) + N
 entry (`tag_index`+`value`); scan toàn vùng lúc boot tìm `seq_num` lớn
-nhất + CRC hợp lệ, không lưu con trỏ riêng.
+nhất + CRC hợp lệ, không lưu con trỏ riêng. **Cơ chế này giờ đã có
+implementation thật, xem mục 1.7.2 — không còn chỉ là macro địa chỉ.**
 
 **Con số trong spec v0.1 gốc (104 byte/record, 16 tag, 64KB/8 sector) đã
 LỖI THỜI với v1.9** — `VREG_RETAIN` tăng từ 16 lên 32 slot. Đã tính lại
@@ -274,9 +292,16 @@ lập): `FLASH_BASE` resolve đúng `0x08000000`, không có khoảng trống/đ
 lẫn giữa Retain và Rule Table (`assert` pass), 3200 byte Rule Table thật
 vừa khít 1 sector.
 
+**Bug thật Claude tự phát hiện+sửa (không phải do người dùng di chuyển
+file gây ra, mà là lỗi có sẵn từ bản gốc ở `app/`):** file này dùng
+`FLASH_BASE` nhưng ban đầu không tự `#include "stm32h5xx_hal.h"` — chỉ
+"chạy được" khi Claude test vì luôn tự thêm include đó vào file test
+riêng. Khi `plc_retain.c` (Layer 3) include file này mà không có lý do
+gì để tự thêm HAL header trước, lỗi build lộ ra ngay. Đã sửa: file giờ
+tự `#include "stm32h5xx_hal.h"` trực tiếp, tự chứa đủ (self-contained).
+
 File chỉ định nghĩa macro địa chỉ/kích thước — KHÔNG khai báo struct
-retain record hay logic đọc/ghi (đó là việc của `plc_retain.c`, Layer 3,
-chưa viết — xem mục 2.1).
+retain record (đó là trong `plc_retain.c`, xem mục 1.7.2).
 
 ### 1.6 `utils/filter/` — 11 loại filter tín hiệu, có sẵn từ lâu nhưng CHƯA TỪNG được nhắc trong handoff (phát hiện mới, phiên này)
 
