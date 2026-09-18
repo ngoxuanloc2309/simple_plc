@@ -55,7 +55,6 @@
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-extern IWDG_HandleTypeDef hiwdg;
 extern DMA_HandleTypeDef handle_GPDMA1_Channel1;
 extern DMA_HandleTypeDef handle_GPDMA1_Channel0;
 extern UART_HandleTypeDef hlpuart1;
@@ -236,20 +235,6 @@ void GPDMA1_Channel1_IRQHandler(void)
   /* USER CODE BEGIN GPDMA1_Channel1_IRQn 1 */
 
   /* USER CODE END GPDMA1_Channel1_IRQn 1 */
-}
-
-/**
-  * @brief This function handles IWDG global interrupt.
-  */
-void IWDG_IRQHandler(void)
-{
-  /* USER CODE BEGIN IWDG_IRQn 0 */
-
-  /* USER CODE END IWDG_IRQn 0 */
-  HAL_IWDG_IRQHandler(&hiwdg);
-  /* USER CODE BEGIN IWDG_IRQn 1 */
-
-  /* USER CODE END IWDG_IRQn 1 */
 }
 
 /**
