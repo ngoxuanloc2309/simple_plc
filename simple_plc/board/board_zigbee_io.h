@@ -30,7 +30,7 @@
  * Core/Inc/usart.h, CubeMX-generated) -- LPUART1_IRQHandler already
  * exists in Core/Src/stm32h5xx_it.c, so RX interrupt-driven logging
  * works without further .ioc changes. */
-#define UART_LOG    lpuart1
+#define UART_LOG    hlpuart1
 #define UART_RS485  huart1
 #define UART_ZIGBEE huart2
 

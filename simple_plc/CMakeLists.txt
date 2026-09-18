@@ -65,6 +65,15 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/port)
 # services/CMakeLists.txt's source list until it exists.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/services)
 
+# --- Layer 4 - Board bring-up (board/) -----------------------------------
+# splc_board is defined in board/CMakeLists.txt. Builds board.c +
+# board_<SPLC_BOARD_SKU>.c (default "zigbee_io") -- board_hw_init()'s
+# DI/DO registration + UART log + USB CDC init for that SKU. Also builds
+# utils/logger/logger.c here (see board/CMakeLists.txt's own comment on
+# why: it compiles clean bare-metal, the FreeRTOS mutex code is already
+# guarded out via #if FREE_RTOS).
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/board)
+
 # --- Link everything into the top-level executable ----------------------
 #
 # IMPORTANT: this must be a single PLAIN-signature target_link_libraries()
@@ -93,6 +102,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     nanomodbus
     splc_port
     splc_services
+    splc_board
 )
 
 # --- Everything else: not yet split into its own CMakeLists.txt --------
@@ -104,21 +114,16 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 # symbols declared in its header.
 
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # TODO: board/board.c is currently EMPTY (0 lines) -- left out of
-    #       target_sources on purpose; add once it contains real
-    #       definitions, or the executable will still link fine but
-    #       silently do nothing useful.
     # TODO: Layer 4 (app/) - plc_engine.c is currently empty; add once
     #       implemented.
 
     # Layer U - Utils (pure algorithms, no hardware dependency)
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/cqueue/cqueue.c
-    # TODO: utils/logger/logger.c still #includes <FreeRTOS.h>/<semphr.h>
-    # and calls xSemaphoreTake/Give/CreateMutex. docs/architecture.md
-    # section "Layer U" says this mutex must be stripped when porting from
-    # WS_v1, since SimplePLC runs bare-metal single-threaded with no
-    # FreeRTOS. Left out of target_sources until that port is done, or
-    # this will fail to compile/link without FreeRTOS present.
+    # NOTE: utils/logger/logger.c moved to board/CMakeLists.txt's
+    # splc_board target -- board_<sku>.c is its only caller today. See
+    # that file's comment: it builds clean bare-metal (FREE_RTOS=0
+    # default), the older claim here that it "still needs the FreeRTOS
+    # mutex stripped" was stale.
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE

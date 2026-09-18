@@ -3,6 +3,10 @@
 #include "board.h"
 #include "board_zigbee_io.h"
 
+#include "main.h"    /* CubeMX-generated: GPIOA/GPIOB, GPIO_PIN_x macros used
+                       * by board_zigbee_io.h's DI*_PORT/DI*_PIN/DO*_PORT/
+                       * DO*_PIN definitions -- board_zigbee_io.h does not
+                       * include this itself, so this .c must. */
 #include "usart.h"   /* CubeMX-generated: extern UART_HandleTypeDef hlpuart1 */
 
 #include "sx_gpio.h"
