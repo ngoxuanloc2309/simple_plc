@@ -69,12 +69,10 @@ void HAL_MspInit(void)
   PWR_PVDTypeDef sConfigPVD = {0};
 
   /* System interrupt init*/
-  /* PendSV_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(PendSV_IRQn, 15, 0);
 
   /* Peripheral interrupt init */
   /* IWDG_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(IWDG_IRQn, 5, 0);
+  HAL_NVIC_SetPriority(IWDG_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(IWDG_IRQn);
 
   /** PVD Configuration
