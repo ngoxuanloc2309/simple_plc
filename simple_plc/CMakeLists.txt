@@ -64,20 +64,27 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE nanomodbus)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/port)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE splc_port)
 
+# --- Layer 3 - PLC Application Services (services/) ---------------------
+# splc_services is defined in services/CMakeLists.txt. Builds
+# plc_io.c and plc_retain.c today -- both written and verified this
+# session (plc_io.c: compiles clean; plc_retain.c: compiles clean AND
+# passed 5 behavioral test cases against a fake-but-flash-semantics-
+# accurate backend, including sector rotation when a sector fills up --
+# see docs/handoff.md for the full verification). plc_modbus_cfg.c
+# remains unwritten (0 bytes) and is deliberately excluded from
+# services/CMakeLists.txt's source list until it exists.
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/services)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE splc_services)
+
 # --- Everything else: not yet split into its own CMakeLists.txt --------
 #
-# NOTE: Layer 3 (services/) and Layer 4 (app/) .c files exist but are
-# currently EMPTY placeholders (plc_engine.c, plc_io.c, plc_modbus_cfg.c,
-# plc_retain.c) -- see docs/architecture.md section 10, "still open".
-# They are intentionally left out of target_sources below; add them back
-# in as each is implemented, or the link step will fail on missing
-# definitions for symbols declared in their headers.
+# NOTE: Layer 4 (app/plc_app/plc_engine.c) is currently an EMPTY
+# placeholder -- see docs/architecture.md section 10, "still open". It
+# is intentionally left out of target_sources below; add it once
+# implemented, or the link step will fail on missing definitions for
+# symbols declared in its header.
 
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # TODO: Layer 3 (services/) - plc_io.c, plc_modbus_cfg.c, plc_retain.c
-    #       are currently empty; add once implemented. plc_retain.c is the
-    #       best starting point -- it only needs Layer 0's flash driver
-    #       (already wired above), not a pin map or USB.
     # TODO: board/board.c is currently EMPTY (0 lines) -- left out of
     #       target_sources on purpose; add once it contains real
     #       definitions, or the executable will still link fine but
@@ -96,16 +103,14 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # NOTE: Layer 2 (core/plc_tag, core/plc_rule) is no longer listed here
-    # -- splc_core exposes those as PUBLIC include dirs automatically via
-    # target_link_libraries() above. Same is now true for Layer 0/1/3.5/
-    # libs (splc_platform_stm32h5, splc_components, splc_port,
-    # nanomodbus) via their own target_link_libraries() calls above --
-    # the four include dirs below are kept only for Layer 3/4 headers,
-    # which have no CMakeLists.txt / target of their own yet.
+    # NOTE: Layer 2/1/0/3.5/libs/3 (core/, components/, platforms/,
+    # port/, libs/, services/) are no longer listed here -- each exposes
+    # its own headers as PUBLIC include dirs automatically via
+    # target_link_libraries() above. The two include dirs below are kept
+    # only for Layer 4 headers, which have no CMakeLists.txt / target of
+    # their own yet.
 
-    # Layer 3 / 4 (headers only referenced today)
-    ${CMAKE_CURRENT_SOURCE_DIR}/services
+    # Layer 4 (headers only referenced today)
     ${CMAKE_CURRENT_SOURCE_DIR}/app
 
     # Layer U
