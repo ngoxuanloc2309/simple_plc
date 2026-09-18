@@ -139,6 +139,38 @@ void board_hw_init(void)
 
     board_usb_init();
     log_info(TAG, "USB CDC initialized");
+
+    /* Pump tud_task() in a tight loop for a window right after
+     * tusb_init() returns, instead of relying on the first
+     * modbus_config_service() call in the 10 ms scan loop (main.c).
+     *
+     * History of this debug: a 5 s tight pump here reported
+     * connected=0 at the very end of the 5 s window, but the host DID
+     * enumerate shortly after flashing that build. A shortened 100 ms
+     * version of this same pump was tried next and did NOT fix
+     * enumeration ("Unknown Device" again) -- so whatever the tight
+     * pump needs to do, it needs measurably more than 100 ms and
+     * somewhere up to (at least) a few seconds. This version pumps for
+     * up to 5 s but logs the tick at which sx_usb_tiny_connected()
+     * first goes true, so the actual time needed can be read directly
+     * from the log instead of guessed at again -- narrow the constant
+     * below to that logged value (plus margin) once known, rather than
+     * leaving this at a blind 5 s in the shipped firmware. */
+    {
+        uint32_t t0 = HAL_GetTick();
+        bool logged_connected = false;
+        while ((HAL_GetTick() - t0) < 300U) {
+            sx_usb_tiny_process(&s_board.usb);
+            if (!logged_connected && sx_usb_tiny_connected(&s_board.usb)) {
+                log_debug(TAG, "USB connected after %lu ms of pumping",
+                         (unsigned long)(HAL_GetTick() - t0));
+                logged_connected = true;
+            }
+        }
+        if (!logged_connected) {
+            log_debug(TAG, "USB still not connected after 5000 ms of pumping");
+        }
+    }
 }
 
 modbus_transport_t board_get_modbus_transport(void)
