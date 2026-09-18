@@ -36,6 +36,7 @@
 
 #include <stdint.h>
 #include "sx_usb_cdc.h"
+#include "modbus_transport.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -86,6 +87,32 @@ int32_t modbus_usb_read(uint8_t *buf, uint16_t count, int32_t timeout_ms, void *
  * connected -- see modbus_usb.c.
  */
 int32_t modbus_usb_write(const uint8_t *buf, uint16_t count, int32_t timeout_ms, void *arg);
+
+/*
+ * Factory function: builds a modbus_transport_t bound to usb.
+ *
+ * usb must already be initialized via sx_usb_tiny_init() (board init,
+ * Layer 4) before this call, and must outlive every future
+ * modbus_config_service() call made against the resulting
+ * modbus_transport_t -- same lifetime requirement plc_modbus_cfg.c's
+ * caller already had to honor for the old sx_usb_tiny_t* parameter,
+ * unchanged here.
+ *
+ * The returned value wires modbus_usb_read()/modbus_usb_write() above
+ * unchanged (this function adds no new transport logic, it only packages
+ * existing functions into the shape modbus_transport.h expects) plus a
+ * small adapter for sx_usb_tiny_process(), and reports
+ * MODBUS_TRANSPORT_KIND_RTU, matching this transport's use of Modbus RTU
+ * framing over the USB-CDC byte stream (see docs/architecture.md section
+ * 2.4b: USB is the physical transport, RTU is still the framing App and
+ * MCU exchange over it).
+ *
+ * Intended caller: board init (Layer 4) only, immediately before passing
+ * the result to plc_modbus_cfg_init(). plc_modbus_cfg.c itself never
+ * calls this function -- it only consumes the modbus_transport_t value
+ * board init already built.
+ */
+modbus_transport_t modbus_transport_usb_create(sx_usb_tiny_t *usb);
 
 #ifdef __cplusplus
 }

@@ -4,11 +4,24 @@
 /*
  * plc_modbus_cfg.h - Layer 3 (PLC Application Services)
  *
- * Modbus RTU (over USB-CDC) config/monitor server -- the App<->MCU
- * channel per docs/SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md
+ * Modbus config/monitor server -- the App<->MCU channel per
+ * docs/SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md
  * section 8 (MODBUS REGISTER MAP V1). Owns exactly one nanoMODBUS server
- * instance (nmbs_t), backed by port/modbus_usb/modbus_usb.c (Layer 3.5)
- * for the actual byte transport over sx_usb_tiny_t (Layer 1).
+ * instance (nmbs_t), backed by whichever concrete transport the caller
+ * hands in as a modbus_transport_t (port/modbus_transport/
+ * modbus_transport.h, Layer 3.5).
+ *
+ * This file is transport-agnostic on purpose: it does not include
+ * sx_usb_cdc.h, sx_uart.h, or any other Layer 1 driver header, and does
+ * not know or care whether the App is connected over USB-CDC (Remote I/O
+ * SKU, see port/modbus_usb/modbus_usb.c), RS485/UART, or Modbus TCP
+ * (future Gateway variants). Board init (Layer 4) is the only place that
+ * knows which physical transport a given firmware build uses; it builds
+ * the appropriate modbus_transport_t (e.g. via
+ * modbus_transport_usb_create(), port/modbus_usb/modbus_usb.h) and passes
+ * it to plc_modbus_cfg_init() below. See modbus_transport.h's own header
+ * comment for the full rationale and the problem this replaced (a
+ * previous version of this file took a sx_usb_tiny_t* directly).
  *
  * Scope: read-only exposure of DEVICE_DESCRIPTOR, DEVICE_RESOURCE_INFO,
  * ACTIVE_RULE_TABLE, DEVICE_HEALTH, RUNTIME_TAG_VALUES, SYSTEM_COMMAND(_RESULT),
@@ -18,9 +31,12 @@
  * only defines their types, per that header's own comment ("That
  * ownership belongs one layer up").
  *
- * May include Layer 0/1 (sx_usb_cdc.h via modbus_usb.h, sx_time.h for
- * uptime) -- Layer 3 is not required to build/test hardware-free, unlike
- * Layer 2. See docs/architecture.md section 3 ("Ai duoc include ai").
+ * May include Layer 0/1 headers directly (sx_time.h for uptime) --
+ * Layer 3 is not required to build/test hardware-free, unlike Layer 2.
+ * See docs/architecture.md section 3 for the full include-direction
+ * table. The one Layer 1 header this file does NOT include on purpose is
+ * any concrete transport driver header (sx_usb_cdc.h, sx_uart.h) -- see
+ * the transport-agnostic note above.
  */
 
 #include <stdbool.h>
@@ -29,7 +45,7 @@
 #include "plc_device.h"
 #include "plc_system_cmd.h"
 #include "plc_error.h"
-#include "sx_usb_cdc.h"
+#include "modbus_transport.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,20 +66,22 @@ extern SPLC_DeviceResourceInfo  g_device_resource_info;
 extern SPLC_DeviceHealth        g_device_health;
 
 /*
- * One-time setup: creates the nanoMODBUS server instance (RTU, address
- * ignored -- USB-CDC is a point-to-point link with exactly one App on
- * the other end, unlike RS485's multi-drop bus, so the unit_id byte in
- * every request is accepted but not checked against any expected value)
- * bound to modbus_usb_read()/modbus_usb_write() (port/modbus_usb/
- * modbus_usb.c) over the sx_usb_tiny_t instance usb owns.
+ * One-time setup: creates the nanoMODBUS server instance (address_rtu is
+ * always passed as 0 and ignored on the RTU path -- a point-to-point
+ * link such as USB-CDC has exactly one App on the other end, unlike
+ * RS485's multi-drop bus, so the unit_id byte in every request is
+ * accepted but not checked against any expected value), bound to the
+ * read/write/process functions transport provides.
  *
- * usb: caller-owned sx_usb_tiny_t*, already initialized via
- *      sx_usb_tiny_init() (Layer 4/board init) before this call -- this
- *      function does not call sx_usb_tiny_init() itself, mirroring
- *      plc_io.h's registration functions not calling sx_gpio_init().
- *      Must outlive every future modbus_config_service() call (same
- *      instance passed as nmbs_platform_conf.arg for the lifetime of the
- *      server).
+ * transport: caller-owned modbus_transport_t, already built by the
+ *      appropriate factory function (e.g. modbus_transport_usb_create(),
+ *      port/modbus_usb/modbus_usb.h) from a driver instance that has
+ *      already been initialized (e.g. sx_usb_tiny_init() already called)
+ *      before this call. This function copies the struct's contents
+ *      internally; it does not store the pointer itself. The underlying
+ *      driver instance transport->ctx refers to must outlive every
+ *      future modbus_config_service() call (same instance passed as
+ *      nmbs_platform_conf.arg for the lifetime of the server).
  *
  * Called once at boot, from plc_engine_init() (Layer 4), AFTER
  * tag_table_load_from_flash() and rule_table_load_from_flash() (so
@@ -71,16 +89,17 @@ extern SPLC_DeviceHealth        g_device_health;
  * reflect real data when the App's first read request arrives) -- see
  * docs/architecture.md section 4's plc_engine_init() ordering.
  */
-void plc_modbus_cfg_init(sx_usb_tiny_t *usb);
+void plc_modbus_cfg_init(const modbus_transport_t *transport);
 
 /*
- * Services one iteration of the Modbus server: pumps USB (sx_usb_tiny_process())
- * so RX/TX and connection state stay current even if no Modbus frame is
+ * Services one iteration of the Modbus server: pumps the transport
+ * (transport->process(), if provided -- e.g. tud_task() for USB-CDC) so
+ * RX/TX and connection state stay current even if no Modbus frame is
  * pending, then polls nanoMODBUS non-blockingly (nmbs_server_poll(), with
- * a byte/read timeout of 0 -- see modbus_usb.c) for at most one request/
- * response. Never blocks: if no complete request is available, both
- * calls return immediately. Safe, and intended, to call every scan cycle
- * even when the App is idle or not connected at all.
+ * a byte/read timeout of 0 -- see plc_modbus_cfg_init()) for at most one
+ * request/response. Never blocks: if no complete request is available,
+ * both calls return immediately. Safe, and intended, to call every scan
+ * cycle even when the App is idle or not connected at all.
  *
  * Also advances g_device_health.uptime_s (via sx_get_tick_ms(), Layer 1)
  * and updates health_flags from whatever plc_engine_scan_once() (Layer 4)

@@ -97,3 +97,30 @@ int32_t modbus_usb_write(const uint8_t *buf, uint16_t count, int32_t timeout_ms,
 
     return (int32_t)count;
 }
+
+/*
+ * Adapter for modbus_transport_t.process: matches the void (*)(void *ctx)
+ * shape modbus_transport.h expects, forwarding straight to
+ * sx_usb_tiny_process() with the ctx pointer cast back to sx_usb_tiny_t*.
+ * No logic of its own beyond the cast -- see modbus_transport_usb_create()
+ * for why this indirection exists (modbus_transport_t cannot reference
+ * sx_usb_tiny_t by name without including sx_usb_cdc.h from a
+ * transport-agnostic header).
+ */
+static void modbus_transport_usb_process(void *ctx)
+{
+    sx_usb_tiny_process((sx_usb_tiny_t *)ctx);
+}
+
+modbus_transport_t modbus_transport_usb_create(sx_usb_tiny_t *usb)
+{
+    modbus_transport_t transport;
+
+    transport.ctx      = usb;
+    transport.read     = modbus_usb_read;
+    transport.write    = modbus_usb_write;
+    transport.process  = modbus_transport_usb_process;
+    transport.kind     = MODBUS_TRANSPORT_KIND_RTU;
+
+    return transport;
+}

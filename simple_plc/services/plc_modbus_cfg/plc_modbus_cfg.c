@@ -3,7 +3,6 @@
 #include <string.h>
 
 #include "nanomodbus.h"
-#include "modbus_usb.h"
 #include "plc_tag.h"
 #include "plc_tag_def.h"
 #include "plc_rule.h"
@@ -21,11 +20,20 @@ SPLC_DeviceDescriptor   g_device_descriptor;
 SPLC_DeviceResourceInfo g_device_resource_info;
 SPLC_DeviceHealth       g_device_health;
 
-/* --- nanoMODBUS server instance and its USB transport ------------------ */
+/* --- nanoMODBUS server instance and its transport ----------------------
+ *
+ * s_transport is a copy of the modbus_transport_t the caller passed to
+ * plc_modbus_cfg_init(), not a pointer into caller-owned memory -- see
+ * plc_modbus_cfg.h's doc comment on plc_modbus_cfg_init(). The concrete
+ * driver instance behind s_transport.ctx (a sx_usb_tiny_t*, a sx_uart_t*,
+ * or similar, depending on which factory function built the transport)
+ * is still not owned here; only the small modbus_transport_t struct
+ * itself is copied.
+ */
 
-static nmbs_t          s_nmbs;
-static sx_usb_tiny_t   *s_usb; /* Not owned -- see plc_modbus_cfg_init()'s doc comment */
-static uint32_t         s_boot_tick_ms;
+static nmbs_t              s_nmbs;
+static modbus_transport_t  s_transport;
+static uint32_t            s_boot_tick_ms;
 
 /*
  * --- Rule Transfer staging state (register map section 9, 0x9000-0xA001) -
@@ -624,17 +632,17 @@ static nmbs_error cb_write_single_register(uint16_t address, uint16_t value, uin
 
 /* --- Public API (see plc_modbus_cfg.h for full contracts) --------------- */
 
-void plc_modbus_cfg_init(sx_usb_tiny_t *usb)
+void plc_modbus_cfg_init(const modbus_transport_t *transport)
 {
-    s_usb          = usb;
+    s_transport    = *transport;
     s_boot_tick_ms = sx_get_tick_ms();
 
     nmbs_platform_conf platform_conf;
     nmbs_platform_conf_create(&platform_conf);
-    platform_conf.transport = NMBS_TRANSPORT_RTU;
-    platform_conf.read      = modbus_usb_read;
-    platform_conf.write     = modbus_usb_write;
-    platform_conf.arg       = s_usb;
+    platform_conf.transport = (nmbs_transport)s_transport.kind;
+    platform_conf.read      = s_transport.read;
+    platform_conf.write     = s_transport.write;
+    platform_conf.arg       = s_transport.ctx;
 
     nmbs_callbacks callbacks;
     nmbs_callbacks_create(&callbacks);
@@ -644,7 +652,9 @@ void plc_modbus_cfg_init(sx_usb_tiny_t *usb)
 
     /* unit_id (address_rtu) is accepted but not checked -- see
      * plc_modbus_cfg.h's plc_modbus_cfg_init() comment on why, for a
-     * point-to-point USB-CDC link. */
+     * point-to-point link such as USB-CDC. Not meaningful at all on the
+     * TCP path (s_transport.kind == MODBUS_TRANSPORT_KIND_TCP), where
+     * nanoMODBUS does not use address_rtu either. */
     nmbs_server_create(&s_nmbs, 0, &platform_conf, &callbacks);
 
     /* Non-blocking poll: both the byte-level read/write timeout and the
@@ -658,7 +668,9 @@ void plc_modbus_cfg_init(sx_usb_tiny_t *usb)
 
 void modbus_config_service(void)
 {
-    sx_usb_tiny_process(s_usb);
+    if (s_transport.process != NULL) {
+        s_transport.process(s_transport.ctx);
+    }
     nmbs_server_poll(&s_nmbs);
 }
 
