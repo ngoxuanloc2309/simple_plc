@@ -31,7 +31,7 @@
 #include "splc_flash_define.h"
 #include "sx_flash.h"
 #include "sx_time.h"
-#include "crc16_modbus.h"
+#include "nanomodbus.h"
 #include "plc_tag.h"
 #include "plc_tag_def.h"
 
@@ -79,6 +79,12 @@ static uint32_t retain_record_addr(uint32_t sector_idx, uint32_t slot_idx)
  * raw: pointer to a full SPLC_RETAIN_RECORD_SIZE-byte record buffer.
  *      Only raw[RETAIN_RECORD_CRC_OFFSET..+1] is temporarily zeroed
  *      (and restored) by this function; the rest of raw is read-only.
+ *
+ * nanoMODBUS's nmbs_crc_calc() returns its result byte-swapped for RTU
+ * wire order (low byte first, ready to transmit) -- this function swaps
+ * it back to a plain arithmetic uint16_t before returning, since this
+ * record's crc16 field is stored via write_u16_be() like every other
+ * multi-byte field in the record, not transmitted as a raw RTU frame.
  */
 static uint16_t retain_record_crc(uint8_t *raw)
 {
@@ -88,7 +94,8 @@ static uint16_t retain_record_crc(uint8_t *raw)
     raw[RETAIN_RECORD_CRC_OFFSET]     = 0;
     raw[RETAIN_RECORD_CRC_OFFSET + 1] = 0;
 
-    uint16_t crc = crc16_modbus(raw, SPLC_RETAIN_RECORD_SIZE);
+    uint16_t wire_order_crc = nmbs_crc_calc(raw, SPLC_RETAIN_RECORD_SIZE, NULL);
+    uint16_t crc = (uint16_t)((wire_order_crc << 8) | (wire_order_crc >> 8));
 
     raw[RETAIN_RECORD_CRC_OFFSET]     = saved0;
     raw[RETAIN_RECORD_CRC_OFFSET + 1] = saved1;

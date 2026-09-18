@@ -21,6 +21,11 @@
  *
  * This file may include Layer 0/1 (sx_flash.h, sx_pwd.h, sx_time.h) --
  * unlike Layer 2, Layer 3 is not required to build/test hardware-free.
+ * It also uses nanoMODBUS's own nmbs_crc_calc() (libs/nanomodbus/
+ * nanomodbus.h) for the record's CRC-16/MODBUS rather than a separate
+ * project CRC implementation -- nanoMODBUS already needs this exact
+ * algorithm for RTU framing, so reusing it avoids a second
+ * hand-maintained copy of the same CRC-16/MODBUS polynomial/init value.
  */
 
 #include <stdbool.h>
