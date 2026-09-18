@@ -15,7 +15,11 @@ extern "C" {
 #endif
 
 #ifndef BOARD_TUD_MAX_SPEED
-#define BOARD_TUD_MAX_SPEED   OPT_MODE_DEFAULT_SPEED
+/* USB_DRD_FS (stm32_fsdev driver) is Full-Speed only on STM32H5 --
+ * OPT_MODE_DEFAULT_SPEED left the speed negotiation ambiguous. Matches
+ * the known-working USB_ETH reference project's tusb_config.h, which
+ * sets this explicitly. */
+#define BOARD_TUD_MAX_SPEED   OPT_MODE_FULL_SPEED
 #endif
 
 #ifndef CFG_TUSB_OS

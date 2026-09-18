@@ -34,7 +34,11 @@ void sx_usb_tiny_init(sx_usb_tiny_t *_usb, sx_usb_tiny_config_t *_config)
 
     tusb_rhport_init_t dev_init = {
         .role  = TUSB_ROLE_DEVICE,
-        .speed = TUSB_SPEED_AUTO,
+        /* USB_DRD_FS (stm32_fsdev) is Full-Speed only on STM32H5 --
+         * TUSB_SPEED_AUTO left this ambiguous. Matches the known-working
+         * USB_ETH reference project (board.c's usb_device_task()), which
+         * sets TUSB_SPEED_FULL explicitly. */
+        .speed = TUSB_SPEED_FULL,
     };
     tusb_init(BOARD_TUD_RHPORT, &dev_init);
 #endif
