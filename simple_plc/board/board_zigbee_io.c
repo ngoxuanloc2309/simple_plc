@@ -193,7 +193,6 @@ modbus_transport_t board_get_modbus_transport(void)
 
 void USB_DRD_FS_IRQHandler(void)
 {
-    // log_debug(TAG, "USB IRQ fired");
     tud_int_handler(0);
 }
 
