@@ -19,14 +19,9 @@
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/core)
 
 # --- Layer 1 - SX Driver Core (components/) -----------------------------
-# splc_components is defined in components/CMakeLists.txt. Currently an
-# INTERFACE library (no compiled .c files yet -- its one real source,
-# usb_cdc/sx_usb_cdc.c, is deliberately left out until the tinyusb
-# submodule is checked out and wired; see the TODO in
-# components/CMakeLists.txt). Still safe to add_subdirectory() and link
-# now: an INTERFACE target contributes only include dirs/compile
-# features, no object code, so this line will keep working unchanged
-# once sx_usb_cdc.c is added there and the target becomes STATIC.
+# splc_components is defined in components/CMakeLists.txt. STATIC library:
+# builds usb_cdc/sx_usb_cdc.c, now wired against the "tinyusb" target
+# (libs/CMakeLists.txt) once the tinyusb submodule is checked out.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/components)
 
 # --- Layer 0 - Platform (platforms/stm32/stm32h5/) -----------------------

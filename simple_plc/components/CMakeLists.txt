@@ -21,53 +21,28 @@
 
 # --- USB CDC (Layer 1, has a real .c) -----------------------------------
 #
-# TODO(wiring): sx_usb_cdc.c depends on three things NOT YET WIRED
-# anywhere in the CMake tree, so splc_components as defined below will
-# fail to compile out of the box until each is resolved. Left as TODOs
-# rather than silently working around them, since guessing wrong here
-# (e.g. pointing at the wrong tinyusb config) would be worse than a clear
-# build failure with a pointer to the fix:
-#
+# sx_usb_cdc.c depends on three things, now all resolvable:
 #   1. TinyUSB headers/sources (tusb.h, tusb_types.h, the tud_*()
-#      implementation). libs/tinyusb is a git submodule
-#      (see /.gitmodules) that is NOT checked out in this working copy
-#      (the directory exists but is empty) -- `git submodule update
-#      --init --recursive` must be run first, and TinyUSB's own include
-#      dirs + a small set of its .c files (usbd.c, cdc_device.c, the
-#      dcd_* device-controller driver for STM32H5, tusb.c) need to be
-#      added to a target before splc_components can actually link.
-#   2. usb.c / tusb_config.h / usb_descriptors.c -- port/usb/ has
-#      tusb_config.h and usb_descriptors.c (CDC-only descriptor set) but
-#      port/ has no CMakeLists.txt yet; sx_usb_cdc.c's
-#      `#include "usb.h"` (Core/Inc/usb.c's header, CubeMX-generated) and
-#      `#include "tusb_config.h"` both need an include path added here or
-#      one layer up once port/'s CMakeLists.txt exists.
-#   3. logger.h (Layer U, utils/logger/) -- safe to use bare-metal as-is
-#      (FreeRTOS calls are already guarded behind `#if FREE_RTOS`,
-#      defaulting to 0 in logger.h), but utils/ needs to be on the
-#      include path wherever splc_components is consumed.
-#
-# Once (1)-(3) are resolved, add usb_cdc/sx_usb_cdc.c to
-# SPLC_COMPONENTS_SRC below and link this target against whatever TinyUSB
-# target ends up owning tusb.h.
+#      implementation) -- built as the "tinyusb" target in
+#      libs/CMakeLists.txt (requires the tinyusb submodule to be
+#      checked out; see that file for the guard/error message if not).
+#   2. usb.h (Core/Inc/usb.h, CubeMX-generated) and tusb_config.h
+#      (port/usb/tusb_config.h, this project's own TinyUSB compile-time
+#      config) -- usb.h comes from the stm32cubemx target (transitively,
+#      via linking tinyusb below, which already links stm32cubemx);
+#      tusb_config.h's directory is added to the include path below.
+#   3. logger.h (Layer U, utils/logger/) -- added to the include path
+#      below. Safe to use bare-metal as-is (FreeRTOS calls are already
+#      guarded behind `#if FREE_RTOS`, defaulting to 0 in logger.h).
 set(SPLC_COMPONENTS_SRC
-    # usb_cdc/sx_usb_cdc.c intentionally NOT listed yet -- see TODO above.
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb_cdc/sx_usb_cdc.c
 )
 
-if(SPLC_COMPONENTS_SRC)
-    add_library(splc_components STATIC ${SPLC_COMPONENTS_SRC})
-else()
-    # No real .c files wired in yet (see TODO above) -- an INTERFACE
-    # library still lets platforms/ link against splc_components for the
-    # sx_*.h header contracts without requiring a compiled source file
-    # that doesn't build yet. Switch to add_library(... STATIC ...) above
-    # once sx_usb_cdc.c is added to SPLC_COMPONENTS_SRC.
-    add_library(splc_components INTERFACE)
-endif()
+add_library(splc_components STATIC ${SPLC_COMPONENTS_SRC})
 
-# PUBLIC (STATIC) / INTERFACE: platforms/stm32/stm32h5/*.c #include these
-# sx_*.h contracts directly (e.g. stm32h5_gpio.c -> sx_gpio.h), and any
-# Layer 3 code calling sx_gpio_read()/sx_uart_write()/etc. needs them too.
+# PUBLIC (STATIC): platforms/stm32/stm32h5/*.c #include these sx_*.h
+# contracts directly (e.g. stm32h5_gpio.c -> sx_gpio.h), and any Layer 3
+# code calling sx_gpio_read()/sx_uart_write()/etc. needs them too.
 set(SPLC_COMPONENTS_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/gpio
     ${CMAKE_CURRENT_SOURCE_DIR}/adc
@@ -77,27 +52,44 @@ set(SPLC_COMPONENTS_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/usb_cdc
 )
 
-if(SPLC_COMPONENTS_SRC)
-    target_include_directories(splc_components PUBLIC ${SPLC_COMPONENTS_INCLUDE_DIRS})
-else()
-    target_include_directories(splc_components INTERFACE ${SPLC_COMPONENTS_INCLUDE_DIRS})
-endif()
+target_include_directories(splc_components PUBLIC ${SPLC_COMPONENTS_INCLUDE_DIRS})
 
-# sx_uart.h (and, once wired, sx_usb_cdc.c) depend on cqueue.h (Layer U,
-# utils/cqueue/). Re-exported here so nothing above this layer needs to
-# know that a Layer U dependency is hiding inside a Layer 1 header.
-if(SPLC_COMPONENTS_SRC)
-    target_include_directories(splc_components PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/../utils/cqueue
-    )
-else()
-    target_include_directories(splc_components INTERFACE
-        ${CMAKE_CURRENT_SOURCE_DIR}/../utils/cqueue
-    )
-endif()
+# sx_uart.h (and sx_usb_cdc.c, via cqueue-backed RX/TX buffers) depend on
+# cqueue.h (Layer U, utils/cqueue/). Re-exported here so nothing above
+# this layer needs to know that a Layer U dependency is hiding inside a
+# Layer 1 header.
+target_include_directories(splc_components PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/../utils/cqueue
+)
 
-if(SPLC_COMPONENTS_SRC)
-    target_compile_features(splc_components PUBLIC c_std_11)
-else()
-    target_compile_features(splc_components INTERFACE c_std_11)
-endif()
+# sx_usb_cdc.c #includes "logger.h" (Layer U, utils/logger/) directly.
+target_include_directories(splc_components PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/../utils/logger
+)
+
+# sx_usb_cdc.c #includes "sx_platform_config.h" (currently app/, Layer 4
+# -- see the same TODO already flagged in
+# platforms/stm32/stm32h5/CMakeLists.txt about this header living one
+# layer too high). Needed here for the same reason: sx_usb_cdc.c's
+# `#if STM32H5_PLATFORM` branch must resolve this macro to build at all.
+target_include_directories(splc_components PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/../app
+)
+
+# sx_usb_cdc.c #includes "tusb.h" (TinyUSB) and "usb.h" (CubeMX-generated
+# Core/Inc/usb.h, transitively resolvable via stm32cubemx which the
+# tinyusb target already links PUBLIC). PUBLIC: any Layer 3.5/3 code
+# consuming splc_components' sx_usb_cdc.h (e.g. port/modbus_usb/
+# modbus_usb.c) transitively needs these resolvable too, since
+# sx_usb_cdc.h itself does not include tusb.h/usb.h but sx_usb_cdc.c does.
+#
+# NOTE: if the tinyusb submodule has not been checked out yet, the
+# "tinyusb" target does not exist (see libs/CMakeLists.txt's EXISTS
+# guard) and this line will fail CMake configuration with "target
+# 'tinyusb' not found" -- a clear, early error rather than the confusing
+# "tusb_types.h: No such file" compiler error this used to fail with.
+target_link_libraries(splc_components PUBLIC
+    tinyusb
+)
+
+target_compile_features(splc_components PUBLIC c_std_11)

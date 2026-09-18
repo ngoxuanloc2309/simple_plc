@@ -43,8 +43,8 @@ extern "C" {
 #endif
 
 //------------- DEVICE ------------//
-//#define DCFG_TUSB_MCU   OPT_MCU_STM32H5
-#define BOARD_TUD_RHPORT   0
+#define CFG_TUSB_MCU        OPT_MCU_STM32H5
+#define BOARD_TUD_RHPORT    0
 
 //------------- CLASS -------------//
 #define CFG_TUD_HID               0   /* 0 = CDC only | 1 = CDC + HID */

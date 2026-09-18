@@ -45,11 +45,9 @@ target_link_libraries(splc_services PUBLIC
 )
 
 # splc_components (Layer 1) supplies sx_gpio.h/sx_adc.h, which plc_io.h
-# includes directly. Currently an INTERFACE library (see
-# components/CMakeLists.txt's TODO -- sx_usb_cdc.c is not wired in yet,
-# unrelated to this target) -- linking against an INTERFACE target here
-# works the same way as linking against a STATIC one syntactically, only
-# contributing include dirs/compile features rather than object code.
+# includes directly. STATIC library (usb_cdc/sx_usb_cdc.c is now wired
+# in, see components/CMakeLists.txt) -- linking against it here works
+# the same way syntactically whether it is STATIC or INTERFACE.
 target_link_libraries(splc_services PUBLIC
     splc_components
 )
