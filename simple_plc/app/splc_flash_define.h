@@ -73,6 +73,23 @@
 
 #include <stdint.h>
 
+/* FLASH_BASE (0x08000000) is a CMSIS device-header macro (Drivers/CMSIS/
+ * Device/ST/STM32H5xx/Include/stm32h523xx.h), needed below by
+ * SPLC_FLASH_RULE_TABLE_ADDR/SPLC_FLASH_RETAIN_BASE_ADDR. This file is
+ * consumed from Layer 3 (services/plc_retain.c) as well as Layer 0
+ * (platforms/stm32/stm32h5/), and Layer 3 has no reason to already have
+ * included any HAL/CMSIS header itself before reaching for "where is
+ * Flash laid out" -- unlike a stm32h5_*.h file, which always sits behind
+ * `#if STM32H5_PLATFORM` and can assume stm32h5xx_hal.h is already
+ * pulled in by the same guard. So this header includes it directly,
+ * making itself self-contained rather than relying on whoever included
+ * it to have done so first. Safe to include unconditionally (not gated
+ * behind STM32H5_PLATFORM) because this file, by construction, only
+ * ever describes the STM32H5's own Flash layout -- a build for a
+ * different chip would use a different splc_flash_define.h entirely,
+ * not this same file with a different platform branch inside it. */
+#include "stm32h5xx_hal.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
