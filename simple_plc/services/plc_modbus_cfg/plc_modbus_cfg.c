@@ -7,6 +7,9 @@
 #include "plc_tag_def.h"
 #include "plc_rule.h"
 #include "sx_time.h"
+#include "logger.h"
+
+static const char *TAG = "PLC_MODBUS_CFG";
 
 /*
  * See plc_modbus_cfg.h for the overall design (static address-range
@@ -280,11 +283,14 @@ static void write_rule_count_staged(uint16_t value)
      * accepting an unreachable value and only discovering the problem
      * at COMMIT_COMMAND time. */
     if (value > MAX_RULES) {
+        log_warn(TAG, "rule_count_staged=%u rejected (> MAX_RULES=%u)",
+                 value, (unsigned)MAX_RULES);
         s_config_status     = CONFIG_STATUS_ERROR;
         s_config_error_code = SPLC_ERROR_INVALID_PARAMETER;
         return;
     }
 
+    log_debug(TAG, "rule_count_staged=%u, status -> RECEIVING", value);
     s_rule_count_staged = value;
     s_config_status      = CONFIG_STATUS_RECEIVING;
     s_config_error_code  = SPLC_ERROR_NONE;
@@ -436,18 +442,24 @@ static void read_active_rule_version(uint16_t offset, uint16_t quantity, uint16_
 static void write_commit_command(uint16_t value)
 {
     if (value != COMMIT_COMMAND_MAGIC) {
+        log_warn(TAG, "commit rejected: bad magic 0x%04X (expected 0x%04X)",
+                 value, COMMIT_COMMAND_MAGIC);
         s_config_status     = CONFIG_STATUS_ERROR;
         s_config_error_code = SPLC_ERROR_INVALID_PARAMETER;
         return;
     }
 
     s_config_status = CONFIG_STATUS_VERIFYING;
+    log_debug(TAG, "commit: verifying CRC, rule_count_staged=%u expected_crc16=0x%04X",
+              s_rule_count_staged, s_expected_crc16);
 
     uint16_t actual_crc16 = nmbs_crc_calc((const uint8_t *)s_staging_rule_table,
                                            (uint32_t)s_rule_count_staged * sizeof(SPLC_RuleRecord),
                                            NULL);
 
     if (actual_crc16 != s_expected_crc16) {
+        log_warn(TAG, "commit rejected: CRC mismatch, actual=0x%04X expected=0x%04X",
+                 actual_crc16, s_expected_crc16);
         s_config_status     = CONFIG_STATUS_ERROR;
         s_config_error_code = SPLC_ERROR_CRC_MISMATCH;
         return;
@@ -456,6 +468,8 @@ static void write_commit_command(uint16_t value)
     bool ok = rule_table_commit((const uint8_t *)s_staging_rule_table, s_rule_count_staged);
 
     if (!ok) {
+        log_warn(TAG, "commit rejected: rule_table_commit() returned false "
+                 "(rule_count_staged=%u)", s_rule_count_staged);
         s_config_status     = CONFIG_STATUS_ERROR;
         s_config_error_code = SPLC_ERROR_INVALID_PARAMETER; /* e.g. rule_count_staged > MAX_RULES */
         return;
@@ -464,6 +478,8 @@ static void write_commit_command(uint16_t value)
     s_config_status     = CONFIG_STATUS_READY;
     s_config_error_code = SPLC_ERROR_NONE;
     s_active_rule_version++;
+    log_info(TAG, "commit OK: %u rule(s) active, active_rule_version=%u",
+             s_rule_count_staged, s_active_rule_version);
 }
 
 /* --- Address-range dispatch table ---------------------------------------
@@ -589,6 +605,8 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
              * Rejecting the entire request with ILLEGAL_DATA_ADDRESS is
              * the safest choice: it never silently accepts a write the
              * App believed succeeded. */
+            log_warn(TAG, "write rejected: address=0x%04X quantity=%u is RO/unmapped",
+                     cur_addr, quantity);
             return NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
         }
 
@@ -664,6 +682,8 @@ void plc_modbus_cfg_init(const modbus_transport_t *transport)
      * waiting on the App. */
     nmbs_set_read_timeout(&s_nmbs, 0);
     nmbs_set_byte_timeout(&s_nmbs, 0);
+
+    log_info(TAG, "init OK, transport kind=%d", (int)s_transport.kind);
 }
 
 void modbus_config_service(void)

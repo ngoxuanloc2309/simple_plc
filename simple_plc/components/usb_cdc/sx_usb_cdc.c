@@ -134,23 +134,23 @@ void sx_usb_tiny_printf(sx_usb_tiny_t *_usb, const char *fmt, ...){
     sx_usb_tiny_write(_usb, (uint8_t *)buf, strlen(buf));
 }
 
-// void tud_mount_cb(void)
-// {
-//   log_debug(TAG, "USB Mounted!\r\n");
-// }
+void tud_mount_cb(void)
+{
+  log_debug(TAG, "USB Mounted!\r\n");
+}
 
-// void tud_umount_cb(void)
-// {
-//   log_debug(TAG, "USB Unmounted!\r\n");
-// }
+void tud_umount_cb(void)
+{
+  log_debug(TAG, "USB Unmounted!\r\n");
+}
 
-// void tud_suspend_cb(bool remote_wakeup_en)
-// {
-//   (void)remote_wakeup_en;
-//   log_debug(TAG, "USB Suspended\r\n");
-// }
+void tud_suspend_cb(bool remote_wakeup_en)
+{
+  (void)remote_wakeup_en;
+  log_debug(TAG, "USB Suspended\r\n");
+}
 
-// void tud_resume_cb(void)
-// {
-//     log_debug(TAG, "USB Resumed\r\n");
-// }
+void tud_resume_cb(void)
+{
+    log_debug(TAG, "USB Resumed\r\n");
+}

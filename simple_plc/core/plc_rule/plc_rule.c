@@ -4,6 +4,9 @@
 #include "plc_rule_eval.h"   /* check_trigger_edge(), compare_ok(), trigger_timing_ok() */
 #include "plc_rule_action.h" /* execute_action() */
 #include "plc_tag.h"
+#include "logger.h"
+
+static const char *TAG = "PLC_RULE";
 
 /*
  * TODO: Layer 4 must supply the current tick count. Until plc_engine.c
@@ -61,6 +64,8 @@ bool rule_table_commit(const uint8_t *raw_data, uint16_t rule_count)
      * g_rule_table[]; it does not re-verify CRC itself.
      */
     if (raw_data == NULL || rule_count > MAX_RULES) {
+        log_warn(TAG, "rule_table_commit rejected: raw_data=%p rule_count=%u (MAX_RULES=%u)",
+                 (const void *)raw_data, rule_count, (unsigned)MAX_RULES);
         return false;
     }
 
@@ -77,6 +82,7 @@ bool rule_table_commit(const uint8_t *raw_data, uint16_t rule_count)
         g_rule_runtime[i].last_fire_tick    = 0;
     }
     g_rule_count.rule_count = rule_count;
+    log_info(TAG, "rule table committed: %u rule(s) active, runtime state reset", rule_count);
     return true;
 }
 
@@ -240,6 +246,9 @@ bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt, uint32
         rt->last_fire_tick   = now_ms;
         rt->dwell_start_tick = DWELL_NOT_STARTED;
         rt->state = RULE_STATE_IDLE;
+        log_debug(TAG, "rule[%d] FIRED: trigger_tag=%u action_type=%u action_tag=%u action_param=%ld",
+                  (int)(rule - g_rule_table), rule->trigger_tag, rule->action_type,
+                  rule->action_tag, (long)rule->action_param);
         return true;
     }
 

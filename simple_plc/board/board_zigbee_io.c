@@ -112,7 +112,7 @@ static void board_log_uart_init(void)
 
     sx_uart_init(&s_board.log_uart, &s_board.log_uart_cfg);
 
-    logger_init(LOGGER_INFO, board_log_write);
+    logger_init(LOGGER_DEBUG, board_log_write);
     log_info(TAG, "Zigbee-IO board init start");
 }
 
@@ -140,35 +140,40 @@ void board_hw_init(void)
     board_usb_init();
     log_info(TAG, "USB CDC initialized");
 
-    /* Pump tud_task() in a tight loop for a window right after
-     * tusb_init() returns, instead of relying on the first
+    /* Pump tud_task() in a tight loop for ~300 ms right after
+     * tusb_init() returns, instead of relying solely on the first
      * modbus_config_service() call in the 10 ms scan loop (main.c).
      *
-     * History of this debug: a 5 s tight pump here reported
-     * connected=0 at the very end of the 5 s window, but the host DID
-     * enumerate shortly after flashing that build. A shortened 100 ms
-     * version of this same pump was tried next and did NOT fix
-     * enumeration ("Unknown Device" again) -- so whatever the tight
-     * pump needs to do, it needs measurably more than 100 ms and
-     * somewhere up to (at least) a few seconds. This version pumps for
-     * up to 5 s but logs the tick at which sx_usb_tiny_connected()
-     * first goes true, so the actual time needed can be read directly
-     * from the log instead of guessed at again -- narrow the constant
-     * below to that logged value (plus margin) once known, rather than
-     * leaving this at a blind 5 s in the shipped firmware. */
+     * Root-caused empirically, not from a known TinyUSB/errata
+     * citation: without this pump, the host reliably reported "Unknown
+     * USB Device" (Windows Device Manager). With this pump, the device
+     * enumerates correctly within ~2 s of boot. The threshold was
+     * narrowed by testing: 100 ms was NOT enough (enumeration still
+     * failed), 300 ms IS enough (confirmed working), so 300 ms is used
+     * here with no further safety margin added yet -- if enumeration
+     * ever starts failing intermittently again (e.g. on a different
+     * host controller/hub, or a marginal board), try raising this
+     * first before looking elsewhere.
+     *
+     * Likely explanation (not fully confirmed): USB_DRD_FS's bus reset
+     * handling and the first few control transfers of enumeration
+     * happen in a tight back-and-forth that is sensitive to how
+     * promptly tud_task() is called after each IRQ -- see
+     * dcd_int_handler()/handle_bus_reset() in TinyUSB's
+     * dcd_stm32_fsdev.c. The normal 10 ms scan-loop cadence
+     * (modbus_config_service() -> transport->process() ->
+     * sx_usb_tiny_process() -> tud_task()) may simply be too coarse
+     * for that specific window right after dcd_init()/dcd_connect(),
+     * even though 10 ms is fine once the device is already
+     * enumerated/mounted and only steady-state CDC traffic is
+     * involved. This has not been confirmed with a USB protocol
+     * analyzer (see docs/architecture.md or ask before assuming this
+     * reasoning is authoritative) -- treat it as the best available
+     * explanation, not a verified root cause. */
     {
         uint32_t t0 = HAL_GetTick();
-        bool logged_connected = false;
         while ((HAL_GetTick() - t0) < 300U) {
             sx_usb_tiny_process(&s_board.usb);
-            if (!logged_connected && sx_usb_tiny_connected(&s_board.usb)) {
-                log_debug(TAG, "USB connected after %lu ms of pumping",
-                         (unsigned long)(HAL_GetTick() - t0));
-                logged_connected = true;
-            }
-        }
-        if (!logged_connected) {
-            log_debug(TAG, "USB still not connected after 5000 ms of pumping");
         }
     }
 }

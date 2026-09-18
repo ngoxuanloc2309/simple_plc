@@ -17,6 +17,30 @@ add_library(splc_core STATIC
     plc_internal_rule/plc_rule_action.c
 )
 
+# plc_rule.c now calls log_debug()/log_info()/log_warn() (utils/logger/
+# logger.h) to make rule-commit and rule-fire events observable -- see
+# that file's own comment. This only needs logger.h's declarations to
+# compile; it deliberately does NOT add logger.c as a source here.
+# logger.c is already compiled exactly once, into splc_board (see
+# board/CMakeLists.txt's own comment on why it lives there), and every
+# target this project produces links splc_core and splc_board into the
+# same final executable (see this project's root CMakeLists.txt) -- so
+# splc_board's logger.c already supplies these symbols at final link
+# time. Compiling logger.c a second time into splc_core as well would
+# give the linker two definitions of log_debug()/logger_init()/etc. and
+# fail with a duplicate-symbol error.
+#
+# This does NOT reintroduce a Layer 0/1 dependency into Layer 2: logger.h
+# itself is pure Layer U (stdint.h/stdbool.h only, callback-based output
+# via p_log_func -- see its own header comment), so splc_core still
+# builds and links standalone on a plain PC as long as *some* logger.c
+# (or a test stub providing the same symbols) is linked in alongside it
+# -- exactly the same situation plc_tag.c/plc_rule.c already have with
+# any other Layer U utility they might someday call.
+target_include_directories(splc_core PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../utils/logger
+)
+
 # plc_device/, plc_error/, plc_system_cmd/ are each header-only (struct/enum
 # type definitions, no matching .c -- see each header's own comment for why).
 # These must stay PUBLIC, not PRIVATE: their entire purpose is to be
