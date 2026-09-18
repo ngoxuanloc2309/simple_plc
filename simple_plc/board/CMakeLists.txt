@@ -21,7 +21,7 @@ set(SPLC_BOARD_SKU "zigbee_io" CACHE STRING "Which board SKU's board_<sku>.c to 
 set(SPLC_BOARD_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/board.c
     ${CMAKE_CURRENT_SOURCE_DIR}/board_${SPLC_BOARD_SKU}.c
-    ${CMAKE_SOURCE_DIR}/utils/logger/logger.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../utils/logger/logger.c
 )
 
 add_library(splc_board STATIC ${SPLC_BOARD_SRC})
@@ -31,7 +31,7 @@ target_include_directories(splc_board PUBLIC
 )
 
 target_include_directories(splc_board PRIVATE
-    ${CMAKE_SOURCE_DIR}/utils/logger
+    ${CMAKE_CURRENT_SOURCE_DIR}/../utils/logger
 )
 
 # splc_services (Layer 3) supplies plc_io.h (plc_io_register_di/do/ai()),

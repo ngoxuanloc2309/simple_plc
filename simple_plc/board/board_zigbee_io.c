@@ -13,6 +13,10 @@
 #include "sx_uart.h"
 #include "sx_usb_cdc.h"
 #include "logger.h"
+#include "tusb.h"    /* tud_int_handler (macro for dcd_int_handler), used by
+                       * USB_DRD_FS_IRQHandler() below -- declared in
+                       * libs/tinyusb/src/device/usbd.h, pulled in
+                       * transitively via tusb.h. */
 
 #include "plc_io.h"
 #include "plc_tag_def.h"
