@@ -53,12 +53,12 @@ set(SPLC_PORT_SRC
 
 add_library(splc_port STATIC ${SPLC_PORT_SRC})
 
-# PUBLIC: plc_modbus_cfg.c (Layer 3, not yet written) will need to
-# resolve modbus_usb.h directly to build the nmbs_platform_conf it passes
-# to nmbs_client_create()/nmbs_server_create() -- see the "Ownership /
-# arg convention" comment in modbus_usb.h for how that wiring is meant to
-# work (arg = a sx_usb_tiny_t* the caller owns, not something hidden in
-# this library).
+# PUBLIC: plc_modbus_cfg.c (Layer 3, services/plc_modbus_cfg/) resolves
+# modbus_usb.h and modbus_transport.h directly to build the
+# modbus_transport_t it consumes -- see modbus_transport.h's own header
+# comment for the full transport-agnostic design and "Ownership / arg
+# convention" comment in modbus_usb.h for the underlying sx_usb_tiny_t*
+# lifetime rule (caller-owned, not hidden in this library).
 target_include_directories(splc_port PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/modbus_usb
     ${CMAKE_CURRENT_SOURCE_DIR}/modbus_transport
@@ -74,30 +74,17 @@ target_link_libraries(splc_port PUBLIC
     splc_components
 )
 
-# TODO(wiring): modbus_usb.c and modbus_usb.h both #include
-# "nanomodbus.h" is NOT actually true today -- double-checked: neither
-# file includes it directly, they only implement the two function
-# signatures nanoMODBUS's nmbs_platform_conf expects, without needing any
-# nanoMODBUS type themselves (int32_t/uint8_t/uint16_t are enough). So
-# splc_port does NOT strictly need to link a "nanomodbus" target to
-# compile as of this file.
+# modbus_usb.c/.h still do NOT #include "nanomodbus.h" -- confirmed
+# again while updating this comment: neither file includes it directly,
+# they only implement the two function signatures nanoMODBUS's
+# nmbs_platform_conf expects (int32_t/uint8_t/uint16_t are enough), so
+# splc_port itself does not need to link "nanomodbus" to compile.
 #
-# It WILL need one at the next step, though: plc_modbus_cfg.c (Layer 3)
-# is the file that actually populates an nmbs_platform_conf with
-# modbus_usb_read/modbus_usb_write and calls nmbs_client_create()/
-# nmbs_server_create(), so IT needs nanomodbus.h resolvable and
-# nanomodbus.c's ~2460 lines actually compiled into some target.
-#
-# libs/CMakeLists.txt (libs/nanomodbus/) is still empty today -- no
-# target there yet exposes nanomodbus.h or compiles nanomodbus.c. This
-# file deliberately does NOT reach into libs/ and wire that up itself
-# (that is a separate layer's CMakeLists.txt to own, not this one's) --
-# flagging it here instead: once libs/CMakeLists.txt defines a target
-# (e.g. add_library(nanomodbus STATIC libs/nanomodbus/nanomodbus.c) with
-# PUBLIC target_include_directories(... libs/nanomodbus)), Layer 3's
-# CMakeLists.txt (services/CMakeLists.txt, not yet created) should link
-# splc_services against both splc_port and that nanomodbus target --
-# splc_port itself has no reason to depend on nanomodbus given what it
-# actually contains right now.
+# nanomodbus.h resolvable + nanomodbus.c actually compiled is needed one
+# layer up instead: services/CMakeLists.txt (now exists) links
+# splc_services against both splc_port and the nanomodbus target
+# (libs/CMakeLists.txt, now exists) -- see that file for the real
+# wiring. This target intentionally still does not reach into libs/
+# itself.
 
 target_compile_features(splc_port PUBLIC c_std_11)

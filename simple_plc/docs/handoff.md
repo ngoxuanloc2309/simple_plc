@@ -21,19 +21,42 @@
 ## 0. Trạng thái repo tại thời điểm viết file này
 
 - Branch: `main`
-- Commit mới nhất đã verify: `70c0704` ("add modbus transport to cmake").
-  Lịch sử gần nhất dẫn tới đây: `df367e8`/`baf1f03` (thêm
-  `plc_modbus_cfg.h`/`.c`) rồi `3c94bd2`/`70c0704` (thêm
-  `modbus_transport.h` + sửa `plc_modbus_cfg`/`modbus_usb` để dùng nó).
-- **1 sửa cục bộ CHƯA PUSH tại thời điểm viết file này:**
-  `port/CMakeLists.txt` — chỉ dọn lại comment lỗi thời (từng viết
+- Commit mới nhất đã verify: `0330e4b` ("update docs 1" — bản handoff
+  trước đó, viết bởi 1 phiên Claude khác làm việc trực tiếp với người
+  dùng trong khi phiên hiện tại đang xử lý việc khác song song).
+- **Phát hiện MỚI ở phiên vá này (chưa từng ghi ở đâu trước):**
+  `components/CMakeLists.txt` link `tinyusb` PUBLIC KHÔNG ĐIỀU KIỆN
+  (dòng ~91-93), nhưng `libs/CMakeLists.txt` chỉ tạo target `tinyusb`
+  BÊN TRONG `if(EXISTS .../tinyusb/src/tusb.c)` (guard cho submodule
+  TinyUSB chưa checkout). Nếu submodule chưa checkout (đúng tình trạng
+  sandbox verify của Claude, và có thể cả máy người dùng nếu chưa chạy
+  `git submodule update --init --recursive`), `cmake configure`/`build`
+  sẽ fail với lỗi liên quan `tinyusb` target không tồn tại hoặc
+  `tusb_types.h: No such file` — ĐÃ TÁI HIỆN THẬT bằng cmake+make trong
+  sandbox. CHƯA SỬA, xem mục 3 câu hỏi 13 (mới) — cần hỏi người dùng
+  máy thật đã checkout submodule chưa trước khi quyết định thêm guard
+  hay không (nếu người dùng luôn checkout trước khi build, đây không
+  phải bug thật cần sửa, chỉ là giả định ngầm chưa ghi rõ ràng).
+- **Phát hiện MỚI, TÍCH CỰC:** TinyUSB đã được wire xong thật sự
+  (`libs/CMakeLists.txt`, dùng `tinyusb_target_add()` — helper chính
+  thức của TinyUSB) kể từ bản handoff trước, kèm 1 sửa lỗi kiến trúc
+  quan trọng: driver đúng cho STM32H5 là **`stm32_fsdev`** (USB
+  full-speed device-only, xác nhận thật qua `.ioc`:
+  `NVIC.USB_DRD_FS_IRQn=true`), KHÔNG PHẢI `dcd_synopsys`/dwc2 như một
+  ghi chú cũ hơn trong `architecture.md` từng giả định sai (đã tự sửa,
+  xem comment trong `libs/CMakeLists.txt`). Việc này không do phiên vá
+  hiện tại làm — ghi nhận lại vì đây là thông tin quan trọng, dễ bị bỏ
+  sót nếu chỉ đọc phần "commit mới nhất".
+- **1 sửa cục bộ Claude vừa áp lại trong phiên vá này** (patch này từng
+  được note ở bản handoff trước là "cục bộ, chưa push" — giờ đã áp
+  dụng lại, xem lịch sử chat để biết ai áp lần đầu):
+  `port/CMakeLists.txt` — chỉ dọn 2 đoạn comment lỗi thời (từng viết
   "plc_modbus_cfg.c, Layer 3, not yet written" và một khối "TODO(wiring)"
   nói nanoMODBUS chưa link được vào target nào — cả 2 điều đó không còn
-  đúng nữa, `plc_modbus_cfg.c` đã tồn tại và `services/CMakeLists.txt`
-  đã link `nanomodbus` từ lâu). **Không đổi logic/include path nào** —
-  `target_include_directories`/`target_link_libraries` giữ nguyên hệt
-  bản đã push. Cần tự áp lại patch này hoặc lấy file đã sửa nếu muốn
-  đồng bộ hoàn toàn với repo.
+  đúng, `plc_modbus_cfg.c` đã tồn tại và `services/CMakeLists.txt` đã
+  link `nanomodbus` từ lâu). **Không đổi logic/include path nào** — đã
+  build-verify lại bằng cmake+make thật sau khi sửa, kết quả giống hệt
+  trước khi sửa (chỉ khác đúng lỗi TinyUSB đã biết ở trên).
 - Lệnh verify: `git log --oneline -10` để xem có commit mới hơn không
   trước khi đọc tiếp phần dưới — nếu có commit mới, ưu tiên đọc code thật
   hơn file này. **Bài học đã rút ra nhiều lần (xem mục 6):** người dùng có
@@ -549,9 +572,12 @@ trước khi viết thật:
   có thể bỏ qua hoàn toàn phần này nếu không có I/O vật lý.
 
 Pin mapping thật (DI/DO GPIO, AI ADC channel) vẫn CHƯA CÓ — cần đọc kỹ
-`RS485_IO_RF_V2.ioc` (đã xác nhận `Core/Inc/gpio.h` có `OUT0_Pin` v.v.,
-nhưng chưa liệt kê đủ cho cả 8DI/8DO/4AI) trước khi viết
-`board_remoteio.c` thật.
+`RS485_IO_RF_V2.ioc` (đã xác nhận `Core/Inc/main.h`, KHÔNG PHẢI `gpio.h`
+như 1 ghi chú trước đó nhầm — CubeMX đặt macro pin label như `OUT0_Pin`/
+`OUT0_GPIO_Port` trong `main.h`, `gpio.h` chỉ khai báo `MX_GPIO_Init()` —
+đã tự grep lại để xác nhận đúng vị trí thật ở phiên vá này, có `OUT0-3`/
+`IN0-3` = 4 output + 4 input, CHƯA đủ cho 8DI/8DO cần thiết) trước khi
+viết `board_remoteio.c` thật.
 
 ## 3. Các quyết định kiến trúc CHƯA CHỐT (đừng tự ý quyết định, hỏi lại)
 
@@ -601,6 +627,18 @@ nhưng chưa liệt kê đủ cho cả 8DI/8DO/4AI) trước khi viết
     định: sửa `sx_usb_tiny_write()` có chế độ non-blocking thật, hay
     xác nhận use case hiện tại không bao giờ cần write không-block thật
     sự (App luôn đợi được write xong trong ngân sách scan cycle).
+13. **`components/CMakeLists.txt` link `tinyusb` PUBLIC không điều kiện,
+    nhưng `libs/CMakeLists.txt` chỉ tạo target đó có điều kiện** (mục 0,
+    MỚI phát hiện phiên vá này) — máy build thật của người dùng đã luôn
+    `git submodule update --init --recursive` trước khi build chưa? Nếu
+    có (luôn checkout trước), đây chỉ là 1 giả định ngầm nên ghi rõ
+    thành comment, không phải bug cần sửa CMake. Nếu KHÔNG (có thể quên
+    checkout, đặc biệt trên máy mới/CI sau này), `components/CMakeLists.txt`
+    cần 1 `if(TARGET tinyusb)` (hoặc tương đương) quanh
+    `target_link_libraries(splc_components PUBLIC tinyusb)` để
+    `cmake configure` không vỡ hoàn toàn khi thiếu submodule — hiện tại
+    Claude chưa tự sửa vì đây là quyết định "chấp nhận yêu cầu luôn
+    checkout trước" hay "làm graceful khi thiếu", cần hỏi trước.
 
 ## 4. Sửa nhỏ đã làm nhưng dễ quên — checklist tránh lặp lại lỗi cũ
 
