@@ -74,6 +74,13 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/services)
 # guarded out via #if FREE_RTOS).
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/board)
 
+# --- Layer 4 - Engine & Application entry (app/) -------------------------
+# splc_app is defined in app/CMakeLists.txt. Builds
+# app/plc_app/plc_engine.c -- plc_engine_init()/plc_engine_scan_once(),
+# the single SKU-agnostic entry point Core/Src/main.c calls (see
+# main.c's USER CODE BEGIN 2 / USER CODE BEGIN 3 blocks).
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/app)
+
 # --- Link everything into the top-level executable ----------------------
 #
 # IMPORTANT: this must be a single PLAIN-signature target_link_libraries()
@@ -103,40 +110,24 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     splc_port
     splc_services
     splc_board
+    splc_app
 )
 
 # --- Everything else: not yet split into its own CMakeLists.txt --------
-#
-# NOTE: Layer 4 (app/plc_app/plc_engine.c) is currently an EMPTY
-# placeholder -- see docs/architecture.md section 10, "still open". It
-# is intentionally left out of target_sources below; add it once
-# implemented, or the link step will fail on missing definitions for
-# symbols declared in its header.
 
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # TODO: Layer 4 (app/) - plc_engine.c is currently empty; add once
-    #       implemented.
-
     # Layer U - Utils (pure algorithms, no hardware dependency)
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/cqueue/cqueue.c
-    # NOTE: utils/logger/logger.c moved to board/CMakeLists.txt's
-    # splc_board target -- board_<sku>.c is its only caller today. See
-    # that file's comment: it builds clean bare-metal (FREE_RTOS=0
-    # default), the older claim here that it "still needs the FreeRTOS
-    # mutex stripped" was stale.
+    # NOTE: utils/logger/logger.c is built by board/CMakeLists.txt's
+    # splc_board target instead -- board_<sku>.c is its only caller
+    # today. See that file's comment.
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # NOTE: Layer 2/1/0/3.5/libs/3 (core/, components/, platforms/,
-    # port/, libs/, services/) are no longer listed here -- each exposes
-    # its own headers as PUBLIC include dirs automatically via
-    # target_link_libraries() above. The two include dirs below are kept
-    # only for Layer 4 headers, which have no CMakeLists.txt / target of
-    # their own yet.
-
-    # Layer 4 (headers only referenced today)
-    ${CMAKE_CURRENT_SOURCE_DIR}/app
-
-    # Layer U
-    ${CMAKE_CURRENT_SOURCE_DIR}/utils
+    # NOTE: every layer (core/, components/, platforms/, port/, libs/,
+    # services/, board/, app/) now exposes its own headers as PUBLIC
+    # include dirs automatically via target_link_libraries() above.
+    # Only Layer U (utils/cqueue/cqueue.c above) still has no
+    # CMakeLists.txt of its own, hence the one include dir left here.
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/cqueue
 )

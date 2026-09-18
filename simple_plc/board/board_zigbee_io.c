@@ -12,6 +12,7 @@
 #include "sx_gpio.h"
 #include "sx_uart.h"
 #include "sx_usb_cdc.h"
+#include "modbus_usb.h"
 #include "logger.h"
 #include "tusb.h"    /* tud_int_handler (macro for dcd_int_handler), used by
                        * USB_DRD_FS_IRQHandler() below -- declared in
@@ -138,6 +139,17 @@ void board_hw_init(void)
 
     board_usb_init();
     log_info(TAG, "USB CDC initialized");
+}
+
+modbus_transport_t board_get_modbus_transport(void)
+{
+    /* Zigbee-IO's App<->MCU config channel is USB-CDC (see
+     * docs/architecture.md section 0: USB, not RS485, for App<->MCU on
+     * every SKU) -- s_board.usb was already initialized by
+     * board_usb_init() above, which board_hw_init() guarantees ran
+     * before this function is ever called (see board.h's doc-comment on
+     * calling order). */
+    return modbus_transport_usb_create(&s_board.usb);
 }
 
 void USB_DRD_FS_IRQHandler(void)

@@ -20,12 +20,31 @@
  * per docs/architecture.md / docs/handoff.md section 3 item 11.
  */
 
+#include "modbus_transport.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 void board_init(void);
 void board_hw_init(void);
+
+/*
+ * Returns the modbus_transport_t this SKU's App<->MCU config channel
+ * runs over -- e.g. board_zigbee_io.c returns
+ * modbus_transport_usb_create(&s_board.usb) over its own static USB
+ * instance. plc_engine_init() (Layer 4) calls this once, after
+ * board_init(), to feed plc_modbus_cfg_init() without ever needing to
+ * know which concrete driver instance (sx_usb_tiny_t*, sx_uart_t*, ...)
+ * backs it -- same "board owns the instance, caller only sees the
+ * abstraction" split board_hw_init() already established for DI/DO via
+ * plc_io_register_di/do().
+ *
+ * Must be called AFTER board_hw_init() (so the underlying driver
+ * instance -- e.g. sx_usb_tiny_init() -- is already initialized before
+ * anything reads from it).
+ */
+modbus_transport_t board_get_modbus_transport(void);
 
 #ifdef __cplusplus
 }   

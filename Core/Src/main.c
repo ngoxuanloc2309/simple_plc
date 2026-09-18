@@ -29,7 +29,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "stdint.h"
+#include "plc_engine.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -50,7 +51,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+static uint32_t s_last_scan_tick = 0;
+#define SCAN_INTERVAL_MS 10U
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -107,7 +109,7 @@ int main(void)
   MX_USB_PCD_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-
+  plc_engine_init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -117,6 +119,11 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    uint32_t now = HAL_GetTick();
+    if ((now - s_last_scan_tick) >= SCAN_INTERVAL_MS) {
+      s_last_scan_tick = now;
+      plc_engine_scan_once();
+    }
   }
   /* USER CODE END 3 */
 }
