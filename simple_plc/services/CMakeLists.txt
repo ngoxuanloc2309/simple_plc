@@ -12,15 +12,8 @@
 set(SPLC_SERVICES_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_io/plc_io.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_retain/plc_retain.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_modbus_cfg/plc_modbus_cfg.c
 )
-
-# NOTE: plc_modbus_cfg/plc_modbus_cfg.c is NOT in SPLC_SERVICES_SRC.
-# Both plc_modbus_cfg.c and plc_modbus_cfg.h are still 0 bytes (not yet
-# written) -- see docs/handoff.md section 2.1. Add it here once it has
-# real content; it will additionally need this target linked against
-# splc_port (port/CMakeLists.txt) and nanomodbus (libs/CMakeLists.txt),
-# neither of which is linked below yet since nothing here needs them
-# until plc_modbus_cfg.c exists.
 
 add_library(splc_services STATIC ${SPLC_SERVICES_SRC})
 
@@ -32,6 +25,7 @@ add_library(splc_services STATIC ${SPLC_SERVICES_SRC})
 target_include_directories(splc_services PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_io
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_retain
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_modbus_cfg
 )
 
 # splc_core (Layer 2) supplies plc_tag.h/plc_tag_def.h, which both
@@ -72,6 +66,15 @@ target_link_libraries(splc_services PUBLIC
 # as the other dependencies here.
 target_link_libraries(splc_services PUBLIC
     nanomodbus
+)
+
+# splc_port (Layer 3.5, port/CMakeLists.txt) supplies modbus_usb.h /
+# modbus_usb_read() / modbus_usb_write(), which plc_modbus_cfg.c includes
+# and calls directly (as nmbs_platform_conf.read/write) -- see
+# port/modbus_usb/modbus_usb.h's own comment: "included by exactly one
+# file: plc_modbus_cfg.c (Layer 3)".
+target_link_libraries(splc_services PUBLIC
+    splc_port
 )
 
 target_compile_features(splc_services PUBLIC c_std_11)
