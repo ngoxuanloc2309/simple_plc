@@ -61,6 +61,7 @@ add_library(splc_port STATIC ${SPLC_PORT_SRC})
 # this library).
 target_include_directories(splc_port PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/modbus_usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/modbus_transport
 )
 
 # splc_components (Layer 1) supplies sx_usb_cdc.h, which modbus_usb.c
