@@ -196,9 +196,3 @@ void USB_DRD_FS_IRQHandler(void)
     tud_int_handler(0);
 }
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-    if (htim == &htim1) {
-        tud_task();
-    }
-}
