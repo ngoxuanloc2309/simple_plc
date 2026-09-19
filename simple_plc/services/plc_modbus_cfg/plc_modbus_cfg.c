@@ -532,6 +532,34 @@ static void write_commit_command(uint16_t value)
     uint16_t actual_crc16 = rule_table_wire_crc16(s_staging_rule_table,
                                                    s_rule_count_staged);
 
+    /* TEMP DIAG (remove once commit CRC is confirmed on hardware):
+     * prints the wire image and the raw RAM image side by side, plus the
+     * CRC of each, so the running code path is visible in one log line. */
+    {
+        uint8_t wire[32];
+        rule_record_to_wire(&s_staging_rule_table[0], wire);
+        const uint8_t *ram = (const uint8_t *)&s_staging_rule_table[0];
+        uint16_t crc_wire = 0xFFFFU, crc_ram = 0xFFFFU;
+        for (uint8_t i = 0; i < 32U; i++) {
+            crc_wire = crc16_modbus_update(crc_wire, wire[i]);
+            crc_ram  = crc16_modbus_update(crc_ram,  ram[i]);
+        }
+        log_debug(TAG, "DIAG build=wirecrc-v2 sizeof=%u crc_wire=0x%04X crc_ram=0x%04X used=0x%04X",
+                  (unsigned)sizeof(SPLC_RuleRecord), crc_wire, crc_ram, actual_crc16);
+        log_debug(TAG, "DIAG wire: %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X "
+                       "%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X",
+                  wire[0],wire[1],wire[2],wire[3],wire[4],wire[5],wire[6],wire[7],
+                  wire[8],wire[9],wire[10],wire[11],wire[12],wire[13],wire[14],wire[15],
+                  wire[16],wire[17],wire[18],wire[19],wire[20],wire[21],wire[22],wire[23],
+                  wire[24],wire[25],wire[26],wire[27],wire[28],wire[29],wire[30],wire[31]);
+        log_debug(TAG, "DIAG ram : %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X "
+                       "%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X",
+                  ram[0],ram[1],ram[2],ram[3],ram[4],ram[5],ram[6],ram[7],
+                  ram[8],ram[9],ram[10],ram[11],ram[12],ram[13],ram[14],ram[15],
+                  ram[16],ram[17],ram[18],ram[19],ram[20],ram[21],ram[22],ram[23],
+                  ram[24],ram[25],ram[26],ram[27],ram[28],ram[29],ram[30],ram[31]);
+    }
+
     if (actual_crc16 != s_expected_crc16) {
         log_warn(TAG, "commit rejected: CRC mismatch, actual=0x%04X expected=0x%04X",
                  actual_crc16, s_expected_crc16);
