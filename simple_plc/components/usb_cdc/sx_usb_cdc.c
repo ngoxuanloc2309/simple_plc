@@ -97,15 +97,39 @@ int sx_usb_tiny_read(sx_usb_tiny_t *_usb, uint8_t *_data,
 {
     uint32_t len  = 0;
     uint32_t time = 0;
-    while(len < _len && time < _timeoutMS){
-        if(cqueue_receive(&_usb->rxQueue, _data + len)){
+
+    /*
+     * Bytes ALREADY sitting in rxQueue are always returned, regardless of
+     * _timeoutMS. The timeout only bounds how long we WAIT for bytes that
+     * have not arrived yet.
+     *
+     * The previous loop was `while (len < _len && time < _timeoutMS)`, so
+     * with _timeoutMS == 0 the body never ran and this returned 0 even when
+     * rxQueue held a complete frame. plc_modbus_cfg sets nanoMODBUS's read
+     * and byte timeouts to 0 (non-blocking poll), so every recv() got 0
+     * bytes back -> NMBS_ERROR_TIMEOUT -> nmbs_server_poll() returned
+     * having consumed nothing, and the request sat in the FIFO forever
+     * (symptom: log "available=8" repeating, App sees "No response").
+     *
+     * nanoMODBUS's platform.read contract: timeout 0 = "return whatever is
+     * available right now, do not wait".
+     */
+    while (len < _len) {
+        if (cqueue_receive(&_usb->rxQueue, _data + len)) {
             len++;
-        } else {
-#if STM32H5_PLATFORM
-            tud_task();
-#endif
-            time++;
+            continue;
         }
+
+        /* Queue is empty. Give up if the caller does not want to wait, or
+         * the wait budget is used up. */
+        if (time >= _timeoutMS) {
+            break;
+        }
+
+#if STM32H5_PLATFORM
+        tud_task();
+#endif
+        time++;
     }
     return (int)len;
 }

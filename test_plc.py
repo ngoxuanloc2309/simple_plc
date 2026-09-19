@@ -45,6 +45,7 @@ result here isn't mistaken for a Rule Engine bug:
 """
 
 import argparse
+import inspect
 import struct
 import sys
 import time
@@ -212,21 +213,40 @@ def rule_registers_to_bytes(regs16):
 
 # --- Modbus helpers ----------------------------------------------------------
 
+def _unit_kwarg(client, unit):
+    """Return {<name>: unit} using whichever keyword this pymodbus version
+    accepts for the Modbus unit/slave id.
+
+    pymodbus renamed the parameter across releases: older 3.x used `slave=`,
+    3.10+ uses `device_id=` (and `slave=` raises TypeError). Detect it from
+    the method signature so this script works on both."""
+    params = inspect.signature(client.read_holding_registers).parameters
+    if "device_id" in params:
+        return {"device_id": unit}
+    if "slave" in params:
+        return {"slave": unit}
+    raise RuntimeError("Unsupported pymodbus version: read_holding_registers() "
+                       "has neither 'device_id' nor 'slave' parameter")
+
+
 def read_regs(client, unit, addr, count):
-    rr = client.read_holding_registers(address=addr, count=count, slave=unit)
+    rr = client.read_holding_registers(address=addr, count=count,
+                                       **_unit_kwarg(client, unit))
     if rr.isError():
         raise RuntimeError(f"read_holding_registers(addr=0x{addr:04X}, count={count}) failed: {rr}")
     return rr.registers
 
 
 def write_regs(client, unit, addr, values):
-    rr = client.write_registers(address=addr, values=values, slave=unit)
+    rr = client.write_registers(address=addr, values=values,
+                                **_unit_kwarg(client, unit))
     if rr.isError():
         raise RuntimeError(f"write_registers(addr=0x{addr:04X}) failed: {rr}")
 
 
 def write_reg(client, unit, addr, value):
-    rr = client.write_register(address=addr, value=value, slave=unit)
+    rr = client.write_register(address=addr, value=value,
+                               **_unit_kwarg(client, unit))
     if rr.isError():
         raise RuntimeError(f"write_register(addr=0x{addr:04X}, value=0x{value:04X}) failed: {rr}")
 
