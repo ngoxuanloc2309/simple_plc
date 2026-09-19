@@ -11,14 +11,19 @@
 
 ## 0. Trạng thái hiện tại
 
-- Branch `main`, commit đã verify: `689edc3` ("fix code").
+- Branch `main`, commit đã verify: `81fdc13` ("edit code test").
 - Board đang dùng: **Zigbee-IO SKU** (`board/board_zigbee_io.c`), 4 DI /
   4 DO / 0 AI, STM32H523CCU6.
 - **Đã chạy được trên board thật:** build (`build.bat build`), flash, USB
-  enum + mount, Modbus server khởi tạo (`init OK ... unit_id=1`).
-- **Chưa xác nhận trên board thật:** đọc/ghi Modbus bằng App
-  (`test_plc.py`), nạp rule, rule chạy thật. Đây là bước tiếp theo hợp lý
-  nhất (xem mục 2).
+  enum + mount, Modbus server khởi tạo, **đọc/ghi Modbus bằng
+  `test_plc.py`**, **nạp rule đầy đủ (stage → CRC → commit → READY)** và
+  đọc lại `ACTIVE_RULE_TABLE` khớp hệt bản đã stage. MCU in
+  `RULE UPLOAD DONE ...`, App in khối `RULE UPLOAD DONE` (xác nhận bằng số
+  `ACTIVE_RULE_COUNT/CRC16/VERSION` đọc lại từ MCU).
+- **Chưa xác nhận trên board thật:** rule **chạy thật** (kéo DI0 lên cao →
+  DO0 lên 1). Đây là bước tiếp theo hợp lý nhất (mục 2).
+- **Rule KHÔNG được lưu vào Flash** — chỉ nằm trong RAM, mất điện/reset là
+  mất (xem mục 3.7). Đây là hành vi hiện tại, không phải lỗi ngẫu nhiên.
 
 ## 1. Kiến trúc trong 30 giây
 
@@ -49,12 +54,16 @@ Vòng quét: `input_scan → rule_scan → output_scan → modbus_config_service
 
 ## 2. Việc tiếp theo (theo thứ tự đề xuất)
 
-1. **Chạy `test_plc.py --unit 1` trên board thật** — đọc device
-   descriptor, stage + commit 1 rule, xem DI0→DO0. Đây là lần đầu toàn bộ
-   đường Modbus chạy thật; mọi bug bên dưới có thể lộ ra ở bước này.
-2. **Sửa 2 bug nền tảng đã biết** (mục 3.1, 3.2) — cả hai chưa gây lỗi rõ
-   ràng nhưng ảnh hưởng độ tin cậy của Modbus và Rule Engine.
-3. **Chốt các quyết định mở** (mục 4) trước khi viết thêm tính năng.
+1. **Kiểm tra rule chạy thật trên board:** chạy `python test_plc.py COM4`,
+   sau dòng `Watching DI0/DO0` thì kéo DI0 lên cao trong 30 giây, xem
+   `DO0` có lên 1 không (script chỉ in khi giá trị đổi — không thấy dòng
+   mới nghĩa là chưa có chuyển trạng thái). Nếu `DI0=1 DO0=0` thì đọc
+   `rule_scan()` / `output_scan()`; nếu `DI0` không đổi thì kiểm tra pin
+   mapping.
+2. **Sửa 2 bug nền tảng** (mục 3.1, 3.2) — cả hai chưa gây lỗi với rule
+   đơn giản nhưng làm dwell/interval sai.
+3. **Lưu rule vào Flash** (mục 3.7) — cần chốt quyết định mở trước.
+4. **Chốt các quyết định mở** (mục 4) trước khi viết thêm tính năng.
 
 ## 3. Bug đã biết, CHƯA sửa
 
@@ -73,11 +82,14 @@ Readme mô tả. Chưa rõ có chủ ý (đang debug) hay quên đặt lại. X�
 với người dùng trước khi đổi. Lưu ý: file nằm trong vùng `USER CODE` của
 CubeMX nên sửa an toàn, nhưng vẫn hỏi trước.
 
-### 3.3 `sx_usb_tiny_read()` — `_timeoutMS` đếm vòng lặp, không phải ms
+### 3.3 `sx_usb_tiny_read()` — `_timeoutMS` vẫn đếm vòng lặp, không phải ms
 
-`components/usb_cdc/sx_usb_cdc.c`. Với `timeout = 0` (cách
-`plc_modbus_cfg` đang dùng) thì không sao vì thoát ngay. Chỉ thành vấn đề
-nếu sau này dùng timeout > 0.
+`components/usb_cdc/sx_usb_cdc.c`. Bug nghiêm trọng (timeout=0 khiến hàm
+luôn trả 0 byte dù queue đã đầy → App báo "No response", log
+`available=8` lặp) **đã sửa ở commit `7c31964`**: vòng lặp giờ rút byte
+sẵn có trước, chỉ xét timeout khi queue rỗng. Phần còn lại: biến `time++`
+đếm vòng lặp `tud_task()`, KHÔNG phải mili giây. Với `timeout = 0` (cách
+`plc_modbus_cfg` dùng) thì đúng; chỉ sai nếu sau này dùng timeout > 0.
 
 ### 3.4 `modbus_usb_write()` bỏ qua `timeout_ms`
 
@@ -90,9 +102,11 @@ thật, hay chấp nhận (App luôn đọc kịp).
 - `write_system_command()` (`plc_modbus_cfg.c`) mới decode + đổi status
   sang ACCEPTED, **chưa thực thi** reboot / factory reset / clear rules /
   clear retain. Việc thực thi thuộc Layer 3/4, chưa viết.
-- `rule_table_commit()` chưa validate `guard_tag`/`trigger_tag`/
-  `action_tag` nằm trong `0..MAX_TAGS-1` (hoặc `GUARD_TAG_NONE`). Index
-  sai không crash nhưng rule bị vô hiệu hóa âm thầm.
+- Chưa validate `guard_tag`/`trigger_tag`/`action_tag` nằm trong
+  `0..MAX_TAGS-1` (hoặc `GUARD_TAG_NONE`) — không ở `rule_table_commit()`
+  lẫn `plc_modbus_cfg.c` (kiểm tra `tag_idx >= MAX_TAGS` duy nhất nằm ở
+  đường đọc runtime tag, không phải rule). Index sai không crash nhưng
+  rule bị vô hiệu hóa âm thầm.
 - **PVD → ghi Retain khẩn cấp chưa được nối.** Đã có: PVD bật trong
   CubeMX, `HAL_PWR_PVDCallback()` (`stm32h5_pwd.c`), API
   `sx_power_register_low_voltage_callback()`, `retain_snapshot_write()`.
@@ -111,6 +125,25 @@ thật, hay chấp nhận (App luôn đọc kịp).
 - `STM32H523xx_FLASH.ld` khai `LENGTH = 512K`, chip thật chỉ 256KB. File
   CubeMX tự sinh — nếu sửa thì phải qua CubeMX/`.ioc`, không sửa tay
   (sẽ bị ghi đè khi Generate Code). Chỉ báo người dùng.
+
+### 3.7 Rule Table CHƯA được lưu vào Flash
+
+`rule_table_commit()` chỉ `memcpy` vào `g_rule_table[]` (RAM).
+`rule_table_load_from_flash()` (gọi lúc boot ở `plc_engine_init()`) hiện
+chỉ là TODO: `memset` bảng về 0, không đọc Flash. Nghĩa là **mọi rule nạp
+qua Modbus mất sau reset/mất điện**, board lên với 0 rule.
+
+Đã có sẵn: chỗ dành cho rule (`SPLC_FLASH_RULE_TABLE_ADDR = 0x0803E000`,
+1 sector 8 KB, đủ cho 100 rule × 32 B = 3200 B) trong
+`platforms/stm32/stm32h5/flash_define/splc_flash_define.h`, và API
+`sx_flash_read/write/erase`. `plc_retain` chỉ lưu tag `VREG_RETAIN`,
+KHÔNG dùng cho rule (`plc_retain.h` ghi rõ).
+
+Ràng buộc kiến trúc: Layer 2 (`plc_rule.c`) không được gọi `sx_flash_*`
+(phải build được trên PC). Việc ghi/đọc Flash thuộc Layer 3; lúc boot đọc
+Flash → kiểm CRC → đưa qua `rule_table_commit()` (đúng như comment TODO
+trong `plc_rule.c`). Cần quyết định trước khi làm: lưu A/B luân phiên hay
+1 bản; ghi ngay khi commit hay chờ lệnh riêng (mục 4, câu 9).
 
 ## 4. Quyết định kiến trúc CHƯA CHỐT (hỏi lại, đừng tự quyết)
 
@@ -136,6 +169,10 @@ thật, hay chấp nhận (App luôn đọc kịp).
    chưa `git submodule update --init --recursive` thì configure vỡ. Xác
    nhận người dùng luôn checkout submodule trước khi build; nếu có thì chỉ
    cần ghi comment, không cần sửa CMake.
+9. **Lưu Rule Table vào Flash thế nào** (mục 3.7): (a) 1 bản hay 2 bản
+   A/B để chống mất điện giữa lúc xóa/ghi sector; (b) ghi ngay khi commit
+   hay chỉ khi App gửi lệnh riêng (có thể gắn vào `SYSTEM_COMMAND`, mục
+   3.5); (c) cần header (magic + `rule_count` + CRC) để boot kiểm hợp lệ.
 
 ## 5. Bài học đã rút ra (quan trọng, đọc kỹ)
 
@@ -173,6 +210,38 @@ chứng minh `nmbs_create()` chưa từng chạy. Build Release không có `-g`
 nên `print s_nmbs.platform.read` báo "unknown type"; dùng địa chỉ +
 offset thay thế.
 
+### 5.1b Nạp rule qua Modbus: 3 bug nối tiếp (commit `9789b3a` trở đi)
+
+Khi chạy `test_plc.py` lần đầu trên board, việc nạp rule vỡ theo 3 lớp,
+lớp trước che lớp sau. Đã sửa hết; ghi lại vì cùng kiểu lỗi có thể tái
+diễn khi thêm thanh ghi mới.
+
+1. **FC06 tới `0x9002`/`0x9003` → `ILLEGAL_DATA_ADDRESS` (exception 2).**
+   `cb_write_single_register()` chỉ chấp nhận `0x0A00`/`0xA000`; các thanh
+   ghi RW còn lại nằm trong `s_blocks`, nhưng callback ghi của chúng bị đặt
+   nhầm vào cột `write_single_cb` (không ai gọi, signature cũng sai). Kết
+   quả: cả FC06 lẫn FC16 tới hai thanh ghi này đều lỗi. Sửa: bảng dùng một
+   cột `write_multi_cb` duy nhất, FC06 chuyển tiếp vào cùng đường FC16 với
+   `quantity = 1`. Bất kỳ thanh ghi RW 1-register mới nào cũng đi qua đó.
+2. **CRC của Rule Table tính trên byte RAM của struct.** Sai cả về ý nghĩa
+   (phụ thuộc endianness/layout chip) lẫn giá trị (`nmbs_crc_calc` trả CRC
+   bị hoán byte, không phải CRC-16/MODBUS chuẩn). **Quy ước chốt theo spec
+   8.4:** CRC tính trên chuỗi *wire* — `rule_count × 32 byte`, mỗi
+   register high byte trước, mỗi trường 32-bit High Word rồi Low Word —
+   độc lập với chip. Firmware: `rule_record_to_wire()` +
+   `rule_table_wire_crc16()` trong `plc_modbus_cfg.c`; App:
+   `rule_registers_to_bytes()` trong `test_plc.py` (ghép register
+   big-endian). **Không dùng `nmbs_crc_calc` cho việc này.**
+3. **`test_plc.py` cũ tính CRC trên byte RAM little-endian** — khớp với
+   firmware cũ chứ không khớp spec. Đã đổi sang wire big-endian. App thật
+   sau này (C#/web) phải hash đúng 32 byte/rule theo spec 8.4, không hash
+   struct nội bộ của chính nó.
+
+Khi thêm log chẩn đoán nạp rule: `RULE UPLOAD DONE` (INFO) + liệt kê
+`rule[i]` (DEBUG, tối đa 10 rule để không tràn UART/USB) ở firmware; khối
+`RULE UPLOAD DONE` đọc lại `ACTIVE_RULE_COUNT/CRC16/VERSION` từ MCU ở
+`test_plc.py` (báo `MISMATCH` và raise nếu MCU khác số đã gửi).
+
 ### 5.2 Giả thuyết đã bị bác bỏ — không quay lại
 
 `vbus_sensing_enable = DISABLE` (`Core/Src/usb.c`) từng bị nghi là nguyên
@@ -192,6 +261,26 @@ trước khi đầu tư đọc datasheet.
   module mới nên có test chạy thật trên PC (transport giả) trước khi lên
   board.
 
+### 5.4 Bài học phương pháp từ chuỗi debug nạp rule
+
+- **Đối chiếu SPEC trước, đừng lấy giá trị một bên làm đáp án.** Lần sửa
+  đầu chỉ so với con số `test_plc.py` in ra rồi coi là đúng; hóa ra cả hai
+  phía cùng lệch spec, mất thêm 2 vòng chạy board mới lộ.
+- **Con số trong log là bằng chứng để định danh phiên bản code.** Log
+  `actual=0x6575` làm nghi "board chạy ELF cũ", nhưng thêm 1 dòng log chẩn
+  đoán in cả `crc_wire` lẫn `crc_ram` cạnh nhau cho thấy code mới đang chạy
+  đúng, còn *App* mới là bên tính CRC trên chuỗi byte khác. Nếu bế tắc, in
+  cả hai giả thuyết ra cạnh nhau thay vì suy diễn từ một con số.
+- **Mô phỏng đầu-cuối trên PC bằng chính `test_plc.py`**: nối script với
+  firmware build PC (server đọc/ghi frame RTU qua stdin/stdout). Bắt được
+  lỗi mà test từng phía riêng lẻ bỏ sót. Lưu ý stub `logger` phải in ra
+  `stderr`, không phải `stdout`, nếu không lẫn vào luồng frame.
+- **Log chỉ thấy "không có" khi nó bị trôi.** Vòng `Watching DI0/DO0` poll
+  10 lần/giây, mỗi request sinh 2 dòng `SX_USB_TINY` DEBUG (`available=`,
+  `USB write:`), che mất dòng commit. Đây là hành vi đúng, không phải bug;
+  đang phát triển giữ `LOGGER_DEBUG`, chỉ cần đổi mức `logger_init` sang
+  INFO khi muốn yên tĩnh (các dòng quan trọng đều là INFO/WARN).
+
 ## 6. Quy trình làm việc với người dùng
 
 - Trao đổi **tiếng Việt**, code/comment **tiếng Anh**.
@@ -207,6 +296,10 @@ trước khi đầu tư đọc datasheet.
   "generated only once") — kể cả khi thấy bug thật. Chỉ báo người dùng.
 - Khi đề xuất nguyên nhân, nói rõ mức chắc chắn; kiểm chứng bằng dữ liệu
   thật (GDB, log) trước khi khẳng định.
+- **Trước khi hỏi người dùng "có build lại chưa"**, đối chiếu file họ đã
+  push với file mình giao (`cmp`) và kiểm tra chuỗi/số duy nhất của bản
+  mới có trong log. Người dùng thường push đúng; nghi ngờ nên đặt vào
+  giả thuyết khác trước.
 
 ## 7. Lệnh verify nhanh (không cần toolchain ARM)
 
@@ -225,6 +318,16 @@ dùng logger. Kỳ vọng: `sizeof(SPLC_RuleRecord)==32`, `TAG_DI0==0`, test pas
 crash; (3) không có dữ liệu → không crash; (4) `unit_id = 0` → init báo
 lỗi và server bị tắt (không gọi `nmbs_server_poll`). Test ca (3) với bản
 cũ từng segfault đúng như HardFault trên board.
+
+**Nạp rule đầu-cuối (App thật ↔ firmware PC):** build 1 chương trình C
+`#include` thẳng `plc_modbus_cfg.c` (để thấy các `static`), transport giả
+đọc/ghi hex từng dòng qua stdin/stdout, stub `logger.h` in ra **stderr**.
+Chạy `test_plc.py` với 1 `Client` giả (`read_holding_registers`,
+`write_register`, `write_registers`) nói chuyện RTU thật với chương trình
+đó. Kỳ vọng: `CONFIG_STATUS=3 (READY)`, `ACTIVE_RULE_TABLE` đọc lại khớp
+`staged`, `ACTIVE_RULE_CRC16` == CRC App tính. Nên thử thêm ca số âm /
+32-bit lớn / guard có bit NEGATE để bắt lỗi thứ tự word/byte, và ca
+`rule_count > 10` (log liệt kê phải dừng ở 10 dòng).
 
 **Ranh giới layer:** `nm -u plc_modbus_cfg.o` không được có symbol
 `sx_usb_*`; nếu xuất hiện là ranh giới Layer 3/3.5 bị vỡ.
