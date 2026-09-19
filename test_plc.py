@@ -163,52 +163,24 @@ def encode_rule_registers(threshold_lo, threshold_hi, for_ms, action_param,
 
 
 def rule_registers_to_bytes(regs16):
-    """Pack a flat list of uint16 registers as big-endian bytes, matching
-    how the MCU computes CRC-16 over the raw SPLC_RuleRecord byte layout
-    (plc_modbus_cfg.c casts g_rule_table/s_staging_rule_table directly to
-    uint8_t* -- this is the MCU's native byte order for the struct, which
-    on a little-endian Cortex-M33 is NOT simply "big-endian words" for the
-    32-bit fields; see decode note below).
+    """Serialize a rule's 16 registers to its 32-byte WIRE image.
 
-    IMPORTANT: this project's SPLC_RuleRecord is a native C struct on a
-    little-endian ARM core (int32_t/uint32_t fields are little-endian in
-    memory), but the *Modbus register* encoding of those same fields is
-    big-endian/high-word-first (see read_staging_rule_table()). CRC-16 in
-    write_commit_command() is computed over s_staging_rule_table cast
-    directly to uint8_t* -- i.e. over the little-endian in-memory struct
-    layout, NOT over the big-endian register wire format. This function
-    therefore reconstructs the little-endian struct bytes from the
-    register list, matching what actually ends up in memory on the MCU
-    after write_staging_rule_table() runs.
+    Per docs/SimplePLC_App_MCU_Structs_v1.9 section 8.4, the CRC-16/MODBUS
+    of the Rule Table (EXPECTED_CRC16 / ACTIVE_RULE_CRC16) is taken over the
+    serialized table: rule_count x 32 bytes, each 16-bit register high byte
+    first, each 32-bit field High Word then Low Word. That is exactly the
+    register list concatenated big-endian -- independent of the MCU's
+    endianness or struct layout, so any App following the spec computes the
+    same value.
+
+    (An earlier version of this script packed the little-endian in-memory
+    layout of the C struct instead. That only matched a firmware that hashed
+    its RAM image directly, which is chip- and layout-dependent; the firmware
+    now hashes the wire image, see rule_table_wire_crc16() in
+    plc_modbus_cfg.c.)
     """
-    (thl_hi, thl_lo, thh_hi, thh_lo, fms_hi, fms_lo, ap_hi, ap_lo,
-     trig_tag, act_tag, guard_tag, en_trig, cmp_act,
-     r0, r1, r2) = regs16
-
-    threshold_lo = (thl_hi << 16) | thl_lo
-    threshold_hi = (thh_hi << 16) | thh_lo
-    for_ms       = (fms_hi << 16) | fms_lo
-    action_param = (ap_hi << 16) | ap_lo
-    enabled      = (en_trig >> 8) & 0xFF
-    trigger_type = en_trig & 0xFF
-    compare_op   = (cmp_act >> 8) & 0xFF
-    action_type  = cmp_act & 0xFF
-
-    # Pack as the native little-endian C struct layout (int32_t/uint32_t/
-    # uint16_t/uint8_t fields, in declaration order, no padding -- the
-    # struct is documented as exactly 32 bytes with reserved[6] as the
-    # explicit padding, so '<' native little-endian packing with no
-    # alignment padding matches it).
-    return struct.pack(
-        "<iiIi HHH BBBB 6s",
-        struct.unpack("<i", struct.pack("<I", threshold_lo))[0],
-        struct.unpack("<i", struct.pack("<I", threshold_hi))[0],
-        for_ms,
-        struct.unpack("<i", struct.pack("<I", action_param))[0],
-        trig_tag, act_tag, guard_tag,
-        enabled, trigger_type, compare_op, action_type,
-        bytes([r0 & 0xFF, r1 & 0xFF, r2 & 0xFF, 0, 0, 0]),
-    )
+    assert len(regs16) == 16
+    return b"".join(struct.pack(">H", r & 0xFFFF) for r in regs16)
 
 
 # --- Modbus helpers ----------------------------------------------------------
