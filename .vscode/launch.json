@@ -6,7 +6,7 @@
             "type": "cortex-debug",
             "request": "launch",
             "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/build/RS485_IO_RF_V2.elf",
+            "executable": "${workspaceFolder}/build/release/RS485_IO_RF_V2.elf",
             "servertype": "stlink",
             "serverpath": "D:\\stm32cubeclt\\STM32CubeCLT_1.21.0\\STLink-gdb-server\\bin\\ST-LINK_gdbserver.exe",
             "device": "STM32H523CCUx",
