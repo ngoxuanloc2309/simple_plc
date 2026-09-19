@@ -507,6 +507,32 @@ static void read_active_rule_version(uint16_t offset, uint16_t quantity, uint16_
 }
 
 /*
+ * One debug line per active rule, right after a successful commit, so the
+ * serial log shows WHAT was loaded (not just that something was). Capped
+ * so a full 100-rule table cannot flood the log / stall the scan cycle
+ * (each log line goes out over the same USB the App is polling).
+ */
+#define RULE_SUMMARY_MAX_LINES 10U
+
+static void log_rule_summary(void)
+{
+    uint16_t count = g_rule_count.rule_count;
+    uint16_t shown = (count < RULE_SUMMARY_MAX_LINES) ? count : (uint16_t)RULE_SUMMARY_MAX_LINES;
+
+    for (uint16_t i = 0; i < shown; i++) {
+        const SPLC_RuleRecord *r = &g_rule_table[i];
+        log_debug(TAG, "  rule[%u] en=%u trig_tag=%u trig_type=%u cmp=%u for_ms=%lu "
+                       "guard=0x%04X action=%u action_tag=%u param=%ld",
+                  i, r->enabled, r->trigger_tag, r->trigger_type, r->compare_op,
+                  (unsigned long)r->for_ms, r->guard_tag, r->action_type,
+                  r->action_tag, (long)r->action_param);
+    }
+    if (count > shown) {
+        log_debug(TAG, "  ... %u more rule(s) not listed", (unsigned)(count - shown));
+    }
+}
+
+/*
  * Section 6's commit protocol, step 4 ("Verify + swap"): CRC-16/MODBUS
  * over exactly s_rule_count_staged * sizeof(SPLC_RuleRecord) staged
  * bytes must match s_expected_crc16 before rule_table_commit() (Layer 2)
@@ -532,34 +558,6 @@ static void write_commit_command(uint16_t value)
     uint16_t actual_crc16 = rule_table_wire_crc16(s_staging_rule_table,
                                                    s_rule_count_staged);
 
-    /* TEMP DIAG (remove once commit CRC is confirmed on hardware):
-     * prints the wire image and the raw RAM image side by side, plus the
-     * CRC of each, so the running code path is visible in one log line. */
-    {
-        uint8_t wire[32];
-        rule_record_to_wire(&s_staging_rule_table[0], wire);
-        const uint8_t *ram = (const uint8_t *)&s_staging_rule_table[0];
-        uint16_t crc_wire = 0xFFFFU, crc_ram = 0xFFFFU;
-        for (uint8_t i = 0; i < 32U; i++) {
-            crc_wire = crc16_modbus_update(crc_wire, wire[i]);
-            crc_ram  = crc16_modbus_update(crc_ram,  ram[i]);
-        }
-        log_debug(TAG, "DIAG build=wirecrc-v2 sizeof=%u crc_wire=0x%04X crc_ram=0x%04X used=0x%04X",
-                  (unsigned)sizeof(SPLC_RuleRecord), crc_wire, crc_ram, actual_crc16);
-        log_debug(TAG, "DIAG wire: %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X "
-                       "%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X",
-                  wire[0],wire[1],wire[2],wire[3],wire[4],wire[5],wire[6],wire[7],
-                  wire[8],wire[9],wire[10],wire[11],wire[12],wire[13],wire[14],wire[15],
-                  wire[16],wire[17],wire[18],wire[19],wire[20],wire[21],wire[22],wire[23],
-                  wire[24],wire[25],wire[26],wire[27],wire[28],wire[29],wire[30],wire[31]);
-        log_debug(TAG, "DIAG ram : %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X "
-                       "%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X",
-                  ram[0],ram[1],ram[2],ram[3],ram[4],ram[5],ram[6],ram[7],
-                  ram[8],ram[9],ram[10],ram[11],ram[12],ram[13],ram[14],ram[15],
-                  ram[16],ram[17],ram[18],ram[19],ram[20],ram[21],ram[22],ram[23],
-                  ram[24],ram[25],ram[26],ram[27],ram[28],ram[29],ram[30],ram[31]);
-    }
-
     if (actual_crc16 != s_expected_crc16) {
         log_warn(TAG, "commit rejected: CRC mismatch, actual=0x%04X expected=0x%04X",
                  actual_crc16, s_expected_crc16);
@@ -581,8 +579,9 @@ static void write_commit_command(uint16_t value)
     s_config_status     = CONFIG_STATUS_READY;
     s_config_error_code = SPLC_ERROR_NONE;
     s_active_rule_version++;
-    log_info(TAG, "commit OK: %u rule(s) active, active_rule_version=%u",
-             s_rule_count_staged, s_active_rule_version);
+    log_info(TAG, "RULE UPLOAD DONE: %u rule(s) loaded, crc16=0x%04X, active_rule_version=%u",
+             s_rule_count_staged, actual_crc16, s_active_rule_version);
+    log_rule_summary();
 }
 
 /*

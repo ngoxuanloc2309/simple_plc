@@ -249,6 +249,36 @@ def print_device_info(client, unit):
     print(f"  raw = {regs}")
 
 
+def report_rule_upload_done(client, unit, expected_count, expected_crc):
+    """Print a clear "rule upload finished" banner, confirmed by READING BACK
+    the MCU's own ACTIVE_RULE_COUNT / ACTIVE_RULE_CRC16 / ACTIVE_RULE_VERSION
+    (0x9004 / 0x9005 / 0xA001) -- not just by trusting that CONFIG_STATUS
+    said READY. If the MCU's numbers differ from what was sent, say so."""
+    active_count, = read_regs(client, unit, REG_ACTIVE_RULE_COUNT, 1)
+    active_crc,   = read_regs(client, unit, REG_ACTIVE_RULE_CRC16, 1)
+    version,      = read_regs(client, unit, REG_ACTIVE_RULE_VERSION, 1)
+
+    count_ok = (active_count == expected_count)
+    crc_ok   = (active_crc == expected_crc)
+
+    print()
+    print("  ============================================================")
+    if count_ok and crc_ok:
+        print("  RULE UPLOAD DONE -- MCU confirms the rule table is active")
+    else:
+        print("  RULE UPLOAD FINISHED BUT MCU REPORTS A DIFFERENT TABLE")
+    print("  ------------------------------------------------------------")
+    print(f"  rules sent / active on MCU : {expected_count} / {active_count}"
+          f"  {'OK' if count_ok else 'MISMATCH'}")
+    print(f"  CRC-16 sent / active on MCU: 0x{expected_crc:04X} / 0x{active_crc:04X}"
+          f"  {'OK' if crc_ok else 'MISMATCH'}")
+    print(f"  active_rule_version        : {version}")
+    print("  ============================================================")
+
+    if not (count_ok and crc_ok):
+        raise RuntimeError("MCU's ACTIVE_RULE_COUNT/CRC16 do not match what was sent.")
+
+
 def stage_and_commit_test_rule(client, unit):
     """Stage: IF DI0 rises -> SET DO0 = 1, no dwell, no guard."""
     print("\n--- Staging test rule: IF DI0 rises -> SET DO0=1 ---")
@@ -300,7 +330,7 @@ def stage_and_commit_test_rule(client, unit):
             "Check CRC/rule_count and plc_modbus_cfg.c's error codes (plc_error.h)."
         )
 
-    print("  Commit OK.")
+    report_rule_upload_done(client, unit, rule_count, crc)
     return raw_bytes
 
 
