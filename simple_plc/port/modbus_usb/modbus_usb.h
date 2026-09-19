@@ -107,12 +107,18 @@ int32_t modbus_usb_write(const uint8_t *buf, uint16_t count, int32_t timeout_ms,
  * 2.4b: USB is the physical transport, RTU is still the framing App and
  * MCU exchange over it).
  *
+ * unit_id: RTU unit ID (slave address) the server will answer to. MUST be
+ *      in 1..247 -- nanoMODBUS's nmbs_server_create() rejects 0 (the RTU
+ *      broadcast address) and the App must send this exact value in every
+ *      request, or the request is silently ignored. See
+ *      modbus_transport.h's modbus_transport_t.unit_id.
+ *
  * Intended caller: board init (Layer 4) only, immediately before passing
  * the result to plc_modbus_cfg_init(). plc_modbus_cfg.c itself never
  * calls this function -- it only consumes the modbus_transport_t value
  * board init already built.
  */
-modbus_transport_t modbus_transport_usb_create(sx_usb_tiny_t *usb);
+modbus_transport_t modbus_transport_usb_create(sx_usb_tiny_t *usb, uint8_t unit_id);
 
 #ifdef __cplusplus
 }

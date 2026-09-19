@@ -355,8 +355,10 @@ def main():
                                       formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("port", help="Serial port, e.g. COM5 or /dev/ttyACM0")
     parser.add_argument("--unit", type=int, default=1,
-                         help="Modbus unit/slave id (ignored by the MCU for USB-CDC point-to-point, "
-                              "per plc_modbus_cfg.c's comment -- default 1)")
+                         help="Modbus unit/slave id. MUST match the firmware's MODBUS_UNIT_ID "
+                              "(board_zigbee_io.h, currently 1): nanoMODBUS silently ignores "
+                              "requests with any other unit id, and 0 is broadcast (never "
+                              "answered). Default 1")
     parser.add_argument("--baudrate", type=int, default=115200,
                          help="Baud rate (USB-CDC virtual COM port -- value is mostly cosmetic, "
                               "but pyserial requires one)")

@@ -41,4 +41,10 @@
 #define USB_RX_BUF_SIZE   256
 #define USB_TX_BUF_SIZE   256
 
+/* Modbus RTU unit ID (slave address) this board answers to. MUST be
+ * 1..247: nanoMODBUS's nmbs_server_create() rejects 0 (broadcast) and
+ * silently ignores any request whose unit_id byte differs from this
+ * value. The App must match it (test_plc.py: --unit, default 1). */
+#define MODBUS_UNIT_ID    1
+
 #endif

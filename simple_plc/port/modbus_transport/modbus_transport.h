@@ -112,6 +112,23 @@ typedef struct {
      * of hard-coding NMBS_TRANSPORT_RTU as it used to.
      */
     modbus_transport_kind_t kind;
+
+    /*
+     * RTU unit ID (slave address) this server answers to. Set by the
+     * factory function that built this value.
+     *
+     * MUST be in 1..247 when kind == MODBUS_TRANSPORT_KIND_RTU:
+     * nanoMODBUS's nmbs_server_create() rejects 0 outright (0 is the RTU
+     * broadcast address, which never gets a reply) and returns
+     * NMBS_ERROR_INVALID_ARGUMENT before nmbs_create() ever runs. It also
+     * FILTERS on this value at runtime -- a request whose unit_id byte
+     * differs is silently ignored, not answered -- so the App must send
+     * this exact value (test_plc.py's --unit).
+     *
+     * Ignored when kind == MODBUS_TRANSPORT_KIND_TCP (nanoMODBUS does not
+     * use address_rtu there).
+     */
+    uint8_t unit_id;
 } modbus_transport_t;
 
 #ifdef __cplusplus

@@ -112,7 +112,7 @@ static void modbus_transport_usb_process(void *ctx)
     sx_usb_tiny_process((sx_usb_tiny_t *)ctx);
 }
 
-modbus_transport_t modbus_transport_usb_create(sx_usb_tiny_t *usb)
+modbus_transport_t modbus_transport_usb_create(sx_usb_tiny_t *usb, uint8_t unit_id)
 {
     modbus_transport_t transport;
 
@@ -121,6 +121,7 @@ modbus_transport_t modbus_transport_usb_create(sx_usb_tiny_t *usb)
     transport.write    = modbus_usb_write;
     transport.process  = modbus_transport_usb_process;
     transport.kind     = MODBUS_TRANSPORT_KIND_RTU;
+    transport.unit_id  = unit_id;
 
     return transport;
 }

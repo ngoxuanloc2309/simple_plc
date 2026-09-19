@@ -66,12 +66,21 @@ extern SPLC_DeviceResourceInfo  g_device_resource_info;
 extern SPLC_DeviceHealth        g_device_health;
 
 /*
- * One-time setup: creates the nanoMODBUS server instance (address_rtu is
- * always passed as 0 and ignored on the RTU path -- a point-to-point
- * link such as USB-CDC has exactly one App on the other end, unlike
- * RS485's multi-drop bus, so the unit_id byte in every request is
- * accepted but not checked against any expected value), bound to the
- * read/write/process functions transport provides.
+ * One-time setup: creates the nanoMODBUS server instance, answering to
+ * transport->unit_id (RTU only), bound to the read/write/process
+ * functions transport provides.
+ *
+ * transport->unit_id MUST be 1..247 on RTU. nanoMODBUS rejects 0 (the
+ * broadcast address) with NMBS_ERROR_INVALID_ARGUMENT, and at runtime it
+ * silently IGNORES any request whose unit_id byte differs from this
+ * value -- the App must send exactly this ID even on a point-to-point
+ * link such as USB-CDC. (An earlier version of this comment claimed the
+ * unit_id was "accepted but not checked"; that was wrong.)
+ *
+ * If nmbs_server_create() fails, this function logs the error and leaves
+ * the Modbus server DISABLED: modbus_config_service() then still pumps
+ * the transport but never calls nmbs_server_poll() (polling an
+ * uninitialized nmbs_t would call a NULL function pointer -> HardFault).
  *
  * transport: caller-owned modbus_transport_t, already built by the
  *      appropriate factory function (e.g. modbus_transport_usb_create(),

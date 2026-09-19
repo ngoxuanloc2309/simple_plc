@@ -188,11 +188,10 @@ modbus_transport_t board_get_modbus_transport(void)
      * board_usb_init() above, which board_hw_init() guarantees ran
      * before this function is ever called (see board.h's doc-comment on
      * calling order). */
-    return modbus_transport_usb_create(&s_board.usb);
+    return modbus_transport_usb_create(&s_board.usb, MODBUS_UNIT_ID);
 }
 
 void USB_DRD_FS_IRQHandler(void)
 {
     tud_int_handler(0);
 }
-

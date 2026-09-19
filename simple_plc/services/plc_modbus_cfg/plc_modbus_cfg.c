@@ -39,6 +39,15 @@ static modbus_transport_t  s_transport;
 static uint32_t            s_boot_tick_ms;
 
 /*
+ * true only after nmbs_server_create() has actually succeeded. While
+ * false, s_nmbs is still all-zero (nmbs_create() never ran), so every
+ * platform.read/write/flush pointer inside it is NULL --
+ * modbus_config_service() must NOT call nmbs_server_poll() then, or it
+ * jumps to address 0 and HardFaults on the very first scan cycle.
+ */
+static bool                s_initialized = false;
+
+/*
  * --- Rule Transfer staging state (register map section 9, 0x9000-0xA001) -
  *
  * Per v1.9's own design intent (see docs/architecture.md section 2.6.2,
@@ -652,6 +661,7 @@ static nmbs_error cb_write_single_register(uint16_t address, uint16_t value, uin
 
 void plc_modbus_cfg_init(const modbus_transport_t *transport)
 {
+    s_initialized  = false;
     s_transport    = *transport;
     s_boot_tick_ms = sx_get_tick_ms();
 
@@ -668,12 +678,28 @@ void plc_modbus_cfg_init(const modbus_transport_t *transport)
     callbacks.write_multiple_registers = cb_write_multiple_registers;
     callbacks.write_single_register    = cb_write_single_register;
 
-    /* unit_id (address_rtu) is accepted but not checked -- see
-     * plc_modbus_cfg.h's plc_modbus_cfg_init() comment on why, for a
-     * point-to-point link such as USB-CDC. Not meaningful at all on the
-     * TCP path (s_transport.kind == MODBUS_TRANSPORT_KIND_TCP), where
-     * nanoMODBUS does not use address_rtu either. */
-    nmbs_server_create(&s_nmbs, 0, &platform_conf, &callbacks);
+    /*
+     * address_rtu = transport->unit_id. nanoMODBUS REJECTS 0 on RTU
+     * (0 is the broadcast address) with NMBS_ERROR_INVALID_ARGUMENT,
+     * returned before nmbs_create() runs -- and it FILTERS on this value
+     * at runtime: a request whose unit_id byte differs is silently
+     * ignored. So it is not "accepted but not checked"; the App must
+     * send exactly this value. See modbus_transport.h's unit_id.
+     *
+     * The return value MUST be checked: ignoring it (as an earlier
+     * version did) left s_nmbs all-zero after a failed create, and the
+     * first nmbs_server_poll() then called a NULL platform.read pointer
+     * -> HardFault, while the log still claimed "init OK".
+     */
+    nmbs_error err = nmbs_server_create(&s_nmbs, s_transport.unit_id,
+                                        &platform_conf, &callbacks);
+    if (err != NMBS_ERROR_NONE) {
+        log_error(TAG, "nmbs_server_create failed: err=%d (%s), unit_id=%u "
+                       "transport kind=%d -- Modbus config service DISABLED",
+                  (int)err, nmbs_strerror(err), (unsigned)s_transport.unit_id,
+                  (int)s_transport.kind);
+        return;
+    }
 
     /* Non-blocking poll: both the byte-level read/write timeout and the
      * read-timeout used while waiting for a new request are 0, so
@@ -683,14 +709,24 @@ void plc_modbus_cfg_init(const modbus_transport_t *transport)
     nmbs_set_read_timeout(&s_nmbs, 0);
     nmbs_set_byte_timeout(&s_nmbs, 0);
 
-    log_info(TAG, "init OK, transport kind=%d", (int)s_transport.kind);
+    s_initialized = true;
+    log_info(TAG, "init OK, transport kind=%d unit_id=%u",
+             (int)s_transport.kind, (unsigned)s_transport.unit_id);
 }
 
 void modbus_config_service(void)
 {
+    /* Still pump the transport (e.g. tud_task() for USB-CDC) even if the
+     * Modbus server failed to initialize, so the USB stack itself keeps
+     * running and enumeration is not affected by a Modbus config error. */
     if (s_transport.process != NULL) {
         s_transport.process(s_transport.ctx);
     }
+
+    if (!s_initialized) {
+        return;   /* s_nmbs is all-zero; polling it would jump to NULL. */
+    }
+
     nmbs_server_poll(&s_nmbs);
 }
 
