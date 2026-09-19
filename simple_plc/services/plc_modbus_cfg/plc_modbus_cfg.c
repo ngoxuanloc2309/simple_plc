@@ -285,7 +285,7 @@ static void read_rule_count_staged(uint16_t offset, uint16_t quantity, uint16_t 
     }
 }
 
-static void write_rule_count_staged(uint16_t value)
+static void write_rule_count_staged_value(uint16_t value)
 {
     /* A count exceeding MAX_RULES can never be committed successfully
      * (rule_table_commit() would refuse it) -- reject here rather than
@@ -313,7 +313,7 @@ static void read_expected_crc16(uint16_t offset, uint16_t quantity, uint16_t *re
     }
 }
 
-static void write_expected_crc16(uint16_t value)
+static void write_expected_crc16_value(uint16_t value)
 {
     s_expected_crc16 = value;
 }
@@ -328,12 +328,79 @@ static void read_active_rule_count(uint16_t offset, uint16_t quantity, uint16_t 
     }
 }
 
+/* --- Wire-format CRC (section 8.4) -------------------------------------
+ *
+ * EXPECTED_CRC16 / ACTIVE_RULE_CRC16 are defined over the SERIALIZED
+ * rule table: rule_count x 32 bytes laid out exactly as the App sends
+ * them (each 16-bit register high byte first, each 32-bit field High
+ * Word then Low Word -- section 8.4). That is NOT the in-RAM byte image
+ * of SPLC_RuleRecord: on a little-endian Cortex-M33 the RAM bytes of
+ * every multi-byte field are reversed relative to the wire, so hashing
+ * the struct directly gives a different CRC than the App computes over
+ * what it sent (verified: the same rule hashed 0x6575 from RAM bytes vs
+ * 0x18A4 from wire bytes). The CRC therefore has to be taken over the
+ * wire image, produced by rule_record_to_wire() below -- the exact
+ * inverse of write_staging_rule_table()'s field mapping.
+ *
+ * nmbs_crc_calc() is deliberately NOT used here: it returns the CRC with
+ * its two bytes swapped (it is built for RTU framing, low byte first),
+ * so it is not the plain CRC-16/MODBUS value the register holds.
+ */
+
+static uint16_t crc16_modbus_update(uint16_t crc, uint8_t byte)
+{
+    crc ^= byte;
+    for (uint8_t bit = 0; bit < 8U; bit++) {
+        crc = (crc & 1U) ? (uint16_t)((crc >> 1) ^ 0xA001U) : (uint16_t)(crc >> 1);
+    }
+    return crc;
+}
+
+/* Serialize one record to its 32-byte wire image (16 registers). */
+static void rule_record_to_wire(const SPLC_RuleRecord *r, uint8_t out[32])
+{
+    uint16_t w[16];
+    w[0]  = (uint16_t)((uint32_t)r->threshold_lo >> 16);
+    w[1]  = (uint16_t)((uint32_t)r->threshold_lo & 0xFFFFU);
+    w[2]  = (uint16_t)((uint32_t)r->threshold_hi >> 16);
+    w[3]  = (uint16_t)((uint32_t)r->threshold_hi & 0xFFFFU);
+    w[4]  = (uint16_t)(r->for_ms >> 16);
+    w[5]  = (uint16_t)(r->for_ms & 0xFFFFU);
+    w[6]  = (uint16_t)((uint32_t)r->action_param >> 16);
+    w[7]  = (uint16_t)((uint32_t)r->action_param & 0xFFFFU);
+    w[8]  = r->trigger_tag;
+    w[9]  = r->action_tag;
+    w[10] = r->guard_tag;
+    w[11] = (uint16_t)(((uint16_t)r->enabled << 8) | r->trigger_type);
+    w[12] = (uint16_t)(((uint16_t)r->compare_op << 8) | r->action_type);
+    w[13] = 0; w[14] = 0; w[15] = 0;   /* reserved[6]: sender writes 0 */
+
+    for (uint8_t i = 0; i < 16U; i++) {
+        out[2U * i]      = (uint8_t)(w[i] >> 8);
+        out[2U * i + 1U] = (uint8_t)(w[i] & 0xFFU);
+    }
+}
+
+/* CRC-16/MODBUS over `count` records' wire images (count x 32 bytes). */
+static uint16_t rule_table_wire_crc16(const SPLC_RuleRecord *table, uint16_t count)
+{
+    uint16_t crc = 0xFFFFU;
+    uint8_t  buf[32];
+
+    for (uint16_t i = 0; i < count; i++) {
+        rule_record_to_wire(&table[i], buf);
+        for (uint8_t b = 0; b < 32U; b++) {
+            crc = crc16_modbus_update(crc, buf[b]);
+        }
+    }
+    return crc;
+}
+
 static void read_active_rule_crc16(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
 {
     (void)offset;
-    uint16_t crc = nmbs_crc_calc((const uint8_t *)g_rule_table,
-                                  (uint32_t)g_rule_count.rule_count * sizeof(SPLC_RuleRecord),
-                                  NULL);
+    uint16_t crc = rule_table_wire_crc16((const SPLC_RuleRecord *)g_rule_table,
+                                          (uint16_t)g_rule_count.rule_count);
     for (uint16_t i = 0; i < quantity; i++) {
         registers_out[i] = crc;
     }
@@ -462,9 +529,8 @@ static void write_commit_command(uint16_t value)
     log_debug(TAG, "commit: verifying CRC, rule_count_staged=%u expected_crc16=0x%04X",
               s_rule_count_staged, s_expected_crc16);
 
-    uint16_t actual_crc16 = nmbs_crc_calc((const uint8_t *)s_staging_rule_table,
-                                           (uint32_t)s_rule_count_staged * sizeof(SPLC_RuleRecord),
-                                           NULL);
+    uint16_t actual_crc16 = rule_table_wire_crc16(s_staging_rule_table,
+                                                   s_rule_count_staged);
 
     if (actual_crc16 != s_expected_crc16) {
         log_warn(TAG, "commit rejected: CRC mismatch, actual=0x%04X expected=0x%04X",
@@ -491,6 +557,28 @@ static void write_commit_command(uint16_t value)
              s_rule_count_staged, s_active_rule_version);
 }
 
+/*
+ * write_multi_fn adapters for the two exactly-1-register RW blocks.
+ * Both blocks are 1 register wide, so `quantity` is always 1 here
+ * (cb_write_multiple_registers() clamps each pass to the block's own
+ * end_addr) and only registers[0] is meaningful.
+ */
+static void write_rule_count_staged(uint16_t address, uint16_t quantity, const uint16_t *registers)
+{
+    (void)address;
+    if (quantity >= 1U) {
+        write_rule_count_staged_value(registers[0]);
+    }
+}
+
+static void write_expected_crc16(uint16_t address, uint16_t quantity, const uint16_t *registers)
+{
+    (void)address;
+    if (quantity >= 1U) {
+        write_expected_crc16_value(registers[0]);
+    }
+}
+
 /* --- Address-range dispatch table ---------------------------------------
  *
  * One entry per register-map block (section 8/9's tables). read_holding_
@@ -509,34 +597,32 @@ static void write_commit_command(uint16_t value)
 
 typedef void (*read_block_fn)(uint16_t offset_or_addr, uint16_t quantity, uint16_t *registers_out);
 typedef void (*write_multi_fn)(uint16_t address, uint16_t quantity, const uint16_t *registers);
-typedef void (*write_single_fn)(uint16_t value);
 
 typedef struct {
     uint16_t        start_addr;
     uint16_t        end_addr;   /* Inclusive */
     bool            addr_is_offset; /* true: callback gets (addr - start_addr); false: callback gets raw addr (ACTIVE_RULE_TABLE/STAGING_RULE_TABLE/RUNTIME_TAG_VALUES need the raw address to compute rule_index/tag_idx) */
     read_block_fn   read_cb;
-    write_multi_fn  write_multi_cb;
-    write_single_fn write_single_cb; /* Only meaningful for exactly-1-register blocks written via FC06 */
+    write_multi_fn  write_multi_cb; /* Used by BOTH FC16 and FC06 (see cb_write_single_register) */
 } modbus_block_t;
 
 static const modbus_block_t s_blocks[] = {
-    { 0x0000, 0x0009, true,  read_device_descriptor,      NULL, NULL },
-    { 0x0010, 0x0010, true,  read_rule_table_info,        NULL, NULL },
-    { 0x0020, 0x0029, true,  read_device_resource_info,   NULL, NULL },
-    { 0x0100, 0x073F, false, read_active_rule_table,      NULL, NULL },
-    { 0x0800, 0x0809, true,  read_device_health,          NULL, NULL },
-    { 0x0900, 0x09FF, false, read_runtime_tag_values,     NULL, NULL },
-    { 0x0A01, 0x0A02, true,  read_system_command_result,  NULL, NULL },
+    { 0x0000, 0x0009, true,  read_device_descriptor,      NULL },
+    { 0x0010, 0x0010, true,  read_rule_table_info,        NULL },
+    { 0x0020, 0x0029, true,  read_device_resource_info,   NULL },
+    { 0x0100, 0x073F, false, read_active_rule_table,      NULL },
+    { 0x0800, 0x0809, true,  read_device_health,          NULL },
+    { 0x0900, 0x09FF, false, read_runtime_tag_values,     NULL },
+    { 0x0A01, 0x0A02, true,  read_system_command_result,  NULL },
 
-    { 0x9000, 0x9000, true,  read_config_status,          NULL, NULL },
-    { 0x9001, 0x9001, true,  read_config_error_code,      NULL, NULL },
-    { 0x9002, 0x9002, true,  read_rule_count_staged,      NULL, write_rule_count_staged },
-    { 0x9003, 0x9003, true,  read_expected_crc16,         NULL, write_expected_crc16 },
-    { 0x9004, 0x9004, true,  read_active_rule_count,      NULL, NULL },
-    { 0x9005, 0x9005, true,  read_active_rule_crc16,      NULL, NULL },
-    { 0x9010, 0x964F, false, read_staging_rule_table,     write_staging_rule_table, NULL },
-    { 0xA001, 0xA001, true,  read_active_rule_version,    NULL, NULL },
+    { 0x9000, 0x9000, true,  read_config_status,          NULL },
+    { 0x9001, 0x9001, true,  read_config_error_code,      NULL },
+    { 0x9002, 0x9002, true,  read_rule_count_staged,      write_rule_count_staged },
+    { 0x9003, 0x9003, true,  read_expected_crc16,         write_expected_crc16 },
+    { 0x9004, 0x9004, true,  read_active_rule_count,      NULL },
+    { 0x9005, 0x9005, true,  read_active_rule_crc16,      NULL },
+    { 0x9010, 0x964F, false, read_staging_rule_table,     write_staging_rule_table },
+    { 0xA001, 0xA001, true,  read_active_rule_version,    NULL },
 };
 
 #define NUM_BLOCKS (sizeof(s_blocks) / sizeof(s_blocks[0]))
@@ -632,18 +718,16 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
 }
 
 /*
- * SYSTEM_COMMAND (0x0A00) and COMMIT_COMMAND (0xA000) are both WO,
- * single-register, and documented in section 6/8 as written via
- * "FC16/FC06" -- i.e. the App may use either Write Single Register (FC06)
- * or Write Multiple Registers (FC16, quantity=1) for these two. The
- * table-driven write_multi path above already handles the FC16 case for
- * every RW block (RULE_COUNT_STAGED, EXPECTED_CRC16, STAGING_RULE_TABLE);
- * SYSTEM_COMMAND and COMMIT_COMMAND are the only two blocks that are WO
- * rather than RW and therefore need write_single_register handled too,
- * since they have no read_cb for a client to have gotten quantity=1 read
- * context from -- handled directly here rather than added to s_blocks,
- * since there are only these two and adding write_single_cb to every
- * table entry for two callers would be unused complexity everywhere else.
+ * FC06 (Write Single Register). SYSTEM_COMMAND (0x0A00) and
+ * COMMIT_COMMAND (0xA000) are both WO, single-register, and documented
+ * in section 6/8 as written via "FC16/FC06", so they are handled
+ * directly here (they have no read_cb and are not in s_blocks).
+ *
+ * Every other writable register (RULE_COUNT_STAGED, EXPECTED_CRC16,
+ * STAGING_RULE_TABLE) is an RW block in s_blocks; FC06 to those is
+ * forwarded to the same table-driven path as FC16 with quantity=1.
+ * Anything not covered by either is rejected with
+ * ILLEGAL_DATA_ADDRESS.
  */
 static nmbs_error cb_write_single_register(uint16_t address, uint16_t value, uint8_t unit_id, void *arg)
 {
@@ -653,8 +737,15 @@ static nmbs_error cb_write_single_register(uint16_t address, uint16_t value, uin
     switch (address) {
         case 0x0A00: write_system_command((uint16_t)value); return NMBS_ERROR_NONE;
         case 0xA000: write_commit_command((uint16_t)value); return NMBS_ERROR_NONE;
-        default:     return NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+        default:     break;
     }
+
+    /* Every other writable register (RULE_COUNT_STAGED, EXPECTED_CRC16,
+     * STAGING_RULE_TABLE) lives in s_blocks. FC06 is just FC16 with
+     * quantity=1, so route it through the same table-driven path rather
+     * than rejecting it: a client (e.g. pymodbus write_register()) is
+     * entitled to use either function code for a 1-register RW block. */
+    return cb_write_multiple_registers(address, 1U, &value, unit_id, arg);
 }
 
 /* --- Public API (see plc_modbus_cfg.h for full contracts) --------------- */
