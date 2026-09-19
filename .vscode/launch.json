@@ -8,12 +8,12 @@
             "cwd": "${workspaceFolder}",
             "executable": "${workspaceFolder}/build/release/RS485_IO_RF_V2.elf",
             "servertype": "stlink",
-            "serverpath": "D:\\stm32cubeclt\\STM32CubeCLT_1.21.0\\STLink-gdb-server\\bin\\ST-LINK_gdbserver.exe",
+            "serverpath": "C:\\ST\\STM32CubeCLT_1.20.0\\STLink-gdb-server\\bin\\ST-LINK_gdbserver.exe",
             "device": "STM32H523CCUx",
             "interface": "swd",
             "runToEntryPoint": "main",
-            "gdbPath": "D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/arm-none-eabi-gdb.exe",
-            "stm32cubeprogrammer": "D:\\stm32cubeclt\\STM32CubeCLT_1.21.0\\STM32CubeProgrammer\\bin",
+            "gdbPath": "C:/ST/STM32CubeCLT_1.20.0/GNU-tools-for-STM32/bin/arm-none-eabi-gdb.exe",
+            "stm32cubeprogrammer": "C:\\ST\\STM32CubeCLT_1.20.0\\STM32CubeProgrammer\\bin",
             "showDevDebugOutput": "none",
             "serverArgs": ["-m", "1"]
         }
