@@ -21,6 +21,9 @@
 
 #include "plc_io.h"
 #include "plc_tag_def.h"
+#include "plc_device.h"
+#include "plc_rule.h"       /* MAX_RULES */
+#include "plc_modbus_cfg.h" /* g_device_descriptor / g_device_resource_info */
 #include "tim.h"
 #include "stm32h5xx_hal.h"
 
@@ -117,6 +120,66 @@ static void board_di_do_init(void)
     s_di_do_register_failures = reg_fail;
 }
 
+/*
+ * Populates g_device_descriptor / g_device_resource_info (owned by
+ * services/plc_modbus_cfg/plc_modbus_cfg.c, Layer 3) with this SKU's real
+ * identity/resource numbers, per plc_modbus_cfg.h's doc comment: "Layer 4's
+ * board init needs to write into these once at boot". Without this call
+ * both structs stay all-zero (static storage), so the App would read
+ * device_class == SPLC_DEVICE_CLASS_UNKNOWN (0) at DEVICE_DESCRIPTOR
+ * (0x0000) right after connecting and reject the device outright -- this
+ * was reproduced against real hardware (App error: "Device class 0x0000
+ * is not supported").
+ *
+ * Resource counts (di_count=8, do_count=8, ai_count=4, runtime_tag_count=
+ * 124) intentionally follow plc_tag_def.h's Remote I/O 8DI/8DO/4AI layout,
+ * NOT this board's actually-wired 4DI/4DO/0AI hardware (see
+ * board_di_do_init() above, which only registers 4+4 channels) -- per
+ * project decision: this board is a Remote I/O family board first, its
+ * physical wiring is a partial population of that family's tag layout, not
+ * a different resource profile. device_variant is a separate, purely
+ * identity/diagnostic field (docs/SimplePLC_App_MCU_Structs_v1.9_
+ * Self_Describing_Profile.md section 1: "ProductVariant chi la identity,
+ * khong quyet dinh resource layout trong App") -- it is set to the new
+ * SPLC_REMOTE_IO_VARIANT_4DI_4DO (3) so App-side diagnostics can tell this
+ * board apart from a fully-populated 8DI_8DO_4AI unit, without that value
+ * affecting how the App builds its resource/tag catalog (that always comes
+ * from DEVICE_RESOURCE_INFO alone, per section 8.6).
+ *
+ * hw_version_*/fw_version_*/rule_format_version are not yet backed by any
+ * project-wide version source (no VERSION file / CMake variable found) --
+ * hardcoded to 1.0.0 / 1 here as a starting point; revisit once such a
+ * source exists so this does not silently go stale across firmware builds.
+ */
+static void board_device_info_init(void)
+{
+    g_device_descriptor.device_class        = SPLC_DEVICE_CLASS_REMOTE_IO;
+    g_device_descriptor.device_variant      = SPLC_REMOTE_IO_VARIANT_4DI_4DO;
+
+    g_device_descriptor.hw_version_major    = 1;
+    g_device_descriptor.hw_version_minor    = 0;
+    g_device_descriptor.hw_version_patch    = 0;
+
+    g_device_descriptor.fw_version_major    = 1;
+    g_device_descriptor.fw_version_minor    = 0;
+    g_device_descriptor.fw_version_patch    = 0;
+
+    g_device_descriptor.protocol_version    = 1;
+    g_device_descriptor.rule_format_version = 1;
+
+    g_device_resource_info.wire_profile         = SPLC_WIRE_PROFILE_V1;
+    g_device_resource_info.max_rules            = MAX_RULES;
+    g_device_resource_info.runtime_tag_count    = 124; /* DI+DO+AI+VFLAG+VREG+VREG_RETAIN+COUNTER, see plc_tag_def.h */
+
+    g_device_resource_info.di_count             = 8;
+    g_device_resource_info.do_count             = 8;
+    g_device_resource_info.ai_count             = 4;
+    g_device_resource_info.vflag_count          = 32;
+    g_device_resource_info.vreg_count           = 32;
+    g_device_resource_info.vreg_retain_count    = 32;
+    g_device_resource_info.counter_count        = 8;
+}
+
 static void board_log_uart_init(void)
 {
     s_board.log_uart_cfg.pDriver  = &UART_LOG;
@@ -132,7 +195,7 @@ static void board_log_uart_init(void)
 
     sx_uart_init(&s_board.log_uart, &s_board.log_uart_cfg);
 
-    logger_init(LOGGER_INFO, board_log_write);
+    logger_init(LOGGER_DEBUG, board_log_write);
     log_info(TAG, "Zigbee-IO board init start");
 }
 
@@ -150,6 +213,15 @@ static void board_usb_init(void)
 void board_hw_init(void)
 {
     board_log_uart_init();
+
+    /* Must run before board_get_modbus_transport()/plc_modbus_cfg_init()
+     * (Layer 4, see plc_engine.c) ever answers a Modbus request -- the App
+     * may read DEVICE_DESCRIPTOR the moment USB enumerates, so this cannot
+     * be deferred past board_usb_init() below. Placed after
+     * board_log_uart_init() only so the confirmation log line below is
+     * actually emitted (logger_init() runs inside board_log_uart_init()). */
+    board_device_info_init();
+    log_info(TAG, "device descriptor/resource info populated (class=REMOTE_IO, variant=4DI_4DO)");
 
     board_di_do_init();
     if (s_di_do_register_failures == 0) {

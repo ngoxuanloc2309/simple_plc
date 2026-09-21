@@ -65,7 +65,8 @@ typedef enum {
 typedef enum {
     SPLC_REMOTE_IO_VARIANT_UNKNOWN     = 0,
     SPLC_REMOTE_IO_VARIANT_8DI_8DO_4AI = 1,
-    SPLC_REMOTE_IO_VARIANT_16DI_16DO   = 2
+    SPLC_REMOTE_IO_VARIANT_16DI_16DO   = 2,
+    SPLC_REMOTE_IO_VARIANT_4DI_4DO     = 3
 } SPLC_RemoteIoVariant;
 
 /* Datalogger variant: only meaningful when device_class == SPLC_DEVICE_CLASS_DATALOGGER. */
