@@ -188,11 +188,7 @@ int main(void)
       read_states(state);
     }
     #else
-    uint32_t now = HAL_GetTick();
-    if ((now - s_last_scan_tick) >= SCAN_INTERVAL_MS) {
-      s_last_scan_tick = now;
-      plc_engine_scan_once();
-    }
+    plc_engine_poll();
     #endif
   }
   /* USER CODE END 3 */
