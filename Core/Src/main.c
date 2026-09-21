@@ -56,8 +56,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-static uint32_t s_last_scan_tick = 0;
-#define SCAN_INTERVAL_MS 0U
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
