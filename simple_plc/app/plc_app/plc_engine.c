@@ -31,16 +31,34 @@ void plc_engine_init(void)
     plc_modbus_cfg_init(&transport);
 }
 
-void plc_engine_scan_once(void)
+/*
+ * The one place a scan cycle is defined. `now_ms` is the tick sampled at
+ * cycle start: it is what rule_scan() sees and the reference point for the
+ * scan-duration measurement.
+ */
+static void scan_cycle(uint32_t now_ms)
 {
-    uint32_t t0 = sx_get_tick_ms();
-
     input_scan();
-    rule_scan();
+    rule_scan(now_ms);
     output_scan();
     modbus_config_service();
     retain_service();
 
-    uint32_t scan_time_ms = sx_get_tick_ms() - t0;
-    plc_modbus_cfg_record_scan_time(scan_time_ms);
+    plc_modbus_cfg_record_scan_time(sx_get_tick_ms() - now_ms);
+}
+
+void plc_engine_scan_once(void)
+{
+    scan_cycle(sx_get_tick_ms());
+}
+
+void plc_engine_poll(void)
+{
+    static uint32_t s_last_scan_tick_ms = 0U;
+
+    uint32_t now = sx_get_tick_ms();
+    if ((uint32_t)(now - s_last_scan_tick_ms) >= PLC_SCAN_INTERVAL_MS) {
+        s_last_scan_tick_ms = now;
+        scan_cycle(now);
+    }
 }

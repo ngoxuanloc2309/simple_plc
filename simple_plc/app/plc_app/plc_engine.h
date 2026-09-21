@@ -48,15 +48,45 @@ extern "C" {
 void plc_engine_init(void);
 
 /*
- * One PLC scan cycle. Called from main()'s while(1) loop every
- * SCAN_INTERVAL_MS (10 ms, non-blocking delta-time gate -- see
- * Core/Src/main.c's USER CODE BEGIN WHILE block), not on every
- * HAL_GetTick() tick.
+ * Scan period in milliseconds: how far apart plc_engine_poll() starts
+ * consecutive scan cycles. Single source of truth for the firmware -- main.c
+ * and every other caller use plc_engine_poll() and never carry their own
+ * copy of this number.
  *
- * Fixed order (docs/architecture.md section 4.2's scan cycle ordering,
- * and each function's own doc-comment cross-referencing this order):
- *   input_scan() -> rule_scan() -> output_scan() ->
+ * Overridable per build without editing this file, e.g. for bring-up:
+ *     target_compile_definitions(<target> PRIVATE PLC_SCAN_INTERVAL_MS=1U)
+ * (0 = scan as fast as the loop spins; not recommended -- it floods the log
+ * and wastes CPU without improving rule timing.)
+ *
+ * Rule dwell/interval resolution equals this period (see rule_scan() in
+ * plc_rule.h).
+ */
+#ifndef PLC_SCAN_INTERVAL_MS
+#define PLC_SCAN_INTERVAL_MS 10U
+#endif
+
+/*
+ * Call from main()'s while(1) loop on EVERY iteration. Non-blocking: returns
+ * immediately unless at least PLC_SCAN_INTERVAL_MS have passed since the
+ * previous cycle started, in which case it runs one full scan cycle. All
+ * scan pacing therefore lives in the engine, so a new board/MCU main()
+ * needs no timing code of its own. Unsigned delta, so it stays correct
+ * across the ~49.7-day tick wraparound.
+ */
+void plc_engine_poll(void);
+
+/*
+ * One PLC scan cycle, unconditionally (no pacing). Normally reached via
+ * plc_engine_poll(); call it directly only from a test or a caller that
+ * already paces itself.
+ *
+ * Fixed order (docs/architecture.md section 4.2's scan cycle ordering, and
+ * each function's own doc-comment cross-referencing this order):
+ *   input_scan() -> rule_scan(now) -> output_scan() ->
  *   modbus_config_service() -> retain_service()
+ *
+ * The tick is sampled ONCE at the start of the cycle and that single value
+ * is handed to rule_scan(), so every rule in the cycle shares one "now".
  *
  * Scan duration is timed around this exact sequence and reported via
  * plc_modbus_cfg_record_scan_time() so DEVICE_HEALTH.scan_time_ms/
