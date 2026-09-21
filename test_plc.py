@@ -354,18 +354,27 @@ def read_tag_value(client, unit, tag_idx):
 
 
 def watch_di0_do0(client, unit, duration_s):
-    print(f"\n--- Watching DI0/DO0 for {duration_s}s ---")
-    print("  Drive DI0 high now (0 -> nonzero transition) and watch for DO0 to become 1.")
+    """Poll all 4 DI tags + DO0 and print a line whenever any of them changes.
+
+    Watching only DI0 hides wiring/numbering mix-ups: the schematic numbers
+    the input channels IO IN1..IN4 while the firmware/CubeMX names them
+    IN0..IN3 (TAG_DI0..TAG_DI3), so a signal on the "first" opto channel
+    could land on DI0 or DI1. Printing all four shows which tag really moved.
+    """
+    print(f"\n--- Watching DI0..DI3 / DO0 for {duration_s}s ---")
+    print("  Drive an input high (0 -> nonzero) and watch which DI changes.")
+    print("  Rule under test: IF DI0 rises -> DO0 = 1.")
     print("  (Ctrl+C to stop early)\n")
     t_end = time.time() + duration_s
     last = None
     try:
         while time.time() < t_end:
-            di0 = read_tag_value(client, unit, TAG_DI0)
+            di = [read_tag_value(client, unit, TAG_DI0 + i) for i in range(4)]
             do0 = read_tag_value(client, unit, TAG_DO0)
-            row = (di0, do0)
+            row = (*di, do0)
             if row != last:
-                print(f"  t={time.time():.1f}  DI0={di0}  DO0={do0}")
+                print(f"  t={time.time():.1f}  DI0={di[0]} DI1={di[1]} "
+                      f"DI2={di[2]} DI3={di[3]}  DO0={do0}")
                 last = row
             time.sleep(0.1)
     except KeyboardInterrupt:
