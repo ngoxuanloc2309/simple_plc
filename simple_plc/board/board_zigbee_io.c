@@ -76,6 +76,9 @@ static void board_log_write(const char *s)
     sx_uart_write(&s_board.log_uart, (const uint8_t *)s, (int)strlen(s), 100);
 }
 
+/* Number of plc_io_register_*() calls that failed in board_di_do_init(). */
+static int s_di_do_register_failures;
+
 static void board_di_do_init(void)
 {
     s_board.di_pins[0] = (sx_gpio_pin_t){ .port = DI0_PORT, .pin = DI0_PIN, .mode = SX_GPIO_MODE_INPUT };
@@ -88,15 +91,30 @@ static void board_di_do_init(void)
     s_board.do_pins[2] = (sx_gpio_pin_t){ .port = DO2_PORT, .pin = DO2_PIN, .mode = SX_GPIO_MODE_OUTPUT_PP };
     s_board.do_pins[3] = (sx_gpio_pin_t){ .port = DO3_PORT, .pin = DO3_PIN, .mode = SX_GPIO_MODE_OUTPUT_PP };
 
+    /* plc_io_register_*() return false (and register nothing) when the
+     * tag's kind in g_tag_table[] is wrong or the table is full. That used
+     * to be ignored, so a failed registration was completely silent: the
+     * pin was configured but input_scan()/output_scan() never touched it.
+     * Count and report failures so this can never hide again. */
+    int reg_fail = 0;
+
     for (int i = 0; i < 4; i++) {
         sx_gpio_init(&s_board.di_pins[i], SX_GPIO_LOW);
-        plc_io_register_di((uint16_t)(TAG_DI0 + i), &s_board.di_pins[i]);
+        if (!plc_io_register_di((uint16_t)(TAG_DI0 + i), &s_board.di_pins[i])) {
+            log_error(TAG, "register DI%d FAILED (tag kind != TAG_DI?)", i);
+            reg_fail++;
+        }
     }
 
     for (int i = 0; i < 4; i++) {
         sx_gpio_init(&s_board.do_pins[i], SX_GPIO_LOW);
-        plc_io_register_do((uint16_t)(TAG_DO0 + i), &s_board.do_pins[i]);
+        if (!plc_io_register_do((uint16_t)(TAG_DO0 + i), &s_board.do_pins[i])) {
+            log_error(TAG, "register DO%d FAILED (tag kind != TAG_DO?)", i);
+            reg_fail++;
+        }
     }
+
+    s_di_do_register_failures = reg_fail;
 }
 
 static void board_log_uart_init(void)
@@ -131,47 +149,19 @@ static void board_usb_init(void)
 
 void board_hw_init(void)
 {
-    /* Log UART first so board_log_write() is available for anything
-     * that follows (mirrors sx_board_init()'s ordering in SynaptiX_FDK's
-     * WS_v1 reference implementation). */
     board_log_uart_init();
 
     board_di_do_init();
-    log_info(TAG, "DI/DO registered (4 DI, 4 DO)");
+    if (s_di_do_register_failures == 0) {
+        log_info(TAG, "DI/DO registered (4 DI, 4 DO)");
+    } else {
+        log_error(TAG, "DI/DO registration: %d of 8 channel(s) FAILED -- "
+                       "those pins are NOT scanned", s_di_do_register_failures);
+    }
 
     board_usb_init();
     log_info(TAG, "USB CDC initialized");
 
-    /* Pump tud_task() in a tight loop for ~300 ms right after
-     * tusb_init() returns, instead of relying solely on the first
-     * modbus_config_service() call in the 10 ms scan loop (main.c).
-     *
-     * Root-caused empirically, not from a known TinyUSB/errata
-     * citation: without this pump, the host reliably reported "Unknown
-     * USB Device" (Windows Device Manager). With this pump, the device
-     * enumerates correctly within ~2 s of boot. The threshold was
-     * narrowed by testing: 100 ms was NOT enough (enumeration still
-     * failed), 300 ms IS enough (confirmed working), so 300 ms is used
-     * here with no further safety margin added yet -- if enumeration
-     * ever starts failing intermittently again (e.g. on a different
-     * host controller/hub, or a marginal board), try raising this
-     * first before looking elsewhere.
-     *
-     * Likely explanation (not fully confirmed): USB_DRD_FS's bus reset
-     * handling and the first few control transfers of enumeration
-     * happen in a tight back-and-forth that is sensitive to how
-     * promptly tud_task() is called after each IRQ -- see
-     * dcd_int_handler()/handle_bus_reset() in TinyUSB's
-     * dcd_stm32_fsdev.c. The normal 10 ms scan-loop cadence
-     * (modbus_config_service() -> transport->process() ->
-     * sx_usb_tiny_process() -> tud_task()) may simply be too coarse
-     * for that specific window right after dcd_init()/dcd_connect(),
-     * even though 10 ms is fine once the device is already
-     * enumerated/mounted and only steady-state CDC traffic is
-     * involved. This has not been confirmed with a USB protocol
-     * analyzer (see docs/architecture.md or ask before assuming this
-     * reasoning is authoritative) -- treat it as the best available
-     * explanation, not a verified root cause. */
     {
         uint32_t t0 = HAL_GetTick();
         while ((HAL_GetTick() - t0) < 500U) {

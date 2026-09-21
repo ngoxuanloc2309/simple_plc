@@ -30,7 +30,7 @@
 /* USER CODE BEGIN Includes */
 #include "stdint.h"
 #include "plc_engine.h"
-#define TEST_DI 1
+#define TEST_DI 0
 #if TEST_DI
 #include <string.h>
 #include <stdio.h>
