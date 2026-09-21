@@ -132,7 +132,7 @@ static void board_log_uart_init(void)
 
     sx_uart_init(&s_board.log_uart, &s_board.log_uart_cfg);
 
-    logger_init(LOGGER_DEBUG, board_log_write);
+    logger_init(LOGGER_INFO, board_log_write);
     log_info(TAG, "Zigbee-IO board init start");
 }
 
