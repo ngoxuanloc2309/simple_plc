@@ -11,7 +11,9 @@
 
 ## 0. Trạng thái hiện tại
 
-- Branch `main`, commit đã verify: `81fdc13` ("edit code test").
+- Branch `main`, commit gốc đã verify: `98afb3e` ("fix read tag fail"),
+  cộng thêm thay đổi tick/scan-interval ở mục 0b (CHƯA commit/push,
+  CHƯA chạy trên board).
 - Board đang dùng: **Zigbee-IO SKU** (`board/board_zigbee_io.c`), 4 DI /
   4 DO / 0 AI, STM32H523CCU6.
 - **Đã chạy được trên board thật:** build (`build.bat build`), flash, USB
@@ -20,10 +22,47 @@
   đọc lại `ACTIVE_RULE_TABLE` khớp hệt bản đã stage. MCU in
   `RULE UPLOAD DONE ...`, App in khối `RULE UPLOAD DONE` (xác nhận bằng số
   `ACTIVE_RULE_COUNT/CRC16/VERSION` đọc lại từ MCU).
-- **Chưa xác nhận trên board thật:** rule **chạy thật** (kéo DI0 lên cao →
-  DO0 lên 1). Đây là bước tiếp theo hợp lý nhất (mục 2).
+- **Rule chạy thật trên board — ĐÃ XÁC NHẬN** (log `test_plc.py`: DI0 có
+  xung 0→1 thì DO0 lên 1 và giữ nguyên; DI1..DI3 đọc đúng). Nhờ commit
+  `98afb3e`: trước đó `g_tag_table[]` toàn `TAG_NONE` nên
+  `plc_io_register_*()` từ chối âm thầm mọi kênh.
 - **Rule KHÔNG được lưu vào Flash** — chỉ nằm trong RAM, mất điện/reset là
   mất (xem mục 3.7). Đây là hành vi hiện tại, không phải lỗi ngẫu nhiên.
+
+## 0b. Thay đổi đang chờ build/flash (tick + nhịp quét)
+
+Đã sửa trên PC, **chưa build bằng toolchain ARM, chưa chạy trên board**.
+Người dùng đã chốt: truyền tick bằng **tham số** (không dùng setter) và
+nhịp quét **10 ms**.
+
+- `rule_scan(void)` → `rule_scan(uint32_t now_ms)`. Bỏ static
+  `s_rule_scan_now_ms`. Quên truyền giờ = lỗi biên dịch (đó chính là bug
+  3.1 cũ). Chỉ có 1 chỗ gọi: `plc_engine.c`.
+- `plc_engine.h` thêm `PLC_SCAN_INTERVAL_MS` (mặc định 10U, ghi đè được
+  bằng `target_compile_definitions`) và `plc_engine_poll()`: hàm không
+  chặn, tự kiểm tra đã qua đủ nhịp chưa rồi mới chạy 1 vòng quét.
+  `main.c` chỉ còn `plc_engine_poll();` — bỏ `s_last_scan_tick` và
+  `SCAN_INTERVAL_MS` khỏi `main.c`. Toàn bộ logic pacing nằm trong engine
+  (dễ reuse cho SKU khác).
+- `scan_cycle(now)` trong `plc_engine.c` lấy tick **1 lần** đầu vòng và
+  đưa cùng giá trị đó cho `rule_scan()` (mọi rule trong 1 vòng thấy cùng
+  "bây giờ").
+- **Bug mới tìm được, có sẵn từ trước, đã sửa:** nhánh `DWELLING` trong
+  `plc_rule.c` tính `now_ms - dwell_start_tick` cả với rule INTERVAL /
+  TIME_WINDOW (không bao giờ arm dwell, nên `dwell_start_tick ==
+  DWELL_NOT_STARTED == 0xFFFFFFFF`). `now - 0xFFFFFFFF == now + 1`, nhỏ hơn
+  `for_ms` khi tick vừa tràn qua 0 → rule INTERVAL đến hạn bị coi là "chưa
+  đủ dwell" và trễ thêm 1 chu kỳ quét (1 lần / ~49,7 ngày). Sửa: chỉ xét
+  dwell khi `dwell_start_tick != DWELL_NOT_STARTED`. Test hồi quy FAIL trên
+  code cũ, PASS trên code mới.
+- **Đã kiểm chứng trên PC** (gcc, stub logger + đồng hồ giả): dwell 100/300/
+  500/700 ms bắn đúng hạn (trễ < 1 chu kỳ quét, không bao giờ sớm); hủy dwell
+  giữa chừng thì không bắn và rise lần sau đếm lại từ đầu; INTERVAL 250/1000
+  ms đúng khoảng cách; tràn tick 32-bit; 5 rule chạy song song độc lập;
+  `plc_engine_poll()` chạy đúng ~100 vòng/giây kể cả khi tick tràn.
+- **Chưa kiểm chứng:** build ARM; chạy trên board; ảnh hưởng của nhịp 10 ms
+  tới `test_plc.py` (mỗi request Modbus giờ được phục vụ tối đa mỗi 10 ms —
+  nếu thấy `No response` thì nghi điểm này trước).
 
 ## 1. Kiến trúc trong 30 giây
 
@@ -54,33 +93,20 @@ Vòng quét: `input_scan → rule_scan → output_scan → modbus_config_service
 
 ## 2. Việc tiếp theo (theo thứ tự đề xuất)
 
-1. **Kiểm tra rule chạy thật trên board:** chạy `python test_plc.py COM4`,
-   sau dòng `Watching DI0/DO0` thì kéo DI0 lên cao trong 30 giây, xem
-   `DO0` có lên 1 không (script chỉ in khi giá trị đổi — không thấy dòng
-   mới nghĩa là chưa có chuyển trạng thái). Nếu `DI0=1 DO0=0` thì đọc
-   `rule_scan()` / `output_scan()`; nếu `DI0` không đổi thì kiểm tra pin
-   mapping.
-2. **Sửa 2 bug nền tảng** (mục 3.1, 3.2) — cả hai chưa gây lỗi với rule
-   đơn giản nhưng làm dwell/interval sai.
-3. **Lưu rule vào Flash** (mục 3.7) — cần chốt quyết định mở trước.
-4. **Chốt các quyết định mở** (mục 4) trước khi viết thêm tính năng.
+1. **Build + flash thay đổi ở mục 0b rồi chạy lại `test_plc.py`** để chắc
+   nhịp 10 ms không làm hỏng đọc/ghi Modbus, rule đơn giản vẫn chạy. Sau đó
+   thử 1 rule có dwell thật (ví dụ `for_ms = 500`) — trước đây rule dwell
+   không bao giờ bắn.
+2. **Lưu rule vào Flash** (mục 3.7) — cần chốt quyết định mở trước.
+3. **Chốt các quyết định mở** (mục 4) trước khi viết thêm tính năng.
 
 ## 3. Bug đã biết, CHƯA sửa
 
-### 3.1 `s_rule_scan_now_ms` luôn = 0 → dwell/interval không hoạt động
+### 3.1 / 3.2 — ĐÃ SỬA trên PC, chờ xác nhận trên board (xem mục 0b)
 
-`core/plc_rule/plc_rule.c`: `rule_scan()` truyền `s_rule_scan_now_ms`
-(static, không ai cập nhật, luôn 0) vào state machine. Hệ quả: rule có
-`for_ms > 0` (dwell) và `SPLC_TRG_INTERVAL` **không chạy đúng**. Rule
-đơn giản (edge, không dwell) vẫn chạy bình thường.
-Cần quyết định cách truyền tick từ Layer 4 (mục 4, câu 1).
-
-### 3.2 `SCAN_INTERVAL_MS` = `0U` trong `Core/Src/main.c`
-
-Vòng quét chạy hết tốc độ, không có nhịp 10 ms như `plc_engine.h` và
-Readme mô tả. Chưa rõ có chủ ý (đang debug) hay quên đặt lại. Xác nhận
-với người dùng trước khi đổi. Lưu ý: file nằm trong vùng `USER CODE` của
-CubeMX nên sửa an toàn, nhưng vẫn hỏi trước.
+`s_rule_scan_now_ms` luôn = 0 (dwell/interval không chạy) và
+`SCAN_INTERVAL_MS = 0U` (vòng quét hết tốc độ) đều đã xử lý bằng thay đổi
+ở mục 0b. Chỉ đóng hẳn sau khi chạy đúng trên board.
 
 ### 3.3 `sx_usb_tiny_read()` — `_timeoutMS` vẫn đếm vòng lặp, không phải ms
 
@@ -147,8 +173,11 @@ trong `plc_rule.c`). Cần quyết định trước khi làm: lưu A/B luân phi
 
 ## 4. Quyết định kiến trúc CHƯA CHỐT (hỏi lại, đừng tự quyết)
 
-1. **Cách Layer 4 truyền tick ms vào `rule_scan()`** — tham số hay setter.
-   (Liên quan trực tiếp bug 3.1.)
+1. ~~Cách Layer 4 truyền tick ms vào `rule_scan()`~~ — **ĐÃ CHỐT: tham
+   số** `rule_scan(uint32_t now_ms)`, nhịp quét 10 ms
+   (`PLC_SCAN_INTERVAL_MS`). Lý do: quên truyền giờ thì compiler báo lỗi
+   (setter thì im lặng chạy sai — chính là bug 3.1 cũ), và test trên PC chỉ
+   cần truyền giờ giả.
 2. **Retain: giữ ghi mỗi 5 phút + PVD khẩn cấp, hay đổi?** Ghi định kỳ
    (`RETAIN_SNAPSHOT_PERIOD_MS`) đã chạy. Ghi khẩn cấp khi sụt áp: phần cứng
    PVD đã bật (`Core/Src/stm32h5xx_hal_msp.c`) và callback đã có

@@ -248,7 +248,7 @@ extern RuleRuntime g_rule_runtime[MAX_RULES];
 extern int         g_rule_count;
 
 void rule_table_load_from_flash(void);
-void rule_scan(void);
+void rule_scan(uint32_t now_ms);   // Layer 4 truyen tick ms (tham so, khong setter)
 bool rule_table_commit(const uint8_t *raw_data, uint16_t rule_count);
 ```
 
@@ -509,15 +509,26 @@ void plc_engine_init(void) {
     watchdog_init();
 }
 
-void plc_engine_scan_once(void) {
+#define PLC_SCAN_INTERVAL_MS 10U   // ghi de duoc bang compile definition
+
+static void scan_cycle(uint32_t now_ms) {   // tick lay 1 lan, dung chung cho ca vong
     input_scan();
     // TODO (Gateway, chua trien khai): modbus_master_poll() PHAI o day,
     // TRUOC rule_scan()
-    rule_scan();
+    rule_scan(now_ms);
     output_scan();
     modbus_config_service();
     retain_service();
     watchdog_kick();
+}
+
+void plc_engine_poll(void) {                // main() goi MOI vong lap, khong chan
+    static uint32_t last = 0;
+    uint32_t now = sx_get_tick_ms();
+    if ((uint32_t)(now - last) >= PLC_SCAN_INTERVAL_MS) {  // unsigned: an toan khi tick tran
+        last = now;
+        scan_cycle(now);
+    }
 }
 ```
 
@@ -774,9 +785,10 @@ Việc thật sự còn mở, theo đúng thứ tự phụ thuộc:
 - [ ] **Vị trí Flash lưu Active Rule Table CHƯA đặc tả** — địa chỉ, kích
       thước (tối thiểu `100*32=3200 byte`), có cần wear-leveling như dự
       kiến cho `plc_retain.c` hay ghi đè 1 chỗ cố định là đủ.
-- [ ] **Cách Layer 4 truyền tick ms vào `rule_scan()`** — hiện `plc_rule.c`
-      dùng `static uint32_t s_rule_scan_now_ms` nội bộ, luôn = 0 (xem TODO
-      trong chính file đó). Thêm tham số hay setter function — chưa quyết.
+- [x] **Cách Layer 4 truyền tick ms vào `rule_scan()`** — ĐÃ CHỐT: tham số
+      `rule_scan(uint32_t now_ms)`, nhịp quét `PLC_SCAN_INTERVAL_MS = 10`
+      nằm trong `plc_engine`, `main.c` chỉ gọi `plc_engine_poll()`. Đã kiểm
+      chứng trên PC; chờ xác nhận trên board (xem `handoff.md` mục 0b).
 - [ ] **Nguồn RTC cho `TRG_TIME_WINDOW` chưa quyết định** — `plc_rule.c`
       hiện hardcode `now_hhmm = 0`.
 - [ ] **Modbus Master cho Gateway — `plc_modbus_master.c` CHƯA TỒN TẠI.**
