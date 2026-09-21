@@ -30,6 +30,12 @@
 /* USER CODE BEGIN Includes */
 #include "stdint.h"
 #include "plc_engine.h"
+#define TEST_DI 1
+#if TEST_DI
+#include <string.h>
+#include <stdio.h>
+#include "stdarg.h"
+#endif
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -62,7 +68,65 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#if TEST_DI
+uint8_t state1, state2, state3, state4;
+typedef enum {
+  IN_STATE1 = 1,
+  IN_STATE2 = 2,
+  IN_STATE3 = 3,
+  IN_STATE4 = 4
+} StateTypeDef;
 
+void send_message(const char *format, ...)
+{
+    char buffer[256];
+
+    va_list args;
+    va_start(args, format);
+
+    int len = vsnprintf(buffer, sizeof(buffer), format, args);
+
+    va_end(args);
+
+    if (len > 0)
+    {
+        HAL_UART_Transmit(
+            &hlpuart1,
+            (uint8_t *)buffer,
+            (uint16_t)len,
+            HAL_MAX_DELAY
+        );
+    }
+}
+
+void read_states(uint8_t state){
+  switch(state){
+    case IN_STATE1:
+      state1 = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_6);
+      send_message("State DI1: %d\r\n", state1);
+      HAL_Delay(1000); // Delay for 1 second
+      break;
+    case IN_STATE2:
+      state2 = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_5);
+      send_message("State DI2: %d\r\n", state2);
+      HAL_Delay(1000); // Delay for 1 second
+      break;
+    case IN_STATE3:
+      state3 = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_4);
+      send_message("State DI3: %d\r\n", state3);
+      HAL_Delay(1000); // Delay for 1 second
+      break;
+    case IN_STATE4:
+      state4 = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_3);
+      send_message("State DI4: %d\r\n", state4);
+      HAL_Delay(1000); // Delay for 1 second
+      break;
+    default:
+      send_message("Invalid state: %d\r\n", state);
+      break;
+  }
+}
+#endif
 /* USER CODE END 0 */
 
 /**
@@ -107,7 +171,9 @@ int main(void)
   MX_USB_PCD_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
+  #if !TEST_DI
   plc_engine_init();
+  #endif
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -117,11 +183,17 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    #if TEST_DI
+    for(uint8_t state = IN_STATE1; state <= IN_STATE4; state++){
+      read_states(state);
+    }
+    #else
     uint32_t now = HAL_GetTick();
     if ((now - s_last_scan_tick) >= SCAN_INTERVAL_MS) {
       s_last_scan_tick = now;
       plc_engine_scan_once();
     }
+    #endif
   }
   /* USER CODE END 3 */
 }
