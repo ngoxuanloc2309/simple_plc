@@ -146,10 +146,11 @@ static void board_di_do_init(void)
  * affecting how the App builds its resource/tag catalog (that always comes
  * from DEVICE_RESOURCE_INFO alone, per section 8.6).
  *
- * hw_version_*/fw_version_*/rule_format_version are not yet backed by any
+ * hw_version, fw_version and rule_format_version are not yet backed by any
  * project-wide version source (no VERSION file / CMake variable found) --
- * hardcoded to 1.0.0 / 1 here as a starting point; revisit once such a
- * source exists so this does not silently go stale across firmware builds.
+ * hardcoded to 1.0.0 (and rule_format_version = 1) here as a starting
+ * point; revisit once such a source exists so this does not silently go
+ * stale across firmware builds.
  */
 static void board_device_info_init(void)
 {
