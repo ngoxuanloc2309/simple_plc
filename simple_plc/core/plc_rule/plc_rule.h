@@ -169,11 +169,25 @@ void rule_table_load_from_flash(void);
 
 /*
  * Evaluate every enabled rule in g_rule_table[] once. This is the single
- * entry point Layer 4 calls once per scan cycle (every 10 ms). Internally
- * dispatches to check_trigger_edge(), compare_ok(), dwell checking, guard
- * checking, and execute_action() (all internal to Layer 2).
+ * entry point Layer 4 calls once per scan cycle (PLC_SCAN_INTERVAL_MS, see
+ * plc_engine.h). Internally dispatches to check_trigger_edge(),
+ * compare_ok(), dwell checking, guard checking, and execute_action() (all
+ * internal to Layer 2).
+ *
+ * now_ms: current system tick in milliseconds, supplied by the caller
+ *         (Layer 2 has no clock of its own). Only DIFFERENCES between two
+ *         values are used (dwell: now - dwell_start; interval:
+ *         now - last_fire), in unsigned arithmetic, so the counter may
+ *         start at any value and wrap past UINT32_MAX (~49.7 days)
+ *         without affecting behavior. Pass the same source every call and
+ *         never let it go backwards.
+ *
+ *         Timing resolution equals the scan period: a dwell counts from
+ *         the scan that DETECTED the edge, and completes on the first scan
+ *         at or after its deadline -- up to one scan period late, never
+ *         early.
  */
-void rule_scan(void);
+void rule_scan(uint32_t now_ms);
 
 /*
  * Replace the active rule table with new data. Called from Layer 3

@@ -8,17 +8,6 @@
 
 static const char *TAG = "PLC_RULE";
 
-/*
- * TODO: Layer 4 must supply the current tick count. Until plc_engine.c
- * (currently empty) wires up a real millisecond tick source, rule_scan()
- * has no way to know "now" on its own -- Layer 2 must not include any
- * Layer 0/1 timer header. Storing it here as a static updated externally
- * is a placeholder; see docs/architecture.md section 10 for the open
- * items list. For now this stays at 0, which means SPLC_TRG_INTERVAL and
- * dwell timing (for_ms) will not behave correctly until this is wired up.
- */
-static uint32_t s_rule_scan_now_ms = 0;
-
 SPLC_RuleRecord   g_rule_table[MAX_RULES];
 SPLC_RuleRuntime  g_rule_runtime[MAX_RULES];
 SPLC_RuleTableInfo g_rule_count;
@@ -46,10 +35,18 @@ void rule_table_load_from_flash(void)
     g_rule_count.rule_count = 0;
 }
 
-void rule_scan(void)
+void rule_scan(uint32_t now_ms)
 {
+    /*
+     * now_ms is supplied by the caller (Layer 4) instead of being read
+     * here: Layer 2 must not include a Layer 0/1 timer header. Taking it as
+     * a PARAMETER (rather than a static the caller must remember to update
+     * first) means a caller that forgets the time cannot compile. One value
+     * is shared by every rule in this pass, so all rules in one scan cycle
+     * see the same "now".
+     */
     for (uint16_t i = 0; i < g_rule_count.rule_count && i < MAX_RULES; i++) {
-        rule_state_machine_step(&g_rule_table[i], &g_rule_runtime[i], s_rule_scan_now_ms);
+        rule_state_machine_step(&g_rule_table[i], &g_rule_runtime[i], now_ms);
     }
 }
 
@@ -204,7 +201,21 @@ bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt, uint32
             rt->state = RULE_STATE_BLOCKED;
             return false;
         }
-        if (now_ms - rt->dwell_start_tick < rule->for_ms) {
+        /*
+         * Only edge-type rules with for_ms > 0 ever arm the dwell timer
+         * (see RULE_STATE_COMPARED above); INTERVAL / TIME_WINDOW rules
+         * reach this point with dwell_start_tick still == DWELL_NOT_STARTED
+         * (0xFFFFFFFF). Without the "armed" test below, the unsigned
+         * subtraction `now_ms - 0xFFFFFFFF` equals now_ms + 1, which is
+         * < for_ms whenever the tick counter is small -- i.e. right after
+         * it wraps past UINT32_MAX (~49.7 days) -- so a due INTERVAL rule
+         * was mistaken for "dwell not finished yet" and delayed one scan
+         * (or longer). The interval itself is already checked by
+         * trigger_timing_ok() in the IDLE/BLOCKED case, so it needs no
+         * second time check here.
+         */
+        if (rt->dwell_start_tick != DWELL_NOT_STARTED &&
+            (uint32_t)(now_ms - rt->dwell_start_tick) < rule->for_ms) {
             /* Not enough time yet, STAY in state = DWELLING, wait for next scan. */
             rt->prev_value = current;
             return false;
