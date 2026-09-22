@@ -48,20 +48,60 @@ void sx_usb_tiny_init(sx_usb_tiny_t *_usb, sx_usb_tiny_config_t *_config)
 }
 
 /*RX_TASK*/
+/*
+ * Drains the ENTIRE TinyUSB CDC RX FIFO into rxQueue, not just one
+ * CFG_TUD_CDC_RX_BUFSIZE-sized (64 byte) chunk.
+ *
+ * Why this loop is required: a single Modbus RTU frame can be longer
+ * than 64 bytes (e.g. FC16 writing 2+ SPLC_RuleRecord's worth of
+ * STAGING_RULE_TABLE registers -- 2 rules = 73 bytes on the wire), so it
+ * arrives from the host as more than one USB Full-Speed packet. The
+ * previous version called tud_cdc_read() exactly once per
+ * sx_usb_tiny_process() call (once per 10 ms scan cycle), so only the
+ * first ~64 bytes of a longer frame made it into rxQueue on this scan
+ * cycle; the rest was still sitting in TinyUSB's own FIFO, not lost, but
+ * not visible to rxQueue yet either.
+ *
+ * That alone would just be a 10 ms delay -- harmless -- except
+ * nmbs_server_poll() (plc_modbus_cfg.c, byte_timeout_ms == 0, "never
+ * blocks the scan budget" by design) calls msg_state_reset() every time
+ * it runs and treats "fewer bytes available than the frame needs right
+ * now" as NMBS_ERROR_TIMEOUT for that whole request, discarding
+ * everything read so far. The remaining bytes of the same frame then
+ * turn up in rxQueue on the NEXT scan cycle, get parsed as if they were
+ * the START of a brand new frame, and desync nanoMODBUS's framing until
+ * something coincidentally realigns (in practice: the connection just
+ * stops responding, matching the "works with 1 rule (41 B, fits in one
+ * 64 B packet), times out with 2+ rules (73+ B)" symptom).
+ *
+ * Looping here until tud_cdc_available() reports empty -- not adding a
+ * blocking wait -- keeps modbus_config_service()'s "never blocks"
+ * contract intact: this only ever drains bytes TinyUSB's ISR has
+ * ALREADY placed in its FIFO by the time sx_usb_tiny_process() runs; it
+ * never waits for bytes that have not arrived yet. Multiple back-to-back
+ * USB packets that already landed before this call are simply no longer
+ * left behind one at a time.
+ */
 static void usb_rx_task(sx_usb_tiny_t *_usb)
 {
 #if STM32H5_PLATFORM
     if(!tud_cdc_connected()) return;
-    if(!tud_cdc_available()) return;
 
     uint8_t buf[64];
-    // log_verbose(TAG, "connected=%d available=%d", tud_cdc_connected(), tud_cdc_available());
-    uint32_t count = tud_cdc_read(buf, sizeof(buf));
+    while (tud_cdc_available()) {
+        uint32_t count = tud_cdc_read(buf, sizeof(buf));
+        if (count == 0) {
+            break; /* Defensive: available() said >0 but read() got nothing this call. */
+        }
 
-    for(uint32_t i=0; i<count; i++){
-        if (cqueue_send(&_usb->rxQueue, &buf[i]) == false) {
-            log_warn(TAG, "RX queue full, byte dropped");
-            break;
+        // log_debug(TAG, "connected=%d available=%d read=%lu",
+        //           tud_cdc_connected(), tud_cdc_available(), (unsigned long)count);
+
+        for(uint32_t i=0; i<count; i++){
+            if (cqueue_send(&_usb->rxQueue, &buf[i]) == false) {
+                log_warn(TAG, "RX queue full, byte dropped");
+                return; /* rxQueue itself is full -- draining more would just drop more. */
+            }
         }
     }
 #endif
@@ -78,7 +118,7 @@ void sx_usb_tiny_process(sx_usb_tiny_t *_usb){
 void sx_usb_tiny_write(sx_usb_tiny_t *_usb, const uint8_t *_data, uint32_t _len){
     if(!sx_usb_tiny_connected(_usb)) 
         return;
-    // log_verbose(TAG, "USB write: %lu bytes", _len);
+    // log_debug(TAG, "USB write: %lu bytes", _len);
 
 #if STM32H5_PLATFORM
     uint32_t sent = 0;
