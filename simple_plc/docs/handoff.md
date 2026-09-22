@@ -13,7 +13,8 @@
 
 - Branch `main`, commit gốc đã verify: `98afb3e` ("fix read tag fail"),
   cộng thêm thay đổi tick/scan-interval ở mục 0b (CHƯA commit/push,
-  CHƯA chạy trên board).
+  CHƯA chạy trên board) và thay đổi `DEVICE_DESCRIPTOR`/
+  `DEVICE_RESOURCE_INFO` ở mục 0c (ĐÃ build, flash, verify OK trên board).
 - Board đang dùng: **Zigbee-IO SKU** (`board/board_zigbee_io.c`), 4 DI /
   4 DO / 0 AI, STM32H523CCU6.
 - **Đã chạy được trên board thật:** build (`build.bat build`), flash, USB
@@ -26,8 +27,76 @@
   xung 0→1 thì DO0 lên 1 và giữ nguyên; DI1..DI3 đọc đúng). Nhờ commit
   `98afb3e`: trước đó `g_tag_table[]` toàn `TAG_NONE` nên
   `plc_io_register_*()` từ chối âm thầm mọi kênh.
+- **App thật (không phải test_plc.py) đã kết nối + nạp rule + xem mô
+  phỏng DI/DO real-time thành công** — xác nhận sau khi sửa mục 0c.
 - **Rule KHÔNG được lưu vào Flash** — chỉ nằm trong RAM, mất điện/reset là
   mất (xem mục 3.7). Đây là hành vi hiện tại, không phải lỗi ngẫu nhiên.
+
+## 0c. `DEVICE_DESCRIPTOR`/`DEVICE_RESOURCE_INFO` chưa init — ĐÃ SỬA, verify OK trên board
+
+**Triệu chứng:** App thật (không phải `test_plc.py`) báo lỗi ngay khi kết
+nối: *"Thiết bị không tương thích: Device class 0x0000 is not supported"*.
+
+**Nguyên nhân:** `g_device_descriptor` và `g_device_resource_info`
+(`services/plc_modbus_cfg/plc_modbus_cfg.c`, static, phơi ra qua
+`DEVICE_DESCRIPTOR` 0x0000-0x0009 và `DEVICE_RESOURCE_INFO`) chưa từng
+được gán giá trị ở bất kỳ đâu trong toàn bộ codebase, dù comment trong
+`plc_modbus_cfg.h` ghi rõ đây là việc của Layer 4/board init. Static toàn
+0 → App đọc `device_class == SPLC_DEVICE_CLASS_UNKNOWN (0)` ngay bước đầu
+tiên của flow discovery (`docs/.../v1.9...md` mục 8.6) → từ chối kết nối.
+Đây không phải lỗi USB descriptor (đã kiểm tra `usb_descriptors.c`, đúng
+chuẩn TinyUSB CDC) — hoàn toàn ở tầng Modbus application layer.
+
+**Cách sửa:** thêm `board_device_info_init()` trong `board_zigbee_io.c`,
+gọi ngay đầu `board_hw_init()` (sau `board_log_uart_init()` để log xác
+nhận còn ra được UART). Số liệu đã chốt với người dùng:
+- `di_count=8, do_count=8, ai_count=4, runtime_tag_count=124` — theo
+  **layout đầy đủ trong `plc_tag_def.h`** (họ Remote I/O), KHÔNG theo phần
+  cứng vật lý board này (chỉ nối 4DI/4DO/0AI thật). Quyết định của người
+  dùng: "nó thuộc họ remote io nhưng chỉ có 4DI 4DO" — khai theo family,
+  không theo wiring thật.
+- `device_variant`: thêm mới `SPLC_REMOTE_IO_VARIANT_4DI_4DO = 3` vào
+  `plc_device.h` (trước chỉ có `UNKNOWN=0`, `8DI_8DO_4AI=1`,
+  `16DI_16DO=2`, không có giá trị nào khớp board thật). Theo
+  `docs/.../v1.9...md` mục 1 + 8.6: field này **chỉ dùng cho
+  identity/diagnostics, App không dùng nó để dựng resource/tag catalog**
+  (luôn đọc từ `DEVICE_RESOURCE_INFO`) — nên không ảnh hưởng logic App dù
+  chọn giá trị nào, chỉ ảnh hưởng hiển thị.
+- `hw_version`/`fw_version` = 1.0.0, `protocol_version=1`,
+  `rule_format_version=1`: tạm hardcode, **chưa có nguồn version chính
+  thức nào trong project** (không có file VERSION/CMake variable). Cần
+  xem lại nếu sau này có quy trình version hoá thật.
+
+**Bug soạn thảo gặp khi sửa (không phải bug logic):** comment đầu tiên
+viết `hw_version_*/fw_version_*/...` — chuỗi `*/` giữa dòng bị compiler
+hiểu là kết thúc block comment sớm, phần văn bản còn lại rơi ra ngoài
+comment và bị parse như code C thật (lỗi `unknown type name 'fw_version_'`
++ theo sau là "implicit declaration of function 'board_device_info_init'"
+ăn theo). Bài học: không dùng `*/` (hay bất kỳ chuỗi nào chứa nó) trong
+văn bản của block comment `/* ... */`.
+
+**Điều tra nhầm hướng trong lúc debug (ghi lại để không lặp lại):** sau
+khi build/flash bản sửa trên, board rơi vào NMI Handler (Bus Fault thật,
+đội lốt NMI) tại `memcpy()` bên trong `retain_store_restore()`, trước cả
+khi log UART kịp in. Nghi ngờ ban đầu: `STM32H523xx_FLASH.ld` (file
+auto-generated bởi CubeIDE) khai `FLASH LENGTH = 512K` trong khi chip thật
+chỉ có 256 KB — linker không reserve 5 sector cuối (Retain + Rule Table),
+nên code có thể tràn đè lên đó. **Giả thuyết này đã bị loại bỏ**: log
+flash thật cho thấy firmware chỉ dùng ~55 KB (`Used Size: 55748 B`,
+`Erasing internal memory sectors [0 6]`) — quá xa vùng Retain (sector
+27-30). Sau lần build/flash tiếp theo (không có gì khác thay đổi), crash
+này không còn tái diễn — nguyên nhân thật của lần crash đó chưa được xác
+định (có thể là artefact của 1 lần build/flash lỗi trước đó, không phải
+bug do thay đổi 0c gây ra). **Nếu crash y hệt (memcpy trong
+`retain_store_restore()`, NMI Handler) tái diễn, đây là việc cần điều tra
+lại từ đầu, đừng giả định đã đóng.** Lưu ý phụ đã xác nhận đúng nhưng
+không phải nguyên nhân: `STM32H523xx_FLASH.ld` XÁC THỰC có
+`FLASH LENGTH = 512K` sai so với chip 256KB thật, và linker script này
+KHÔNG reserve vùng Retain/Rule Table bằng section/MEMORY region riêng —
+vẫn là rủi ro tiềm ẩn thật (nếu firmware phình to tới gần 216KB sau này),
+dù không phải nguyên nhân của lần crash đã gặp. Chưa sửa, chưa hỏi ý kiến
+người dùng về việc này (file `.ld` có thể là auto-generated — cần hỏi
+trước khi sửa, theo quy tắc mục 6).
 
 ## 0b. Thay đổi đang chờ build/flash (tick + nhịp quét)
 
@@ -90,15 +159,37 @@ Vòng quét: `input_scan → rule_scan → output_scan → modbus_config_service
   (không thêm `.c` vào Layer 2).
 - Flash map (`platforms/.../flash_define/splc_flash_define.h`): Rule Table
   = sector #31 (`0x0803E000`), Retain = sector #27-30 (32KB, xoay vòng).
+- `plc_device.h`'s `SPLC_RemoteIoVariant` có thêm
+  `SPLC_REMOTE_IO_VARIANT_4DI_4DO = 3` (board Zigbee-IO thật, xem mục 0c)
+  — chỉ ảnh hưởng hiển thị/identity phía App, không ảnh hưởng resource.
 
 ## 2. Việc tiếp theo (theo thứ tự đề xuất)
 
-1. **Build + flash thay đổi ở mục 0b rồi chạy lại `test_plc.py`** để chắc
+1. **Test tay trên board thật các rule dwell / compare / guard** (đang làm
+   — xem `test_rule.py`'s `--manual` group cho kịch bản có sẵn: `m_dwell`,
+   `m_guard`; nhóm tự động `t_compare`/`t_dwell`/`t_guard`/`t_guard_di0`
+   đã PASS qua mô phỏng bằng rule ảo (không cần đấu dây), nhưng CHƯA từng
+   chạy `--manual` với tay thật chạm DI). Lưu ý đã biết trước khi test:
+   - `t_compare` (xem mục 5.5 mới, nếu chạy lại tự động) có 1 bug đo thời
+     gian trong chính test script (đọc baseline TRƯỚC khi nạp rule, không
+     phải sau) — không phải bug firmware; đừng tốn thời gian nghi ngờ
+     `compare_ok()` nếu thấy fire count thấp hơn kỳ vọng nhưng > 0.
+   - `t_load` (100 rule, 5s) phát hiện `scan_time_ms=83ms` — vượt xa ngân
+     sách 10ms/scan dưới tải nặng. Nghi do `modbus_config_service()` (bên
+     trong `scan_time_ms` được đo) gọi `nmbs_server_poll()` →
+     `sx_usb_tiny_write()` blocking (đúng mục 3.4). Nếu test tay dwell/
+     compare/guard đơn lẻ (không tải nặng 100 rule) thì khó gặp lại, nhưng
+     nên biết trước nếu thấy hiện tượng lag/trễ khi có nhiều rule.
+   - Sau đợt tải nặng `t_load`, có 1 lần crash `CONFIG_STATUS=42405
+     ERROR=3` (giá trị đọc ngoài dải hợp lệ 0-4) ngay sau khi gọi
+     `d.clear()` — nghi là hệ quả USB/MCU nghẽn dưới tải, chưa xác nhận
+     chắc chắn. Nếu tái diễn dù không tải nặng, cần điều tra riêng.
+2. **Build + flash thay đổi ở mục 0b rồi chạy lại `test_plc.py`** để chắc
    nhịp 10 ms không làm hỏng đọc/ghi Modbus, rule đơn giản vẫn chạy. Sau đó
    thử 1 rule có dwell thật (ví dụ `for_ms = 500`) — trước đây rule dwell
-   không bao giờ bắn.
-2. **Lưu rule vào Flash** (mục 3.7) — cần chốt quyết định mở trước.
-3. **Chốt các quyết định mở** (mục 4) trước khi viết thêm tính năng.
+   không bao giờ bắn. (Có thể gộp chung với mục 1 nếu làm cùng lúc.)
+3. **Lưu rule vào Flash** (mục 3.7) — cần chốt quyết định mở trước.
+4. **Chốt các quyết định mở** (mục 4) trước khi viết thêm tính năng.
 
 ## 3. Bug đã biết, CHƯA sửa
 
