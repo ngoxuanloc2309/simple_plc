@@ -11,7 +11,7 @@
 
 ## 0. Trạng thái hiện tại
 
-- Branch `main`, commit đã verify: `69d3e86` ("add code test compare
+- Branch `main &ruleflash, hiện dùng ruleflash`, commit đã verify: `69d3e86` ("add code test compare
   counter").
 - Board: **Zigbee-IO SKU** (`board/board_zigbee_io.c`), 4 DI / 4 DO / 0 AI,
   STM32H523CCU6.
