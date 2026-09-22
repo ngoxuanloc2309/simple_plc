@@ -40,6 +40,25 @@ static modbus_transport_t  s_transport;
 static uint32_t            s_boot_tick_ms;
 
 /*
+ * Per-byte read timeout applied ONLY after a request has already started
+ * arriving (see plc_modbus_cfg_init()'s comment on nmbs_set_byte_timeout()
+ * for the full rationale -- this is not the "waiting for any request at
+ * all" timeout, which stays 0/non-blocking).
+ *
+ * 5 ms was chosen as: comfortably longer than one USB Full-Speed frame
+ * interval (~1 ms) so the next chunk of an in-flight multi-packet Modbus
+ * frame has time to land in rxQueue, while still leaving most of the
+ * 10 ms scan budget (PLC_SCAN_INTERVAL_MS, plc_engine.h) free for
+ * input_scan()/rule_scan()/output_scan()/retain_service() even in the
+ * worst case where this wait is fully used up on every single scan
+ * cycle. Not measured against real USB captures yet -- if App<->MCU
+ * round-trips still time out with larger rule counts, or scan_time_ms
+ * (DEVICE_HEALTH) creeps up noticeably while the App is actively
+ * staging a large rule table, this is the first knob to revisit.
+ */
+#define MODBUS_BYTE_TIMEOUT_MS  5
+
+/*
  * true only after nmbs_server_create() has actually succeeded. While
  * false, s_nmbs is still all-zero (nmbs_create() never ran), so every
  * platform.read/write/flush pointer inside it is NULL --
@@ -852,13 +871,53 @@ void plc_modbus_cfg_init(const modbus_transport_t *transport)
         return;
     }
 
-    /* Non-blocking poll: both the byte-level read/write timeout and the
-     * read-timeout used while waiting for a new request are 0, so
-     * nmbs_server_poll() (called every scan cycle from
-     * modbus_config_service() below) never blocks the 10 ms scan budget
-     * waiting on the App. */
+    /*
+     * read_timeout_ms stays 0: nanoMODBUS applies this only to the very
+     * FIRST byte of a request (nmbs_server_poll() -> recv_req_header() ->
+     * recv_msg_header(), see its own comment "We wait for the read
+     * timeout here, just for the first message byte"). This is the
+     * "is anyone even talking to us right now" check, run every scan
+     * cycle regardless of whether the App is connected -- it MUST stay
+     * non-blocking, or an idle/disconnected App would eat the 10 ms scan
+     * budget on every single cycle.
+     *
+     * byte_timeout_ms is intentionally NOT 0 (see MODBUS_BYTE_TIMEOUT_MS
+     * below): nanoMODBUS applies this to every byte AFTER the first one
+     * -- i.e. only once a real request has already started arriving.
+     * Multi-rule STAGING_RULE_TABLE writes (Rule Transfer protocol,
+     * section 9) can need 2+ SPLC_RuleRecord's worth of registers in one
+     * FC16 request (e.g. 2 rules = 73 bytes on the wire), which the App
+     * (SimplePLC.Studio's ModbusChunkPlanner, up to 64 registers/chunk)
+     * may legitimately send as a single Modbus frame longer than one USB
+     * Full-Speed CDC packet (CFG_TUD_CDC_RX_BUFSIZE = 64 bytes,
+     * port/usb/tusb_config.h). With byte_timeout_ms == 0, any byte not
+     * ALREADY sitting in rxQueue at the exact instant nmbs_server_poll()
+     * runs made recv() return NMBS_ERROR_TIMEOUT for the whole request --
+     * and nmbs_server_poll() calls msg_state_reset() on every call
+     * (top of recv_msg_header()), so the bytes that DID arrive were
+     * simply discarded, not retried on the next scan cycle. The
+     * remainder of that same frame then showed up in rxQueue on a LATER
+     * poll and got misparsed as the start of a brand new request,
+     * desyncing nanoMODBUS's RTU framing until the connection simply
+     * stopped responding -- exactly the "works with 1 rule, times out at
+     * 2+ rules" symptom this was diagnosed from (see docs/handoff.md).
+     *
+     * A small positive byte_timeout_ms fixes this while staying
+     * consistent with modbus_config_service()'s "never blocks" contract
+     * for the IDLE case: once the first byte has been seen, this is no
+     * longer "waiting for a request that might not come", it's "finishing
+     * a request that is already in flight" -- bounded, worst case, by
+     * MODBUS_BYTE_TIMEOUT_MS per byte read INSIDE recv(), not per whole
+     * request, so a genuinely stalled/disconnected mid-frame link still
+     * cannot block a scan cycle by more than a few ms in practice (the
+     * remaining bytes of a request already mostly in rxQueue return
+     * immediately; the only wait is for whatever prefix has not arrived
+     * yet from TinyUSB's own FIFO, which -- per port/usb/tusb_config.h's
+     * CFG_TUD_CDC_RX_BUFSIZE -- lands within about 1 USB Full-Speed frame
+     * interval of the previous chunk, not tenths of a second).
+     */
     nmbs_set_read_timeout(&s_nmbs, 0);
-    nmbs_set_byte_timeout(&s_nmbs, 0);
+    nmbs_set_byte_timeout(&s_nmbs, MODBUS_BYTE_TIMEOUT_MS);
 
     s_initialized = true;
     log_info(TAG, "init OK, transport kind=%d unit_id=%u",

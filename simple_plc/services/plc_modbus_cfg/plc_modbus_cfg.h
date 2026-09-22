@@ -105,11 +105,16 @@ void plc_modbus_cfg_init(const modbus_transport_t *transport);
  * Services one iteration of the Modbus server: pumps the transport
  * (transport->process(), if provided -- e.g. tud_task() for USB-CDC) so
  * RX/TX and connection state stay current even if no Modbus frame is
- * pending, then polls nanoMODBUS non-blockingly (nmbs_server_poll(), with
- * a byte/read timeout of 0 -- see plc_modbus_cfg_init()) for at most one
- * request/response. Never blocks: if no complete request is available,
- * both calls return immediately. Safe, and intended, to call every scan
- * cycle even when the App is idle or not connected at all.
+ * pending, then polls nanoMODBUS (nmbs_server_poll()) for at most one
+ * request/response. See plc_modbus_cfg_init()'s comment for the exact
+ * timeout split: waiting for a NEW request to start is non-blocking
+ * (read_timeout_ms == 0, so an idle/disconnected App never costs any
+ * scan-cycle time), but once a request has started arriving, reading the
+ * REST of it may wait up to MODBUS_BYTE_TIMEOUT_MS per byte
+ * (byte_timeout_ms) so a single Modbus frame spanning more than one USB
+ * packet is not discarded mid-read -- a bounded, small exception to
+ * "never blocks", not an unconditional one. Safe, and intended, to call
+ * every scan cycle even when the App is idle or not connected at all.
  *
  * Also advances g_device_health.uptime_s (via sx_get_tick_ms(), Layer 1)
  * and updates health_flags from whatever plc_engine_scan_once() (Layer 4)
