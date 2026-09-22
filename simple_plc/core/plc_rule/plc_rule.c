@@ -15,15 +15,23 @@ SPLC_RuleTableInfo g_rule_count;
 void rule_table_load_from_flash(void)
 {
     /*
-     * TODO: Flash location for the Active Rule Table is not yet specified
-     * (see docs/architecture.md section 10 -- open item). This must not
-     * call sx_flash_read() directly (Layer 0/1), since Layer 2 has to stay
-     * buildable/testable on a plain PC. Expected real implementation:
-     * receive a raw buffer already read from Flash by Layer 3/4 and pass
-     * it through the same validation path as rule_table_commit().
+     * This function only guarantees a defined, empty starting state
+     * (rule_count = 0, every runtime slot IDLE) so g_rule_table[]/
+     * g_rule_runtime[] are never left uninitialized. It does NOT read
+     * Flash itself -- Layer 2 must stay buildable/testable on a plain PC,
+     * so it must never call sx_flash_*() (Layer 0/1) directly.
      *
-     * For now this only guarantees a defined, all-zero starting state so
-     * g_rule_table[]/g_rule_runtime[] are never left uninitialized.
+     * Actually loading a previously-committed rule table from Flash is
+     * services/plc_rule_flash/plc_rule_flash.c's plc_rule_flash_load()
+     * (Layer 3): it reads Flash sectors A/B, then calls
+     * rule_table_commit() (below) with whatever valid data it finds --
+     * see docs/handoff.md section 1 and plc_rule_flash.h for the full
+     * two-sector recovery mechanism. plc_engine_init() (Layer 4) calls
+     * this function FIRST, then plc_rule_flash_load() -- so a device with
+     * no valid Flash record yet (first boot, or both A/B corrupted)
+     * simply keeps the empty table this function establishes, which is
+     * an expected, non-error state rather than something
+     * plc_rule_flash_load() needs to special-case.
      */
     memset(g_rule_table, 0, sizeof(g_rule_table));
     for (int i = 0; i < MAX_RULES; i++) {

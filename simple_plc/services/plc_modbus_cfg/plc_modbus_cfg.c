@@ -6,6 +6,7 @@
 #include "plc_tag.h"
 #include "plc_tag_def.h"
 #include "plc_rule.h"
+#include "plc_rule_flash.h" /* plc_rule_flash_save(), called from write_commit_command() */
 #include "sx_time.h"
 #include "logger.h"
 
@@ -347,7 +348,7 @@ static void read_active_rule_count(uint16_t offset, uint16_t quantity, uint16_t 
  * so it is not the plain CRC-16/MODBUS value the register holds.
  */
 
-static uint16_t crc16_modbus_update(uint16_t crc, uint8_t byte)
+uint16_t crc16_modbus_update(uint16_t crc, uint8_t byte)
 {
     crc ^= byte;
     for (uint8_t bit = 0; bit < 8U; bit++) {
@@ -357,7 +358,7 @@ static uint16_t crc16_modbus_update(uint16_t crc, uint8_t byte)
 }
 
 /* Serialize one record to its 32-byte wire image (16 registers). */
-static void rule_record_to_wire(const SPLC_RuleRecord *r, uint8_t out[32])
+void rule_record_to_wire(const SPLC_RuleRecord *r, uint8_t out[32])
 {
     uint16_t w[16];
     w[0]  = (uint16_t)((uint32_t)r->threshold_lo >> 16);
@@ -382,7 +383,7 @@ static void rule_record_to_wire(const SPLC_RuleRecord *r, uint8_t out[32])
 }
 
 /* CRC-16/MODBUS over `count` records' wire images (count x 32 bytes). */
-static uint16_t rule_table_wire_crc16(const SPLC_RuleRecord *table, uint16_t count)
+uint16_t rule_table_wire_crc16(const SPLC_RuleRecord *table, uint16_t count)
 {
     uint16_t crc = 0xFFFFU;
     uint8_t  buf[32];
@@ -576,11 +577,43 @@ static void write_commit_command(uint16_t value)
         return;
     }
 
+    /*
+     * Flash save happens HERE, synchronously, as part of this same
+     * commit -- per docs/handoff.md section 1.1 points 3-4: the original
+     * spec's step 4 is "atomic-swap + save Flash + increment version" as
+     * ONE step, and CONFIG_STATUS must never show the App an intermediate
+     * "RAM done, Flash pending" state. Since write_commit_command() runs
+     * synchronously end-to-end, calling plc_rule_flash_save() before
+     * CONFIG_STATUS is set below satisfies both requirements for free.
+     *
+     * The new rule table is ALREADY running in RAM at this point
+     * (rule_table_commit() above succeeded) regardless of whether this
+     * Flash save succeeds -- see the CONFIG_STATUS handling immediately
+     * below for what a failed save does and does not change.
+     */
+    bool flash_ok = plc_rule_flash_save();
+
+    /*
+     * Per docs/handoff.md section 1.1 point 5: a Flash save failure must
+     * NOT be reported as CONFIG_STATUS = ERROR (that would incorrectly
+     * tell the App the commit itself failed and the OLD rules are still
+     * active, when in fact the NEW rules are already running in RAM --
+     * they just won't survive a reset). CONFIG_STATUS stays READY either
+     * way; only CONFIG_ERROR_CODE distinguishes the two outcomes.
+     */
     s_config_status     = CONFIG_STATUS_READY;
-    s_config_error_code = SPLC_ERROR_NONE;
+    s_config_error_code = flash_ok ? SPLC_ERROR_NONE : SPLC_ERROR_FLASH;
     s_active_rule_version++;
-    log_info(TAG, "RULE UPLOAD DONE: %u rule(s) loaded, crc16=0x%04X, active_rule_version=%u",
-             s_rule_count_staged, actual_crc16, s_active_rule_version);
+
+    if (flash_ok) {
+        log_info(TAG, "RULE UPLOAD DONE: %u rule(s) loaded, crc16=0x%04X, active_rule_version=%u "
+                 "(saved to Flash)",
+                 s_rule_count_staged, actual_crc16, s_active_rule_version);
+    } else {
+        log_warn(TAG, "RULE UPLOAD DONE (RAM only): %u rule(s) loaded, crc16=0x%04X, "
+                 "active_rule_version=%u -- FLASH SAVE FAILED, will not survive reset",
+                 s_rule_count_staged, actual_crc16, s_active_rule_version);
+    }
     log_rule_summary();
 }
 

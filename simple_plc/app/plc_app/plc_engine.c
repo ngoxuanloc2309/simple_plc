@@ -2,6 +2,7 @@
 
 #include "plc_tag.h"
 #include "plc_rule.h"
+#include "plc_rule_flash.h"
 #include "plc_io.h"
 #include "plc_retain.h"
 #include "plc_modbus_cfg.h"
@@ -23,6 +24,7 @@ void plc_engine_init(void)
 {
     tag_table_load_from_flash();
     rule_table_load_from_flash();
+    plc_rule_flash_load();
     retain_store_restore();
 
     board_init();

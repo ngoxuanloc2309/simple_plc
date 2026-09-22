@@ -13,6 +13,7 @@ set(SPLC_SERVICES_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_io/plc_io.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_retain/plc_retain.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_modbus_cfg/plc_modbus_cfg.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule_flash/plc_rule_flash.c
 )
 
 add_library(splc_services STATIC ${SPLC_SERVICES_SRC})
@@ -26,6 +27,7 @@ target_include_directories(splc_services PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_io
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_retain
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_modbus_cfg
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule_flash
 )
 
 # splc_core (Layer 2) supplies plc_tag.h/plc_tag_def.h, which both

@@ -46,6 +46,7 @@
 #include "plc_system_cmd.h"
 #include "plc_error.h"
 #include "modbus_transport.h"
+#include "plc_rule.h" /* SPLC_RuleRecord, for the wire-format helpers below */
 
 #ifdef __cplusplus
 extern "C" {
@@ -133,6 +134,36 @@ void modbus_config_service(void);
  * modbus_config_service() alone.
  */
 void plc_modbus_cfg_record_scan_time(uint32_t scan_time_ms);
+
+/*
+ * --- Wire-format CRC helpers (section 8.4) ------------------------------
+ *
+ * Exposed here (no longer `static` in plc_modbus_cfg.c) so
+ * services/plc_rule_flash/plc_rule_flash.c can reuse the exact same
+ * serialization/CRC this file already uses for ACTIVE_RULE_CRC16 /
+ * EXPECTED_CRC16, per docs/handoff.md section 1.3 -- there must be only
+ * ONE implementation of "how a rule table is turned into wire bytes" and
+ * "how those bytes are CRC'd", shared by the Modbus path and the Flash
+ * path, not two hand-written copies that could drift apart. See
+ * plc_modbus_cfg.c's own header comment above these functions'
+ * definitions for the full rationale (why RAM struct bytes are NOT used,
+ * why nmbs_crc_calc() is NOT used here). Kept declared in this Layer 3
+ * header (not moved to Layer 2) because CRC-16/MODBUS itself and this
+ * specific wire byte order are a Modbus-protocol detail, not part of the
+ * portable Rule Engine core.
+ */
+
+/* One step of CRC-16/MODBUS: XOR in `byte`, then 8 bitwise passes. */
+uint16_t crc16_modbus_update(uint16_t crc, uint8_t byte);
+
+/* Serializes one SPLC_RuleRecord to its 32-byte wire image (16 registers,
+ * high byte first per register, High Word then Low Word per 32-bit
+ * field). out must point to at least 32 writable bytes. */
+void rule_record_to_wire(const SPLC_RuleRecord *r, uint8_t out[32]);
+
+/* CRC-16/MODBUS over `count` records' wire images (count x 32 bytes) --
+ * the plain arithmetic value (NOT byte-swapped for RTU framing). */
+uint16_t rule_table_wire_crc16(const SPLC_RuleRecord *table, uint16_t count);
 
 #ifdef __cplusplus
 }

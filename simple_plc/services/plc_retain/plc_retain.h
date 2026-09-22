@@ -13,10 +13,11 @@
  * address constant this file needs).
  *
  * ONLY for TAG_VREG_RETAIN tags -- NOT shared with the Rule Table, which
- * has its own separate Flash region and its own load path
- * (core/plc_rule/plc_rule.c's rule_table_load_from_flash()) with no
- * wear-leveling, since rule commits are rare and human-triggered while
- * retain snapshots are periodic and automatic. See
+ * has its own separate two-sector (A/B) Flash region and its own load
+ * path (services/plc_rule_flash/plc_rule_flash.c's plc_rule_flash_load(),
+ * see that file for the A/B recovery mechanism) with no wear-leveling
+ * within either sector, since rule commits are rare and human-triggered
+ * while retain snapshots are periodic and automatic. See
  * docs/architecture.md section 3.2.
  *
  * This file may include Layer 0/1 (sx_flash.h, sx_pwd.h, sx_time.h) --
