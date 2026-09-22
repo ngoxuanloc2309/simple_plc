@@ -6,13 +6,27 @@
  * constants), and docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md section 7
  * for the full design this implements.
  *
- * Record wire layout (SPLC_RETAIN_RECORD_SIZE = 200 bytes, per
- * app/splc_flash_define.h):
+ * Record wire layout (SPLC_RETAIN_RECORD_SIZE = 208 bytes -- 200 bytes
+ * of real header+entry data, rounded up to the next 16-byte/quad-word
+ * multiple so every record slot lands on a Flash-program-legal address;
+ * see splc_flash_define.h's SPLC_RETAIN_RECORD_SIZE comment for the
+ * real-hardware bug this fixes -- per app/splc_flash_define.h):
  *   offset 0..3   uint32_t seq_num
  *   offset 4..5   uint16_t count       (number of valid entries that follow)
- *   offset 6..7   uint16_t crc16       (CRC-16/MODBUS over seq_num+count+entries,
- *                                       with crc16 field itself treated as 0)
- *   offset 8..    count x { uint16_t tag_index; int32_t value; }  (6 bytes each)
+ *   offset 6..7   uint16_t crc16       (CRC-16/MODBUS over the WHOLE
+ *                                       SPLC_RETAIN_RECORD_SIZE-byte record,
+ *                                       including the 8 bytes of trailing
+ *                                       alignment padding, with the crc16
+ *                                       field itself treated as 0)
+ *   offset 8..207 count x { uint16_t tag_index; int32_t value; }  (6 bytes
+ *                                       each, count is always
+ *                                       SPLC_RETAIN_TAG_COUNT == 32 in
+ *                                       practice -- see below), followed
+ *                                       by 8 bytes of unused padding
+ *                                       (written as 0 by
+ *                                       retain_snapshot_write()'s
+ *                                       memset(), never read back by any
+ *                                       path in this file)
  *
  * A record always reserves space for SPLC_RETAIN_TAG_COUNT (32) entries
  * on Flash (fixed SPLC_RETAIN_RECORD_SIZE), even though count may be

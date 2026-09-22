@@ -182,9 +182,63 @@ extern "C" {
 #define SPLC_RETAIN_TAG_COUNT           32U   /* v1.9 VREG_RETAIN range size */
 #define SPLC_RETAIN_HEADER_SIZE         8U    /* seq_num(4) + count(2) + crc16(2) */
 #define SPLC_RETAIN_ENTRY_SIZE          6U    /* tag_index(2) + value(4), per retained tag */
-#define SPLC_RETAIN_RECORD_SIZE         (SPLC_RETAIN_HEADER_SIZE + SPLC_RETAIN_ENTRY_SIZE * SPLC_RETAIN_TAG_COUNT) /* 200 bytes */
-#define SPLC_RETAIN_RECORDS_PER_SECTOR  (SPLC_FLASH_SECTOR_SIZE / SPLC_RETAIN_RECORD_SIZE) /* 40 */
-#define SPLC_RETAIN_TOTAL_RECORDS       (SPLC_RETAIN_RECORDS_PER_SECTOR * SPLC_FLASH_RETAIN_SECTOR_COUNT) /* 160 */
+
+/*
+ * BUGFIX (found on real hardware, confirmed via STM32CubeProgrammer's
+ * raw SWD read -- bypasses ICACHE, so this is the true Flash content,
+ * not a stale-cache artifact): the natural record size
+ * (SPLC_RETAIN_HEADER_SIZE + SPLC_RETAIN_ENTRY_SIZE * SPLC_RETAIN_TAG_COUNT)
+ * is 200 bytes, which is NOT a multiple of 16.
+ *
+ * STM32H5's HAL_FLASH_Program() only supports FLASH_TYPEPROGRAM_QUADWORD
+ * (16-byte-aligned writes) -- there is no smaller program granularity on
+ * this part. retain_record_addr() places record N at
+ * sector_base + N * SPLC_RETAIN_RECORD_SIZE, so with a 200-byte record,
+ * every ODD-numbered slot (1, 3, 5, ...) starts 8 bytes off a 16-byte
+ * boundary (200 % 16 == 8). sx_flash_write() (platforms/stm32/stm32h5/
+ * flash/stm32h5_flash.c) walks the buffer in 16-byte quad-words starting
+ * from that misaligned address, so EVERY quad-word it programs for that
+ * record lands on a misaligned address and HAL_FLASH_Program() rejects
+ * all of them (observed on real hardware: 13/13 quad-words of the
+ * affected record failed, logged as repeated
+ * "HAL_FLASH_Program failed ... status=1" -- not a partial/random
+ * failure, and not caused by the destination not being erased: a raw
+ * SWD read of the failing address showed it was still cleanly erased
+ * (0xFF) right up until the misalignment kicked in). Even-numbered slots
+ * (0, 2, 4, ...) always happened to land on a 16-byte boundary again
+ * (200 * 2 = 400 = 16 * 25), which is why slot 0 wrote fine and only
+ * every second write ever failed -- easy to miss in short test runs.
+ *
+ * This was invisible in normal testing because it only bites once
+ * retain_snapshot_write() has been called enough times to reach an odd
+ * slot index -- with RETAIN_SNAPSHOT_PERIOD_MS's default of 5 minutes,
+ * that only surfaces after the device has been left running
+ * uninterrupted for 5+ minutes, which most short manual test sessions
+ * never reach.
+ *
+ * Fix: round SPLC_RETAIN_RECORD_SIZE itself up to the next 16-byte
+ * multiple (200 -> 208). Every record slot is then a whole multiple of
+ * 16 bytes apart, so slot N's address (sector_base + N * 208) is always
+ * 16-byte aligned for every N, not just even ones. The extra 8 bytes are
+ * unused padding at the end of every record (never read: every read
+ * path in plc_retain.c bounds its use of a record by `count`, the
+ * header, or the CRC region -- none of them iterate past
+ * RETAIN_RECORD_ENTRIES_OFFSET + count * SPLC_RETAIN_ENTRY_SIZE). No
+ * other change is required anywhere else: services/plc_retain/
+ * plc_retain.c already computes every record address, buffer size, and
+ * CRC span purely from SPLC_RETAIN_RECORD_SIZE (see that file's own
+ * header comment), so a single-point fix here is sufficient -- verified
+ * by grep across plc_retain.c/.h for every use of this constant.
+ *
+ * Trade-off: SPLC_RETAIN_RECORDS_PER_SECTOR drops from 40 to 39 (8 KB /
+ * 208, floored) -- a ~2.5% reduction in usable retain history per
+ * sector, well within the Flash-endurance budget this file's header
+ * comment already computes (~10 years) for RETAIN_SNAPSHOT_PERIOD_MS's
+ * default 5-minute period.
+ */
+#define SPLC_RETAIN_RECORD_SIZE         (((SPLC_RETAIN_HEADER_SIZE + SPLC_RETAIN_ENTRY_SIZE * SPLC_RETAIN_TAG_COUNT) + 15U) & ~15U) /* 208 bytes (200 rounded up to a 16-byte/quad-word multiple -- see bugfix comment above) */
+#define SPLC_RETAIN_RECORDS_PER_SECTOR  (SPLC_FLASH_SECTOR_SIZE / SPLC_RETAIN_RECORD_SIZE) /* 39 */
+#define SPLC_RETAIN_TOTAL_RECORDS       (SPLC_RETAIN_RECORDS_PER_SECTOR * SPLC_FLASH_RETAIN_SECTOR_COUNT) /* 117 */
 
 /*
  * Rule Table A/B on-Flash record layout, per
