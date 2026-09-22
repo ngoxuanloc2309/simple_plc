@@ -11,8 +11,10 @@
 
 ## 0. Trạng thái hiện tại
 
-- Branch `main &ruleflash, hiện dùng ruleflash`, commit đã verify: `69d3e86` ("add code test compare
-  counter").
+- Branch `ruleflash` (đã tách khỏi `main`, chưa merge lại). Commit gốc
+  verify từ đầu phiên trước: `69d3e86` ("add code test compare
+  counter"), cộng thêm các commit lưu Flash Rule Table (mục 1, NAY ĐÃ
+  XONG — xem ngay dưới) và 1 bugfix Retain alignment mới (mục 1b).
 - Board: **Zigbee-IO SKU** (`board/board_zigbee_io.c`), 4 DI / 4 DO / 0 AI,
   STM32H523CCU6.
 - **Rule Engine chạy đúng trên board thật, đã kiểm chứng kỹ:**
@@ -26,19 +28,31 @@
     (upload/reject, interval, so sánh đủ 8 toán tử, guard + NEGATE +
     regression DI0, actions SET/TOGGLE/INC/SCALE, chain 3 tầng, edge
     ON_CHANGE/RISE/FALL, dwell, reload, stress 100 rule).
-  - App thật (không phải `test_plc.py`) đã kết nối + nạp rule + xem mô
-    phỏng DI/DO real-time thành công.
-- **Rule KHÔNG được lưu vào Flash — ĐANG LÀM, xem mục 1.** Chỉ nằm
-  trong RAM, mất điện/reset là mất. Đây là chủ ý ban đầu ("test xong
-  thuật toán rồi mới lưu Flash, để đỡ hao mòn Flash lúc còn debug") —
-  giờ thuật toán đã test xong, đang chuyển sang làm phần lưu Flash.
+  - App thật (không phải `test_plc.py`) đã kết nối + nạp **1 rule** + xem
+    mô phỏng DI/DO real-time thành công. **Nạp ≥2 rule qua App bị lỗi —
+    xem mục 1c, CHƯA có kết luận, đang điều tra.**
+- **Rule Table giờ ĐÃ được lưu vào Flash (2-sector A/B) — ĐÃ XONG, đã
+  verify thật trên board (không chỉ compile sạch).** Xem mục 1 cho thiết
+  kế đầy đủ. Bằng chứng verify: log board `PLC_RULE_FLASH : rule table
+  saved to Flash A+B (seq_num=N)` xuất hiện đúng sau mỗi lần commit, N
+  tăng dần 1 mỗi lần lưu thành công (đã quan sát tới N=42+ qua nhiều lần
+  `test_plc.py`/`test_rule.py`); `CONFIG_ERROR_CODE` vẫn `0`
+  (`SPLC_ERROR_NONE`) ở mọi lần, nghĩa là chưa từng rơi vào nhánh lỗi
+  Flash trên board thật.
+- **Bugfix mới, ĐÃ SỬA (mục 1b): Retain Flash ghi hỏng sau ~5 phút chạy
+  liên tục** — do `SPLC_RETAIN_RECORD_SIZE` (200 byte) không align 16
+  byte. Đã sửa bằng cách làm tròn size lên 208 byte. Đã đối chiếu qua đọc
+  Flash thật bằng STM32CubeProgrammer (SWD, không qua ICACHE) để xác
+  nhận đúng nguyên nhân trước khi sửa — xem mục 1b để không điều tra lại
+  từ đầu nếu triệu chứng tương tự (`HAL_FLASH_Program failed`) tái diễn ở
+  vùng Flash khác.
 - Còn 1 việc treo từ trước, **không liên quan Flash**, chưa quay lại:
   test tay `--manual` của `test_rule.py` (`m_basic`, `m_dwell`, `m_guard`,
   `m_wiring`) và `test_rule_manual_simple.py` — người dùng nói đã chạy
-  nhưng log MCU bị trôi, chưa có bằng chứng bằng số. Không chặn việc làm
-  Flash, nhưng nên xin lại log khi rảnh.
+  nhưng log MCU bị trôi, chưa có bằng chứng bằng số. Nên xin lại log khi
+  rảnh.
 
-## 1. ĐANG LÀM: Lưu Rule Table vào Flash (2-sector A/B)
+## 1. Lưu Rule Table vào Flash (2-sector A/B) — ĐÃ XONG
 
 ### 1.1 Quyết định đã chốt với người dùng (đừng hỏi lại, đừng tự đổi)
 

@@ -55,7 +55,7 @@ static void usb_rx_task(sx_usb_tiny_t *_usb)
     if(!tud_cdc_available()) return;
 
     uint8_t buf[64];
-    log_debug(TAG, "connected=%d available=%d", tud_cdc_connected(), tud_cdc_available());
+    // log_verbose(TAG, "connected=%d available=%d", tud_cdc_connected(), tud_cdc_available());
     uint32_t count = tud_cdc_read(buf, sizeof(buf));
 
     for(uint32_t i=0; i<count; i++){
@@ -78,7 +78,7 @@ void sx_usb_tiny_process(sx_usb_tiny_t *_usb){
 void sx_usb_tiny_write(sx_usb_tiny_t *_usb, const uint8_t *_data, uint32_t _len){
     if(!sx_usb_tiny_connected(_usb)) 
         return;
-    log_debug(TAG, "USB write: %lu bytes", _len);
+    // log_verbose(TAG, "USB write: %lu bytes", _len);
 
 #if STM32H5_PLATFORM
     uint32_t sent = 0;
