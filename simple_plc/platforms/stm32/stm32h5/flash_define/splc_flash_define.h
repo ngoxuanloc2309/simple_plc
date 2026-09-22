@@ -40,37 +40,48 @@
  *
  *   Sector # (global) | Offset from FLASH_BASE | Region
  *   ------------------+-------------------------+------------------
- *   31 (last)         | 0x03E000                | Rule Table (Active)
- *   30 (2nd-to-last)  | 0x03C000                | Retain slot 1 of 4
- *   29 (3rd-to-last)  | 0x03A000                | Retain slot 2 of 4
- *   28 (4th-to-last)  | 0x038000                | Retain slot 3 of 4
- *   27 (5th-to-last)  | 0x036000                | Retain slot 4 of 4
+ *   31 (last)         | 0x03E000                | Rule Table A (running copy)
+ *   30 (2nd-to-last)  | 0x03C000                | Rule Table B (backup copy)
+ *   29 (3rd-to-last)  | 0x03A000                | Retain slot 1 of 3
+ *   28 (4th-to-last)  | 0x038000                | Retain slot 2 of 3
+ *   27 (5th-to-last)  | 0x036000                | Retain slot 3 of 3
  *
- * Rule Table: 1 sector (8 KB) holds MAX_RULES(100) * sizeof(SPLC_RuleRecord)(32)
- * = 3200 bytes actually used (39% of the sector) -- see core/plc_rule/plc_rule.h.
- * No wear-leveling here: the Active Rule Table only changes when the App
- * commits a new rule set (rare, human-triggered), unlike Retain which
- * can change every scan cycle -- see docs/architecture.md section 2.6.2
- * for the commit protocol (staging happens over Modbus registers in
- * RAM/App side; only the final committed table is written here).
+ * Rule Table: 2 sectors (A/B, 8 KB each), per docs/handoff.md section 1 --
+ * see services/plc_rule_flash/plc_rule_flash.h for the full A/B recovery
+ * mechanism this supports. Each sector holds one on-Flash record: an
+ * 8-byte header (seq_num/rule_count/crc16) plus up to
+ * MAX_RULES(100) * sizeof(SPLC_RuleRecord)(32) = 3200 bytes of rule wire
+ * data (3208 bytes total max, 39% of one 8 KB sector) -- see
+ * core/plc_rule/plc_rule.h. No wear-leveling within a sector (each holds
+ * exactly one record, rewritten in place): the Active Rule Table only
+ * changes when the App commits a new rule set (rare, human-triggered),
+ * unlike Retain which can change every scan cycle -- see
+ * docs/architecture.md section 2.6.2 for the commit protocol (staging
+ * happens over Modbus registers in RAM/App side; only the final
+ * committed table is written to Flash, to BOTH A and B).
  *
- * Retain: 4 contiguous sectors (32 KB) using the rotating EEPROM-emulation
+ * Retain: 3 contiguous sectors (24 KB) using the rotating EEPROM-emulation
  * scheme from docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md section 7,
  * updated for v1.9's 32-slot VREG_RETAIN range (the v0.1 spec's own
  * numbers -- 104 byte/record, ~78 records/sector, 64 KB/8 sectors -- were
  * computed for the OLD 16-slot VREG_RETAIN layout and do not apply
- * as-is; see the recomputed constants below).
+ * as-is; see the recomputed constants below). Reduced from the original
+ * 4 sectors to 3 to free one sector (former sector #30) for Rule Table B
+ * -- per docs/handoff.md section 1.1 point 1, this trade was made
+ * deliberately with the user rather than growing the total reserved
+ * Flash region.
  *
- * Endurance at these 4 sectors, 32 retain slots, RETAIN_SNAPSHOT_PERIOD_MS
+ * Endurance at these 3 sectors, 32 retain slots, RETAIN_SNAPSHOT_PERIOD_MS
  * = 5 minutes (docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md section 7.1):
- * ~15 years before exhausting the ~10,000 erase-cycle endurance typically
- * quoted for STM32H5 Flash sectors -- accepted as sufficient for this
- * product's expected service life (see chat discussion; no consumer
- * gateway device is expected to still be the same physical unit in active
- * use after 10+ years). If RETAIN_SNAPSHOT_PERIOD_MS is ever configured
- * shorter over Modbus (docs/architecture.md's config knob), this
- * endurance budget shrinks proportionally -- worth re-checking before
- * allowing very short periods.
+ * still comfortably sufficient (on the order of ten years) before
+ * exhausting the ~10,000 erase-cycle endurance typically quoted for
+ * STM32H5 Flash sectors, even after losing one sector to Rule Table B --
+ * accepted as sufficient for this product's expected service life (see
+ * chat discussion; no consumer gateway device is expected to still be the
+ * same physical unit in active use after 10+ years). If
+ * RETAIN_SNAPSHOT_PERIOD_MS is ever configured shorter over Modbus
+ * (docs/architecture.md's config knob), this endurance budget shrinks
+ * proportionally -- worth re-checking before allowing very short periods.
  */
 
 #if STM32H5_PLATFORM
@@ -113,36 +124,41 @@ extern "C" {
 #define SPLC_FLASH_TOTAL_SIZE           0x40000U    /* 256 KB total */
 #define SPLC_FLASH_SECTOR_COUNT         32U         /* 256 KB / 8 KB */
 
-/* --- Rule Table (Active) -------------------------------------------------
+/* --- Rule Table A/B (see services/plc_rule_flash/plc_rule_flash.h) ------
  *
- * Last sector in Flash (global sector #31). Holds the committed Active
- * Rule Table that core/plc_rule/plc_rule.c's rule_table_load_from_flash()
- * reads at boot -- see docs/architecture.md section 2.6.2 for the
- * staging/commit protocol that produces what eventually gets written
- * here.
+ * Last two sectors in Flash (global sectors #31 and #30). A is the
+ * "running" copy that plc_rule_flash_load() reads first at boot; B is its
+ * backup, used to self-heal A if A's CRC is ever bad (e.g. power loss
+ * mid-write) -- see plc_rule_flash.h for the full mechanism. Both sectors
+ * use the identical on-Flash record format; app/architecture docs refer
+ * to this pair collectively as "the Rule Table Flash region". See
+ * docs/architecture.md section 2.6.2 for the Modbus staging/commit
+ * protocol that produces what eventually gets written here.
  */
-#define SPLC_FLASH_RULE_TABLE_ADDR      (FLASH_BASE + 0x03E000U)
-#define SPLC_FLASH_RULE_TABLE_SIZE      SPLC_FLASH_SECTOR_SIZE   /* 1 sector, 8 KB */
+#define SPLC_FLASH_RULE_TABLE_A_ADDR    (FLASH_BASE + 0x03E000U)
+#define SPLC_FLASH_RULE_TABLE_B_ADDR    (FLASH_BASE + 0x03C000U)
+#define SPLC_FLASH_RULE_TABLE_SIZE      SPLC_FLASH_SECTOR_SIZE   /* 1 sector each, 8 KB */
 
 /* --- Retain (VREG_RETAIN rotating EEPROM-emulation store) ---------------
  *
- * 4 contiguous sectors immediately before the Rule Table sector (global
- * sectors #27..#30), per docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md
- * section 7.1's rotating-record scheme: services/plc_retain.c (not yet
- * written) scans this whole region at boot for the record with the
- * highest seq_num and a valid CRC to find the "active" write position,
- * rather than persisting a separate pointer anywhere.
+ * 3 contiguous sectors immediately before Rule Table B (global sectors
+ * #27..#29), per docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md section 7.1's
+ * rotating-record scheme: services/plc_retain/plc_retain.c scans this
+ * whole region at boot for the record with the highest seq_num and a
+ * valid CRC to find the "active" write position, rather than persisting
+ * a separate pointer anywhere. Reduced from 4 to 3 sectors to free sector
+ * #30 for Rule Table B -- see the header comment above.
  *
- * SPLC_FLASH_RETAIN_BASE_ADDR is the LOWEST address of the 4-sector
+ * SPLC_FLASH_RETAIN_BASE_ADDR is the LOWEST address of the 3-sector
  * region (sector #27, 5th-from-last) -- i.e. writing/scanning proceeds
  * from SPLC_FLASH_RETAIN_BASE_ADDR upward through
  * SPLC_FLASH_RETAIN_BASE_ADDR + SPLC_FLASH_RETAIN_TOTAL_SIZE - 1, which
- * ends exactly where SPLC_FLASH_RULE_TABLE_ADDR begins (no gap, no
- * overlap -- verified by construction: 0x036000 + 0x8000 == 0x03E000).
+ * ends exactly where SPLC_FLASH_RULE_TABLE_B_ADDR begins (no gap, no
+ * overlap -- verified by construction: 0x036000 + 0x6000 == 0x03C000).
  */
 #define SPLC_FLASH_RETAIN_BASE_ADDR     (FLASH_BASE + 0x036000U)
-#define SPLC_FLASH_RETAIN_SECTOR_COUNT  4U
-#define SPLC_FLASH_RETAIN_TOTAL_SIZE    (SPLC_FLASH_RETAIN_SECTOR_COUNT * SPLC_FLASH_SECTOR_SIZE) /* 32 KB */
+#define SPLC_FLASH_RETAIN_SECTOR_COUNT  3U
+#define SPLC_FLASH_RETAIN_TOTAL_SIZE    (SPLC_FLASH_RETAIN_SECTOR_COUNT * SPLC_FLASH_SECTOR_SIZE) /* 24 KB */
 
 /*
  * Retain record layout, per docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md
@@ -169,6 +185,39 @@ extern "C" {
 #define SPLC_RETAIN_RECORD_SIZE         (SPLC_RETAIN_HEADER_SIZE + SPLC_RETAIN_ENTRY_SIZE * SPLC_RETAIN_TAG_COUNT) /* 200 bytes */
 #define SPLC_RETAIN_RECORDS_PER_SECTOR  (SPLC_FLASH_SECTOR_SIZE / SPLC_RETAIN_RECORD_SIZE) /* 40 */
 #define SPLC_RETAIN_TOTAL_RECORDS       (SPLC_RETAIN_RECORDS_PER_SECTOR * SPLC_FLASH_RETAIN_SECTOR_COUNT) /* 160 */
+
+/*
+ * Rule Table A/B on-Flash record layout, per
+ * services/plc_rule_flash/plc_rule_flash.h:
+ *
+ *   struct {
+ *       uint32_t seq_num;
+ *       uint16_t rule_count;
+ *       uint16_t crc16;      // field-embedded CRC-16/MODBUS over the
+ *                             // whole record (this field itself zeroed
+ *                             // during calculation), NOT the same scope
+ *                             // as rule_table_wire_crc16()'s own CRC --
+ *                             // see plc_rule_flash.h for why.
+ *       // followed by: rule_count x 32-byte wire image, via
+ *       // rule_record_to_wire() (plc_modbus_cfg.h)
+ *   };
+ *
+ * As with the Retain record layout above, this file intentionally does
+ * not declare the actual struct -- only size constants -- to stay a pure
+ * "where and how big" memory-map header. SPLC_RULE_FLASH_RECORD_MAX_SIZE
+ * is the upper bound at MAX_RULES (100) rules; actual on-Flash records
+ * are usually smaller (SPLC_RULE_FLASH_HEADER_SIZE + rule_count * 32) and
+ * services/plc_rule_flash/plc_rule_flash.c reads/writes exactly that
+ * many bytes, not this fixed maximum.
+ */
+#define SPLC_RULE_FLASH_HEADER_SIZE       8U    /* seq_num(4) + rule_count(2) + crc16(2) */
+#define SPLC_RULE_FLASH_RECORD_WIRE_SIZE  32U   /* one rule's wire image, matches SPLC_RuleRecord's Modbus layout */
+/* MAX_RULES (100) comes from core/plc_rule/plc_rule.h; not re-included
+ * here to keep this file free of Layer 2 dependencies (Layer 4 headers
+ * should not need to pull in Layer 2 to read a Flash memory map) --
+ * duplicated as a literal, cross-checked against MAX_RULES by a
+ * compile-time static assertion in plc_rule_flash.c instead. */
+#define SPLC_RULE_FLASH_RECORD_MAX_SIZE   (SPLC_RULE_FLASH_HEADER_SIZE + 100U * SPLC_RULE_FLASH_RECORD_WIRE_SIZE) /* 3208 bytes max */
 
 #endif // STM32H5_PLATFORM
 
