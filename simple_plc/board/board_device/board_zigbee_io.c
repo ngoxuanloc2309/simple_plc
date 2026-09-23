@@ -54,8 +54,8 @@ static const char *TAG = "BOARD_ZIGBEE_IO";
  * board_device_info_init() once did (see that function's doc-comment).
  */
 static const SPLC_TagLayout s_tag_layout = {
-    .di_count          = 4,
-    .do_count          = 4,
+    .di_count          = ZIGBEE_IO_DI_NUM,
+    .do_count          = ZIGBEE_IO_DO_NUM,
     .ai_count          = 0,
     .vflag_count       = 32,
     .vreg_count        = 32,
@@ -69,8 +69,8 @@ SPLC_TagLayout board_get_tag_layout(void)
 }
 
 typedef struct {
-    sx_gpio_pin_t di_pins[s_tag_layout.di_count];
-    sx_gpio_pin_t do_pins[s_tag_layout.do_count];
+    sx_gpio_pin_t di_pins[ZIGBEE_IO_DI_NUM];
+    sx_gpio_pin_t do_pins[ZIGBEE_IO_DO_NUM];
 
     sx_uart_t         log_uart;
     sx_uart_config_t  log_uart_cfg;

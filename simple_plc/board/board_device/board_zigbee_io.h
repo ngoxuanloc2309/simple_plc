@@ -1,6 +1,9 @@
 #ifndef BOARD_ZIGBEE_IO_H
 #define BOARD_ZIGBEE_IO_H
 
+#define ZIGBEE_IO_DI_NUM    4
+#define ZIGBEE_IO_DO_NUM    4
+
 /*This is the board for test PLC_SIMPLE, this board has 4DI, 4DO, 0AI*/
 #define DI0_PORT    GPIOB
 #define DI0_PIN     GPIO_PIN_6
