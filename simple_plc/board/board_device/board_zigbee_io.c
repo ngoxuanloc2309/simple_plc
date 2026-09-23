@@ -69,8 +69,8 @@ SPLC_TagLayout board_get_tag_layout(void)
 }
 
 typedef struct {
-    sx_gpio_pin_t di_pins[4];
-    sx_gpio_pin_t do_pins[4];
+    sx_gpio_pin_t di_pins[s_tag_layout.di_count];
+    sx_gpio_pin_t do_pins[s_tag_layout.do_count];
 
     sx_uart_t         log_uart;
     sx_uart_config_t  log_uart_cfg;
