@@ -20,7 +20,7 @@ set(SPLC_BOARD_SKU "zigbee_io" CACHE STRING "Which board SKU's board_<sku>.c to 
 
 set(SPLC_BOARD_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/board.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/board_${SPLC_BOARD_SKU}.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/board_device/board_${SPLC_BOARD_SKU}.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../utils/logger/logger.c
 )
 
