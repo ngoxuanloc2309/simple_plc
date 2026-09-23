@@ -164,7 +164,7 @@ extern "C" {
  * Retain record layout, per docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md
  * section 7.1's RetainSnapshotHeader, with the per-tag entry count
  * updated from that spec's original 16 (v0.1's VREG_RETAIN range) to
- * v1.9's 32 (see core/plc_tag/plc_tag_def.h, VREG_RETAIN0..31):
+ * v1.9's 32 (see board/board_tag_define.h, VREG_RETAIN0..31):
  *
  *   struct {
  *       uint32_t seq_num;

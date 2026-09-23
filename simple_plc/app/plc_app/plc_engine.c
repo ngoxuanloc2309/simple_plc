@@ -23,7 +23,20 @@
 
 void plc_engine_init(void)
 {
-    tag_table_load_from_flash();
+    /*
+     * board_get_tag_layout() is a plain data query (no GPIO/UART/USB touched
+     * -- see its doc-comment in board.h), so it is safe to call before
+     * board_init() brings up any real hardware. Its result must reach
+     * tag_table_load_from_flash() BEFORE board_init() runs: board_init()
+     * (via board_hw_init()) calls plc_io_register_di/do/ai(), which
+     * validates each registration against g_tag_table[]'s kind -- that
+     * table only has the right TAG_DI/TAG_DO/TAG_AI kinds once
+     * tag_table_load_from_flash() has already populated it from this same
+     * layout.
+     */
+    SPLC_TagLayout tag_layout = board_get_tag_layout();
+    tag_table_load_from_flash(&tag_layout);
+
     rule_table_load_from_flash();
     plc_rule_flash_load();
     retain_store_restore();

@@ -30,9 +30,9 @@ target_include_directories(splc_services PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule_flash
 )
 
-# splc_core (Layer 2) supplies plc_tag.h/plc_tag_def.h, which both
-# plc_io.c and plc_retain.c include directly and call into
-# (tag_read/tag_write/tag_get_kind). PUBLIC for the same transitive
+# splc_core (Layer 2) supplies plc_tag.h, which both plc_io.c and
+# plc_retain.c include directly and call into (tag_read/tag_write/
+# tag_get_kind/tag_vreg_retain_base_index). PUBLIC for the same transitive
 # reason as elsewhere in this repo's CMakeLists.txt files: Layer 4 will
 # also need plc_tag.h resolvable once it starts calling tag_read()/
 # tag_write() itself alongside these services.

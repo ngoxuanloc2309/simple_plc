@@ -46,8 +46,11 @@ target_link_libraries(splc_board PUBLIC
     splc_components
 )
 
-# splc_core (Layer 2) supplies plc_tag_def.h (TAG_DI0/TAG_DO0 etc.),
-# which board_${SPLC_BOARD_SKU}.c uses directly.
+# splc_core (Layer 2) supplies plc_tag.h (SPLC_TagLayout,
+# tag_table_load_from_flash()), which board_${SPLC_BOARD_SKU}.c uses
+# directly. TAG_DI0/TAG_DO0/etc. themselves now come from this board's own
+# board_tag_define.h (board/, Layer 4), not from splc_core -- each board
+# owns its own concrete tag indices, per its SPLC_TagLayout.
 target_link_libraries(splc_board PUBLIC
     splc_core
 )

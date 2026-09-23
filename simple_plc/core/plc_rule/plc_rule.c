@@ -240,7 +240,8 @@ bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt, uint32
          * FIXED BUG: this used to compare guard_idx against TAG_NONE (0),
          * which was correct under the v1.7 tag layout (index 0 was a
          * reserved, meaningless sentinel slot) but became wrong once
-         * plc_tag_def.h moved to the v1.9 layout, where index 0 is
+         * the tag layout moved to v1.9 (board/board_tag_define.h; DI is
+         * always index 0 for every board), where index 0 is
          * TAG_DI0 -- a real tag. That made TAG_DI0 the one tag in the
          * whole system that could never be used as a guard: any rule
          * with guard_tag = TAG_DI0 (0) had its guard silently treated as

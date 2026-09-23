@@ -21,10 +21,32 @@
  */
 
 #include "modbus_transport.h"
+#include "plc_tag.h" /* SPLC_TagLayout */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/*
+ * Returns this SKU's tag counts (DI/DO/AI/VFLAG/VREG/VREG_RETAIN/COUNTER),
+ * as a plain data query -- unlike board_init()/board_hw_init(), this touches
+ * no GPIO/UART/USB/peripheral state at all, so it is safe to call before
+ * any hardware is brought up.
+ *
+ * MUST be called, and its result passed to tag_table_load_from_flash()
+ * (core/plc_tag/plc_tag.h, Layer 2), BEFORE board_init() -- board_init()
+ * (via board_hw_init()) calls plc_io_register_di/do/ai(), which validates
+ * against g_tag_table[]'s kinds; that table only has the right kinds once
+ * tag_table_load_from_flash() has already run. See plc_engine_init()
+ * (app/plc_app/plc_engine.c) for the exact call order.
+ *
+ * Each board's board_<sku>.c defines its own layout via
+ * board/board_tag_define.h; this function is how Layer 4's plc_engine.c
+ * gets that layout without needing to know which concrete board is linked
+ * in -- same "board owns the number, caller only sees the abstraction"
+ * split board_get_modbus_transport() below already established.
+ */
+SPLC_TagLayout board_get_tag_layout(void);
 
 void board_init(void);
 void board_hw_init(void);

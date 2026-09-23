@@ -4,7 +4,6 @@
 
 #include "nanomodbus.h"
 #include "plc_tag.h"
-#include "plc_tag_def.h"
 #include "plc_rule.h"
 #include "plc_rule_flash.h" /* plc_rule_flash_save(), called from write_commit_command() */
 #include "sx_time.h"

@@ -47,7 +47,6 @@
 #include "sx_time.h"
 #include "nanomodbus.h"
 #include "plc_tag.h"
-#include "plc_tag_def.h"
 
 #define RETAIN_RECORD_SEQ_OFFSET    0U
 #define RETAIN_RECORD_COUNT_OFFSET  4U
@@ -64,6 +63,30 @@ static uint32_t s_write_slot   = 0;   /* record slot within s_write_sector for t
 static bool     s_write_pos_known = false; /* true once retain_store_restore() has established where to write next */
 
 static uint32_t s_last_snapshot_tick_ms = 0;
+
+/*
+ * TAG_VREG_R0..31 used to be fixed #define's (core/plc_tag/plc_tag_def.h,
+ * now removed) that this array could initialize at compile time. Since a
+ * board's VREG_RETAIN group now starts at a board-dependent offset (see
+ * tag_vreg_retain_base_index(), plc_tag.h), this is computed once, lazily,
+ * on first use instead -- cheap (32 additions) and avoids repeating that
+ * work every retain_snapshot_write() call (retain_service() runs it on a
+ * timer, not once).
+ */
+static uint16_t s_retain_tag_indices[SPLC_RETAIN_TAG_COUNT];
+static bool     s_retain_tag_indices_ready = false;
+
+static void retain_tag_indices_init(void)
+{
+    if (s_retain_tag_indices_ready) {
+        return;
+    }
+    uint16_t base = tag_vreg_retain_base_index();
+    for (uint16_t i = 0; i < SPLC_RETAIN_TAG_COUNT; i++) {
+        s_retain_tag_indices[i] = (uint16_t)(base + i);
+    }
+    s_retain_tag_indices_ready = true;
+}
 
 /*
  * Address of sector `sector_idx` (0..SPLC_FLASH_RETAIN_SECTOR_COUNT-1)
@@ -179,6 +202,11 @@ static bool retain_record_is_valid(uint32_t sector_idx, uint32_t slot_idx, uint3
 
 void retain_store_restore(void)
 {
+    /* Must run after tag_table_load_from_flash() (plc_engine_init()'s call
+     * order guarantees this) so tag_vreg_retain_base_index() already
+     * reflects this board's real layout. */
+    retain_tag_indices_init();
+
     bool     found_any        = false;
     uint32_t best_seq          = 0;
     uint32_t best_sector       = 0;
@@ -290,21 +318,12 @@ void retain_snapshot_write(void)
     write_u32_be(&raw[RETAIN_RECORD_SEQ_OFFSET], s_next_seq_num);
     write_u16_be(&raw[RETAIN_RECORD_COUNT_OFFSET], (uint16_t)SPLC_RETAIN_TAG_COUNT);
 
-    static const uint16_t retain_tag_indices[SPLC_RETAIN_TAG_COUNT] = {
-        TAG_VREG_R0,  TAG_VREG_R1,  TAG_VREG_R2,  TAG_VREG_R3,
-        TAG_VREG_R4,  TAG_VREG_R5,  TAG_VREG_R6,  TAG_VREG_R7,
-        TAG_VREG_R8,  TAG_VREG_R9,  TAG_VREG_R10, TAG_VREG_R11,
-        TAG_VREG_R12, TAG_VREG_R13, TAG_VREG_R14, TAG_VREG_R15,
-        TAG_VREG_R16, TAG_VREG_R17, TAG_VREG_R18, TAG_VREG_R19,
-        TAG_VREG_R20, TAG_VREG_R21, TAG_VREG_R22, TAG_VREG_R23,
-        TAG_VREG_R24, TAG_VREG_R25, TAG_VREG_R26, TAG_VREG_R27,
-        TAG_VREG_R28, TAG_VREG_R29, TAG_VREG_R30, TAG_VREG_R31,
-    };
+    retain_tag_indices_init();
 
     for (uint16_t i = 0; i < SPLC_RETAIN_TAG_COUNT; i++) {
         uint8_t *entry = &raw[RETAIN_RECORD_ENTRIES_OFFSET + i * 6U];
-        write_u16_be(&entry[0], retain_tag_indices[i]);
-        write_i32_be(&entry[2], tag_read(retain_tag_indices[i]));
+        write_u16_be(&entry[0], s_retain_tag_indices[i]);
+        write_i32_be(&entry[2], tag_read(s_retain_tag_indices[i]));
     }
 
     uint16_t crc = retain_record_crc(raw);

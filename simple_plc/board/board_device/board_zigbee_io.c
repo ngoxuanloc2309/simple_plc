@@ -20,7 +20,7 @@
                        * transitively via tusb.h. */
 
 #include "plc_io.h"
-#include "plc_tag_def.h"
+#include "board_tag_define.h"
 #include "plc_device.h"
 #include "plc_rule.h"       /* MAX_RULES */
 #include "plc_modbus_cfg.h" /* g_device_descriptor / g_device_resource_info */
@@ -42,6 +42,31 @@
  */
 
 static const char *TAG = "BOARD_ZIGBEE_IO";
+
+/*
+ * This SKU's tag layout: 4 DI, 4 DO, 0 AI, plus the fixed 32/32/32/8
+ * VFLAG/VREG/VREG_RETAIN/COUNTER internal ranges every SKU gets per
+ * docs/SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md section
+ * 5.1. This is the single source of truth for this board's tag counts --
+ * board_get_tag_layout() (feeds Layer 2's tag_table_load_from_flash()) and
+ * board_device_info_init() below both read from this same struct, so they
+ * can never drift apart the way the old hardcoded 8/8/4 in
+ * board_device_info_init() once did (see that function's doc-comment).
+ */
+static const SPLC_TagLayout s_tag_layout = {
+    .di_count          = 4,
+    .do_count          = 4,
+    .ai_count          = 0,
+    .vflag_count       = 32,
+    .vreg_count        = 32,
+    .vreg_retain_count = 32,
+    .counter_count     = 8,
+};
+
+SPLC_TagLayout board_get_tag_layout(void)
+{
+    return s_tag_layout;
+}
 
 typedef struct {
     sx_gpio_pin_t di_pins[4];
@@ -131,20 +156,27 @@ static void board_di_do_init(void)
  * was reproduced against real hardware (App error: "Device class 0x0000
  * is not supported").
  *
- * Resource counts (di_count=8, do_count=8, ai_count=4, runtime_tag_count=
- * 124) intentionally follow plc_tag_def.h's Remote I/O 8DI/8DO/4AI layout,
- * NOT this board's actually-wired 4DI/4DO/0AI hardware (see
- * board_di_do_init() above, which only registers 4+4 channels) -- per
- * project decision: this board is a Remote I/O family board first, its
- * physical wiring is a partial population of that family's tag layout, not
- * a different resource profile. device_variant is a separate, purely
- * identity/diagnostic field (docs/SimplePLC_App_MCU_Structs_v1.9_
- * Self_Describing_Profile.md section 1: "ProductVariant chi la identity,
- * khong quyet dinh resource layout trong App") -- it is set to the new
- * SPLC_REMOTE_IO_VARIANT_4DI_4DO (3) so App-side diagnostics can tell this
- * board apart from a fully-populated 8DI_8DO_4AI unit, without that value
- * affecting how the App builds its resource/tag catalog (that always comes
- * from DEVICE_RESOURCE_INFO alone, per section 8.6).
+ * Resource counts are read directly from s_tag_layout (this board's real
+ * 4DI/4DO/0AI wiring) -- NOT a fixed Remote-IO-family 8DI/8DO/4AI layout.
+ * Earlier versions of this function hardcoded di_count=8/do_count=8/
+ * ai_count=4/runtime_tag_count=124 here to match the old Layer 2 default
+ * (core/plc_tag/plc_tag_def.h, now removed), on the theory that this board
+ * is "a Remote I/O family board first, reporting the family's full
+ * resource profile" -- but that hardcoded copy had already drifted from
+ * the values actually used a few lines below (4/4/0), which was itself a
+ * live bug: the App would have seen 8/8/4 in DEVICE_RESOURCE_INFO while
+ * only 4+4 channels were ever actually registered/scanned. Deriving from
+ * s_tag_layout (the same struct board_get_tag_layout() returns, which
+ * Layer 2's tag_table_load_from_flash() also builds g_tag_table[] from)
+ * makes this a single source of truth -- it cannot drift again.
+ * device_variant is a separate, purely identity/diagnostic field
+ * (docs/SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md section
+ * 1: "ProductVariant chi la identity, khong quyet dinh resource layout
+ * trong App") -- it is set to SPLC_REMOTE_IO_VARIANT_4DI_4DO (3) so
+ * App-side diagnostics can tell this board apart from a fully-populated
+ * 8DI_8DO_4AI unit, without that value affecting how the App builds its
+ * resource/tag catalog (that always comes from DEVICE_RESOURCE_INFO alone,
+ * per section 8.6).
  *
  * hw_version, fw_version and rule_format_version are not yet backed by any
  * project-wide version source (no VERSION file / CMake variable found) --
@@ -170,15 +202,19 @@ static void board_device_info_init(void)
 
     g_device_resource_info.wire_profile         = SPLC_WIRE_PROFILE_V1;
     g_device_resource_info.max_rules            = MAX_RULES;
-    g_device_resource_info.runtime_tag_count    = 112; /* DI+DO+AI+VFLAG+VREG+VREG_RETAIN+COUNTER, see plc_tag_def.h */
+    g_device_resource_info.runtime_tag_count    =
+        (uint16_t)(s_tag_layout.di_count + s_tag_layout.do_count +
+                   s_tag_layout.ai_count + s_tag_layout.vflag_count +
+                   s_tag_layout.vreg_count + s_tag_layout.vreg_retain_count +
+                   s_tag_layout.counter_count);
 
-    g_device_resource_info.di_count             = 4;
-    g_device_resource_info.do_count             = 4;
-    g_device_resource_info.ai_count             = 0;
-    g_device_resource_info.vflag_count          = 32;
-    g_device_resource_info.vreg_count           = 32;
-    g_device_resource_info.vreg_retain_count    = 32;
-    g_device_resource_info.counter_count        = 8;
+    g_device_resource_info.di_count             = s_tag_layout.di_count;
+    g_device_resource_info.do_count             = s_tag_layout.do_count;
+    g_device_resource_info.ai_count             = s_tag_layout.ai_count;
+    g_device_resource_info.vflag_count          = s_tag_layout.vflag_count;
+    g_device_resource_info.vreg_count           = s_tag_layout.vreg_count;
+    g_device_resource_info.vreg_retain_count    = s_tag_layout.vreg_retain_count;
+    g_device_resource_info.counter_count        = s_tag_layout.counter_count;
 }
 
 static void board_log_uart_init(void)

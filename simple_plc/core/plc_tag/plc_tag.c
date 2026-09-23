@@ -7,10 +7,22 @@
  */
 
 #include "plc_tag.h"
-#include "plc_tag_def.h"
 
 SPLC_Tag    g_tag_table[MAX_TAGS];
 int32_t     g_tag_value[MAX_TAGS];
+
+/*
+ * Base index of each tag group, computed once by tag_table_load_from_flash()
+ * from the SPLC_TagLayout it was given. DI's base is always 0 by
+ * construction (see plc_tag.h's tag_di_base_index() doc-comment), so it is
+ * not stored separately here.
+ */
+static uint16_t s_do_base;
+static uint16_t s_ai_base;
+static uint16_t s_vflag_base;
+static uint16_t s_vreg_base;
+static uint16_t s_vreg_retain_base;
+static uint16_t s_counter_base;
 
 /*
  * Fill `count` consecutive slots starting at `first` with `kind`;
@@ -32,7 +44,7 @@ static void tag_fill_range(uint16_t first, uint16_t count, SPLC_TagKind kind)
     }
 }
 
-void tag_table_load_from_flash(void)
+void tag_table_load_from_flash(const SPLC_TagLayout *layout)
 {
     /*
      * TODO: read the tag table from Flash once Layer 3 exposes a
@@ -42,13 +54,16 @@ void tag_table_load_from_flash(void)
      * already read from Flash by Layer 3/4, validate it, and populate
      * g_tag_table[] from it.
      *
-     * UNTIL THEN the table is filled with the DEFAULT v1.9 layout defined
-     * in plc_tag_def.h (spec section 5.1). This is NOT optional: the board
-     * layer registers its pins via plc_io_register_di/do/ai(), which reject
-     * any tag whose kind in g_tag_table[] is not TAG_DI/TAG_DO/TAG_AI
-     * (plc_io.c). With an all-TAG_NONE table every registration failed
-     * silently, input_scan()/output_scan() skipped every channel, and no
-     * rule could ever read a DI or drive a DO.
+     * UNTIL THEN the table is filled purely from `layout`, in the fixed
+     * wire group order (DI, DO, AI, VFLAG, VREG, VREG_RETAIN, COUNTER --
+     * spec section 5.1), starting at index 0, with each group's base index
+     * computed as the running sum of every group before it. This is NOT
+     * optional: the board layer registers its pins via
+     * plc_io_register_di/do/ai(), which reject any tag whose kind in
+     * g_tag_table[] is not TAG_DI/TAG_DO/TAG_AI (plc_io.c). With an
+     * all-TAG_NONE table every registration failed silently,
+     * input_scan()/output_scan() skipped every channel, and no rule could
+     * ever read a DI or drive a DO.
      */
     for (uint16_t i = 0; i < MAX_TAGS; i++) {
         g_tag_table[i].kind      = TAG_NONE;
@@ -57,15 +72,34 @@ void tag_table_load_from_flash(void)
         g_tag_value[i]           = 0;
     }
 
-    tag_fill_range(TAG_DI0,       8U,  TAG_DI);
-    tag_fill_range(TAG_DO0,       8U,  TAG_DO);
-    tag_fill_range(TAG_AI0,       4U,  TAG_AI);
-    tag_fill_range(TAG_VFLAG0,    32U, TAG_VFLAG);
-    tag_fill_range(TAG_VREG0,     32U, TAG_VREG);
-    tag_fill_range(TAG_VREG_R0,   32U, TAG_VREG_RETAIN);
-    tag_fill_range(TAG_COUNTER0,  8U,  TAG_COUNTER);
-    /* 124-127 stay TAG_NONE: reserved for a future Gateway SKU (spec 5.1). */
+    uint16_t di_base = 0U;
+
+    s_do_base          = (uint16_t)(di_base           + layout->di_count);
+    s_ai_base          = (uint16_t)(s_do_base         + layout->do_count);
+    s_vflag_base       = (uint16_t)(s_ai_base         + layout->ai_count);
+    s_vreg_base        = (uint16_t)(s_vflag_base      + layout->vflag_count);
+    s_vreg_retain_base = (uint16_t)(s_vreg_base       + layout->vreg_count);
+    s_counter_base     = (uint16_t)(s_vreg_retain_base + layout->vreg_retain_count);
+
+    tag_fill_range(di_base,            layout->di_count,          TAG_DI);
+    tag_fill_range(s_do_base,          layout->do_count,          TAG_DO);
+    tag_fill_range(s_ai_base,          layout->ai_count,          TAG_AI);
+    tag_fill_range(s_vflag_base,       layout->vflag_count,       TAG_VFLAG);
+    tag_fill_range(s_vreg_base,        layout->vreg_count,        TAG_VREG);
+    tag_fill_range(s_vreg_retain_base, layout->vreg_retain_count, TAG_VREG_RETAIN);
+    tag_fill_range(s_counter_base,     layout->counter_count,     TAG_COUNTER);
+    /* Any index past the last filled group stays TAG_NONE -- e.g. reserved
+     * for a future Gateway SKU's TAG_MB_COIL/TAG_MB_HOLDING range (spec
+     * 5.1), or simply unused headroom on a board with a smaller layout. */
 }
+
+uint16_t tag_di_base_index(void)          { return 0U; }
+uint16_t tag_do_base_index(void)          { return s_do_base; }
+uint16_t tag_ai_base_index(void)          { return s_ai_base; }
+uint16_t tag_vflag_base_index(void)       { return s_vflag_base; }
+uint16_t tag_vreg_base_index(void)        { return s_vreg_base; }
+uint16_t tag_vreg_retain_base_index(void) { return s_vreg_retain_base; }
+uint16_t tag_counter_base_index(void)     { return s_counter_base; }
 
 int32_t tag_read(uint16_t idx)
 {

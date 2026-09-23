@@ -34,7 +34,9 @@ extern "C" {
  * Sentinel meaning "this rule has no guard at all" -- GUARD_TAG_INDEX_MASK
  * (all 15 index bits set = 0x7FFF = 32767) is used instead of 0.
  *
- * WHY NOT 0: under the v1.9 tag layout (plc_tag_def.h), tag index 0 is
+ * WHY NOT 0: under the v1.9 tag layout (board/board_tag_define.h; DI is
+ * always the first group regardless of board, per plc_tag.h's
+ * tag_di_base_index()), tag index 0 is
  * TAG_DI0 -- a real, addressable tag, not an unused slot. v1.7 reserved
  * index 0 as a dedicated TAG_NONE sentinel with no physical meaning, so
  * "guard_tag == 0 means no guard" was safe back then. v1.9 removed that

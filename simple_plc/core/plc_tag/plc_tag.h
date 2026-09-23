@@ -72,15 +72,71 @@ extern SPLC_Tag g_tag_table[MAX_TAGS];
 extern int32_t g_tag_value[MAX_TAGS];
 
 /*
+ * SPLC_TagLayout describes how many tags of each kind a given board wants,
+ * in wire order (DI, then DO, then AI, then VFLAG, VREG, VREG_RETAIN,
+ * COUNTER -- same group order as
+ * docs/SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md section
+ * 5.1's fixed wire layout). Layer 2 does not know or assume any concrete
+ * numbers itself -- every board (Layer 4, board/board_tag_define.h) supplies
+ * its own SPLC_TagLayout to tag_table_load_from_flash() below. This is what
+ * lets a new board be added by writing a new Layer 4 file only, without
+ * touching this file or any other Layer 2 code.
+ *
+ * The sum of every field here must not exceed MAX_TAGS; any remainder is
+ * left as TAG_NONE (unused, reserved slots -- e.g. a future Gateway SKU's
+ * TAG_MB_COIL/TAG_MB_HOLDING range).
+ */
+typedef struct {
+    uint16_t di_count;
+    uint16_t do_count;
+    uint16_t ai_count;
+    uint16_t vflag_count;
+    uint16_t vreg_count;
+    uint16_t vreg_retain_count;
+    uint16_t counter_count;
+} SPLC_TagLayout;
+
+/*
  * Load the tag metadata table (g_tag_table[]) from Flash. Called exactly
- * once at boot, from plc_engine_init() (Layer 4).
+ * once at boot, from plc_engine_init() (Layer 4), AFTER the caller has
+ * already obtained this board's SPLC_TagLayout (e.g. via
+ * board_get_tag_layout(), board/board.h) -- Layer 2 itself never decides
+ * how many DI/DO/AI/... slots exist, it only lays them out contiguously in
+ * the fixed group order above, starting at index 0, according to what
+ * `layout` says.
+ *
+ * layout: this board's tag counts, supplied by Layer 4. Must outlive this
+ *         call only (its contents are copied field-by-field into internal
+ *         static offsets below; no pointer to it is retained).
  *
  * Implementation note: reading Flash requires a platform-provided function.
  * This file must stay free of any Layer 0/1 include; the actual Flash
  * access is expected to be injected via a function pointer or a thin
  * wrapper supplied from Layer 3/4. See the TODO in plc_tag.c.
  */
-void tag_table_load_from_flash(void);
+void tag_table_load_from_flash(const SPLC_TagLayout *layout);
+
+/*
+ * Base-index getters: return where each tag group starts in g_tag_table[],
+ * according to the SPLC_TagLayout most recently passed to
+ * tag_table_load_from_flash(). Layer 3/4 code that used to rely on a fixed
+ * #define (e.g. the old core/plc_tag/plc_tag_def.h's TAG_VREG_R0) must call
+ * the matching getter instead, since a group's offset now shifts depending
+ * on how many DI/DO/AI a given board has ahead of it.
+ *
+ * tag_di_base_index() is always 0 (DI is always the first group per the
+ * fixed wire layout) -- provided anyway for symmetry, so callers never need
+ * to special-case DI as "the one group that doesn't need a getter".
+ *
+ * Undefined/meaningless before the first tag_table_load_from_flash() call.
+ */
+uint16_t tag_di_base_index(void);
+uint16_t tag_do_base_index(void);
+uint16_t tag_ai_base_index(void);
+uint16_t tag_vflag_base_index(void);
+uint16_t tag_vreg_base_index(void);
+uint16_t tag_vreg_retain_base_index(void);
+uint16_t tag_counter_base_index(void);
 
 /*
  * Read the current value of a tag. The caller does not need to know, and
