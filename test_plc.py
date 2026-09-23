@@ -82,10 +82,16 @@ COMMIT_COMMAND_MAGIC = 0xA5A5
 
 CONFIG_STATUS_NAMES = {0: "IDLE", 1: "RECEIVING", 2: "VERIFYING", 3: "READY", 4: "ERROR"}
 
-# --- Tag indices (plc_tag_def.h, Remote I/O SKU, v1.9 layout) ---------------
+# --- Tag indices --------------------------------------------------------
+#
+# TAG_DI0 is always 0 on every board (v1.9 layout, DI is always the first
+# group). TAG_DO0 is NOT fixed -- it comes right after DI, so it depends on
+# this board's di_count (e.g. 4 on Zigbee-IO, 8 on Remote-IO). Read it from
+# DEVICE_RESOURCE_INFO at runtime (see print_device_info()'s return value)
+# instead of hardcoding it, so this script doesn't silently target the
+# wrong DO tag when run against a different SKU.
 
 TAG_DI0 = 0
-TAG_DO0 = 8
 
 # --- SPLC_RuleRecord enums (plc_rule.h) -------------------------------------
 
@@ -244,9 +250,22 @@ def print_device_info(client, unit):
     (rule_count,) = read_regs(client, unit, REG_RULE_TABLE_INFO, 1)
     print(f"  active rule_count = {rule_count}")
 
+    print("--- DEVICE_RESOURCE_INFO (0x0020) ---")
+    regs = read_regs(client, unit, REG_DEVICE_RESOURCE_INFO, 10)
+    (wire_profile, max_rules, runtime_tag_count,
+     di_count, do_count, ai_count,
+     vflag_count, vreg_count, vreg_retain_count, counter_count) = regs
+    print(f"  wire_profile={wire_profile} max_rules={max_rules} "
+          f"runtime_tag_count={runtime_tag_count}")
+    print(f"  di_count={di_count} do_count={do_count} ai_count={ai_count}")
+    print(f"  vflag_count={vflag_count} vreg_count={vreg_count} "
+          f"vreg_retain_count={vreg_retain_count} counter_count={counter_count}")
+
     print("--- DEVICE_HEALTH (0x0800) ---")
     regs = read_regs(client, unit, REG_DEVICE_HEALTH, 10)
     print(f"  raw = {regs}")
+
+    return {"di_count": di_count, "do_count": do_count, "ai_count": ai_count}
 
 
 def report_rule_upload_done(client, unit, expected_count, expected_crc):
@@ -279,7 +298,7 @@ def report_rule_upload_done(client, unit, expected_count, expected_crc):
         raise RuntimeError("MCU's ACTIVE_RULE_COUNT/CRC16 do not match what was sent.")
 
 
-def stage_and_commit_test_rule(client, unit):
+def stage_and_commit_test_rule(client, unit, tag_do0):
     """Stage: IF DI0 rises -> SET DO0 = 1, no dwell, no guard."""
     print("\n--- Staging test rule: IF DI0 rises -> SET DO0=1 ---")
 
@@ -289,7 +308,7 @@ def stage_and_commit_test_rule(client, unit):
         for_ms=0,                       # no dwell -- see module docstring on why
         action_param=1,                 # ACT_SET_TAG writes this into action_tag
         trigger_tag=TAG_DI0,
-        action_tag=TAG_DO0,
+        action_tag=tag_do0,
         guard_tag=GUARD_TAG_NONE,       # 0x7FFF, NOT 0 -- 0 is TAG_DI0, a real tag
         enabled=1,
         trigger_type=SPLC_TRG_ON_RISE,
@@ -353,15 +372,17 @@ def read_tag_value(client, unit, tag_idx):
     return s16_pair_to_i32(hi, lo)
 
 
-def watch_di0_do0(client, unit, duration_s):
-    """Poll all 4 DI tags + DO0 and print a line whenever any of them changes.
+def watch_di0_do0(client, unit, duration_s, di_count, tag_do0):
+    """Poll all DI tags + DO0 and print a line whenever any of them changes.
 
     Watching only DI0 hides wiring/numbering mix-ups: the schematic numbers
     the input channels IO IN1..IN4 while the firmware/CubeMX names them
     IN0..IN3 (TAG_DI0..TAG_DI3), so a signal on the "first" opto channel
-    could land on DI0 or DI1. Printing all four shows which tag really moved.
+    could land on DI0 or DI1. Printing all of them shows which tag really
+    moved. di_count/tag_do0 come from DEVICE_RESOURCE_INFO (read at
+    runtime), not hardcoded, so this works against any board's real layout.
     """
-    print(f"\n--- Watching DI0..DI3 / DO0 for {duration_s}s ---")
+    print(f"\n--- Watching DI0..DI{di_count - 1} / DO0 for {duration_s}s ---")
     print("  Drive an input high (0 -> nonzero) and watch which DI changes.")
     print("  Rule under test: IF DI0 rises -> DO0 = 1.")
     print("  (Ctrl+C to stop early)\n")
@@ -369,12 +390,12 @@ def watch_di0_do0(client, unit, duration_s):
     last = None
     try:
         while time.time() < t_end:
-            di = [read_tag_value(client, unit, TAG_DI0 + i) for i in range(4)]
-            do0 = read_tag_value(client, unit, TAG_DO0)
+            di = [read_tag_value(client, unit, TAG_DI0 + i) for i in range(di_count)]
+            do0 = read_tag_value(client, unit, tag_do0)
             row = (*di, do0)
             if row != last:
-                print(f"  t={time.time():.1f}  DI0={di[0]} DI1={di[1]} "
-                      f"DI2={di[2]} DI3={di[3]}  DO0={do0}")
+                di_str = " ".join(f"DI{i}={v}" for i, v in enumerate(di))
+                print(f"  t={time.time():.1f}  {di_str}  DO0={do0}")
                 last = row
             time.sleep(0.1)
     except KeyboardInterrupt:
@@ -385,6 +406,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                       formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("port", help="Serial port, e.g. COM5 or /dev/ttyACM0")
+    parser.add_argument("command", nargs="?", default="full",
+                         choices=["full", "read_info"],
+                         help="'read_info': just read DEVICE_DESCRIPTOR/"
+                              "DEVICE_RESOURCE_INFO/RULE_TABLE_INFO/"
+                              "DEVICE_HEALTH and exit -- simulates the very "
+                              "first thing the App does on connect, no rule "
+                              "staged/committed. 'full' (default): also runs "
+                              "the stage/commit/watch rule test.")
     parser.add_argument("--unit", type=int, default=1,
                          help="Modbus unit/slave id. MUST match the firmware's MODBUS_UNIT_ID "
                               "(board_zigbee_io.h, currently 1): nanoMODBUS silently ignores "
@@ -413,14 +442,19 @@ def main():
         sys.exit(1)
 
     try:
-        print_device_info(client, args.unit)
+        info = print_device_info(client, args.unit)
+
+        if args.command == "read_info":
+            return  # simulate the App's connect-time read only, stop here
 
         if not args.skip_rule_test:
-            raw_bytes = stage_and_commit_test_rule(client, args.unit)
+            tag_do0 = TAG_DI0 + info["di_count"]  # DO always starts right after DI
+            raw_bytes = stage_and_commit_test_rule(client, args.unit, tag_do0)
             verify_active_rule_table(client, args.unit, raw_bytes)
 
             if args.watch_seconds > 0:
-                watch_di0_do0(client, args.unit, args.watch_seconds)
+                watch_di0_do0(client, args.unit, args.watch_seconds,
+                               info["di_count"], tag_do0)
     finally:
         client.close()
 
