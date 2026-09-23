@@ -278,10 +278,12 @@ void board_hw_init(void)
 
     board_di_do_init();
     if (s_di_do_register_failures == 0) {
-        log_info(TAG, "DI/DO registered (4 DI, 4 DO)");
+        log_info(TAG, "DI/DO registered (%d DI, %d DO)",
+                 ZIGBEE_IO_DI_NUM, ZIGBEE_IO_DO_NUM);
     } else {
-        log_error(TAG, "DI/DO registration: %d of 8 channel(s) FAILED -- "
-                       "those pins are NOT scanned", s_di_do_register_failures);
+        log_error(TAG, "DI/DO registration: %d of %d channel(s) FAILED -- "
+                       "those pins are NOT scanned", s_di_do_register_failures,
+                       ZIGBEE_IO_DI_NUM + ZIGBEE_IO_DO_NUM);
     }
 
     board_usb_init();
