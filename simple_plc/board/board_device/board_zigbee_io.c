@@ -142,7 +142,7 @@ static void board_di_do_init(void)
     uint16_t di_base = tag_di_base_index();
     uint16_t do_base = tag_do_base_index();
 
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < s_tag_layout.di_count; i++) {
         sx_gpio_init(&s_board.di_pins[i], SX_GPIO_LOW);
         if (!plc_io_register_di((uint16_t)(di_base + i), &s_board.di_pins[i])) {
             log_error(TAG, "register DI%d FAILED (tag kind != TAG_DI?)", i);
@@ -150,7 +150,7 @@ static void board_di_do_init(void)
         }
     }
 
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < s_tag_layout.do_count; i++) {
         sx_gpio_init(&s_board.do_pins[i], SX_GPIO_LOW);
         if (!plc_io_register_do((uint16_t)(do_base + i), &s_board.do_pins[i])) {
             log_error(TAG, "register DO%d FAILED (tag kind != TAG_DO?)", i);
