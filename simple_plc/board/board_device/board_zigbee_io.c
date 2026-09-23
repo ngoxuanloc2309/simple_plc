@@ -20,7 +20,7 @@
                        * transitively via tusb.h. */
 
 #include "plc_io.h"
-#include "board_tag_define.h"
+#include "plc_tag.h"        /* tag_di_base_index()/tag_do_base_index() */
 #include "plc_device.h"
 #include "plc_rule.h"       /* MAX_RULES */
 #include "plc_modbus_cfg.h" /* g_device_descriptor / g_device_resource_info */
@@ -126,9 +126,25 @@ static void board_di_do_init(void)
      * Count and report failures so this can never hide again. */
     int reg_fail = 0;
 
+    /*
+     * tag_di_base_index()/tag_do_base_index() (plc_tag.h, Layer 2) are used
+     * here instead of board_tag_define.h's TAG_DI0/TAG_DO0 macros on
+     * purpose: those macros are hand-computed at compile time from the
+     * SAME numbers s_tag_layout below states, so the two could silently
+     * drift apart if someone edited s_tag_layout without also updating
+     * board_tag_define.h (e.g. changing di_count would shift where DO
+     * actually starts, but the DO macro would stay at its old value --
+     * no compile error, a silently wrong tag_idx at runtime). Calling the
+     * getters instead means there is exactly one source of truth
+     * (s_tag_layout, via tag_table_load_from_flash()) for where each group
+     * starts; it cannot go out of sync with itself.
+     */
+    uint16_t di_base = tag_di_base_index();
+    uint16_t do_base = tag_do_base_index();
+
     for (int i = 0; i < 4; i++) {
         sx_gpio_init(&s_board.di_pins[i], SX_GPIO_LOW);
-        if (!plc_io_register_di((uint16_t)(TAG_DI0 + i), &s_board.di_pins[i])) {
+        if (!plc_io_register_di((uint16_t)(di_base + i), &s_board.di_pins[i])) {
             log_error(TAG, "register DI%d FAILED (tag kind != TAG_DI?)", i);
             reg_fail++;
         }
@@ -136,7 +152,7 @@ static void board_di_do_init(void)
 
     for (int i = 0; i < 4; i++) {
         sx_gpio_init(&s_board.do_pins[i], SX_GPIO_LOW);
-        if (!plc_io_register_do((uint16_t)(TAG_DO0 + i), &s_board.do_pins[i])) {
+        if (!plc_io_register_do((uint16_t)(do_base + i), &s_board.do_pins[i])) {
             log_error(TAG, "register DO%d FAILED (tag kind != TAG_DO?)", i);
             reg_fail++;
         }

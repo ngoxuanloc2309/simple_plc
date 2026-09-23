@@ -1,6 +1,28 @@
 #ifndef BOARD_TAG_DEFINE_H
 #define BOARD_TAG_DEFINE_H
 
+/*
+ * board_tag_define.h - Layer 4 (board/)
+ *
+ * NOTE (current status): as of the SPLC_TagLayout / tag_table_load_from_
+ * flash(&layout) change (core/plc_tag/plc_tag.h), NO board .c file
+ * includes this header anymore. board_zigbee_io.c now gets DI/DO/AI/...
+ * base indices at runtime via tag_di_base_index()/tag_do_base_index()/etc.
+ * (plc_tag.h) instead of a compile-time TAG_DI0/TAG_DO0 macro from here --
+ * that avoids having two hand-maintained sources of the same offset (this
+ * file's macros, and board_<sku>.c's SPLC_TagLayout) that could silently
+ * drift apart if only one were updated after a layout change.
+ *
+ * Kept in the repo (not deleted) as a reference table of each board's
+ * full tag map (useful when writing rules/tests by hand, or documenting a
+ * board's wire layout) and as a starting point for a future board that
+ * prefers compile-time constants for its own reasons -- but no code path
+ * currently depends on it compiling correctly. If it drifts from a
+ * board's real SPLC_TagLayout, nothing will catch that automatically;
+ * do not treat it as authoritative without cross-checking the relevant
+ * board_<sku>.c's s_tag_layout.
+ */
+
 #include "board_config.h"
 
 /*===========BOARD_ZIGBEE_IO===========*/
