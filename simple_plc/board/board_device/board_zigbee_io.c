@@ -170,11 +170,11 @@ static void board_device_info_init(void)
 
     g_device_resource_info.wire_profile         = SPLC_WIRE_PROFILE_V1;
     g_device_resource_info.max_rules            = MAX_RULES;
-    g_device_resource_info.runtime_tag_count    = 124; /* DI+DO+AI+VFLAG+VREG+VREG_RETAIN+COUNTER, see plc_tag_def.h */
+    g_device_resource_info.runtime_tag_count    = 112; /* DI+DO+AI+VFLAG+VREG+VREG_RETAIN+COUNTER, see plc_tag_def.h */
 
-    g_device_resource_info.di_count             = 8;
-    g_device_resource_info.do_count             = 8;
-    g_device_resource_info.ai_count             = 4;
+    g_device_resource_info.di_count             = 4;
+    g_device_resource_info.do_count             = 4;
+    g_device_resource_info.ai_count             = 0;
     g_device_resource_info.vflag_count          = 32;
     g_device_resource_info.vreg_count           = 32;
     g_device_resource_info.vreg_retain_count    = 32;
