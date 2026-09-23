@@ -117,6 +117,15 @@ static SPLC_SystemCommandResult s_system_command_result = {
     .error_code = SPLC_ERROR_NONE,
 };
 
+/*
+ * The command write_system_command() most recently ACCEPTED but that
+ * plc_modbus_cfg_get_pending_system_command() (Layer 4) has not yet
+ * consumed. SPLC_SYSTEM_CMD_NONE means "nothing pending" -- both the
+ * initial/idle state and the state right after Layer 4 has consumed the
+ * previous command, so the same command byte is never acted on twice.
+ */
+static SPLC_SystemCommand s_pending_system_command = SPLC_SYSTEM_CMD_NONE;
+
 /* --- DEVICE_DESCRIPTOR (0x0000-0x0009, RO, 10 registers) ---------------- */
 
 static void read_device_descriptor(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
@@ -245,18 +254,25 @@ static void read_system_command_result(uint16_t offset, uint16_t quantity, uint1
 }
 
 /*
- * Only status is flipped to ACCEPTED/BUSY/DONE here -- actually
- * performing SPLC_SYSTEM_CMD_REBOOT/FACTORY_RESET/CLEAR_RULES/
- * CLEAR_RETAIN (NVIC_SystemReset(), sx_flash_erase(), ...) calls into
- * Layer 0/1 functionality this file does not own or call directly. Per
+ * Only status is flipped to ACCEPTED here -- actually performing
+ * SPLC_SYSTEM_CMD_REBOOT/FACTORY_RESET/CLEAR_RULES/CLEAR_RETAIN
+ * (NVIC_SystemReset(), sx_flash_erase(), ...) calls into Layer 0/1
+ * functionality this file does not own or call directly. Per
  * plc_system_cmd.h's own comment, that execution belongs in Layer 4 --
- * this function only decodes the command and hands it off.
+ * this function only decodes the command, records it in
+ * s_pending_system_command, and hands it off; plc_engine.c's
+ * plc_system_cmd_service() (called once per scan cycle, AFTER
+ * modbus_config_service() so this command's own FC06 ACK has already
+ * been queued for transmission) is what actually consumes it and calls
+ * into sx_system_reset()/etc.
  *
- * TODO: no Layer 4 handler exists yet to actually consume
- * s_system_command_result once status == SPLC_CMD_STATUS_ACCEPTED and
- * perform the command. Until that lands, every command is accepted here
- * (status flips to ACCEPTED) but nothing further happens -- the MCU does
- * not actually reboot, wipe Flash, or clear tables yet.
+ * SPLC_SYSTEM_CMD_REBOOT is implemented end-to-end (see
+ * plc_system_cmd_service()). FACTORY_RESET/CLEAR_RULES/CLEAR_RETAIN are
+ * still accepted here (status flips to ACCEPTED, matching what the App
+ * already expects from a successful FC06 write) but plc_engine.c does
+ * not yet act on them -- see docs/handoff.md for the open scope
+ * questions (what exactly "factory default" means for this SKU) that
+ * need answering before those three can be implemented the same way.
  */
 static void write_system_command(uint16_t value)
 {
@@ -269,6 +285,7 @@ static void write_system_command(uint16_t value)
         case SPLC_SYSTEM_CMD_CLEAR_RETAIN:
             s_system_command_result.status     = SPLC_CMD_STATUS_ACCEPTED;
             s_system_command_result.error_code = SPLC_ERROR_NONE;
+            s_pending_system_command            = cmd;
             break;
         default:
             s_system_command_result.status     = SPLC_CMD_STATUS_ERROR;
@@ -946,4 +963,21 @@ void plc_modbus_cfg_record_scan_time(uint32_t scan_time_ms)
     if (scan_time_ms > g_device_health.max_scan_time_ms) {
         g_device_health.max_scan_time_ms = scan_time_ms;
     }
+}
+
+SPLC_SystemCommand plc_modbus_cfg_get_pending_system_command(void)
+{
+    SPLC_SystemCommand cmd = s_pending_system_command;
+    /* Consume-once: whether or not the caller acts on it, the same
+     * command byte must never be returned twice, or plc_system_cmd_service()
+     * would e.g. reboot the MCU again on every future scan cycle just
+     * because s_pending_system_command was never cleared. */
+    s_pending_system_command = SPLC_SYSTEM_CMD_NONE;
+    return cmd;
+}
+
+void plc_modbus_cfg_set_system_command_result(SPLC_CommandStatus status, SPLC_ErrorCode error_code)
+{
+    s_system_command_result.status     = status;
+    s_system_command_result.error_code = error_code;
 }

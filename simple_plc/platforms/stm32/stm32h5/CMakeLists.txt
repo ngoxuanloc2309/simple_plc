@@ -50,6 +50,7 @@ set(SPLC_PLATFORM_STM32H5_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/flash/stm32h5_flash.c
     ${CMAKE_CURRENT_SOURCE_DIR}/uart/stm32h5_uart.c
     ${CMAKE_CURRENT_SOURCE_DIR}/time/stm32h5_time.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/stm32h5_system.c
 )
 
 add_library(splc_platform_stm32h5 STATIC ${SPLC_PLATFORM_STM32H5_SRC})
@@ -67,6 +68,7 @@ target_include_directories(splc_platform_stm32h5 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/timer
     ${CMAKE_CURRENT_SOURCE_DIR}/flash_define
     ${CMAKE_CURRENT_SOURCE_DIR}/pwd
+    ${CMAKE_CURRENT_SOURCE_DIR}/system
 )
 
 # TODO(wiring): sx_platform_config.h (the STM32H5_PLATFORM=1 / *_PLATFORM=0

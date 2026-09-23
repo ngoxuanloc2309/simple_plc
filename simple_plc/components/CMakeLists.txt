@@ -50,6 +50,7 @@ set(SPLC_COMPONENTS_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/uart
     ${CMAKE_CURRENT_SOURCE_DIR}/time
     ${CMAKE_CURRENT_SOURCE_DIR}/usb_cdc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system
 )
 
 target_include_directories(splc_components PUBLIC ${SPLC_COMPONENTS_INCLUDE_DIRS})

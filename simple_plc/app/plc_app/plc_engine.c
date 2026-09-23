@@ -6,6 +6,7 @@
 #include "plc_io.h"
 #include "plc_retain.h"
 #include "plc_modbus_cfg.h"
+#include "plc_system_cmd_service.h"
 #include "board.h"
 #include "sx_time.h"
 
@@ -47,6 +48,15 @@ static void scan_cycle(uint32_t now_ms)
     retain_service();
 
     plc_modbus_cfg_record_scan_time(sx_get_tick_ms() - now_ms);
+
+    /*
+     * Last thing in the scan cycle, on purpose: if this ends up calling
+     * sx_system_reset() (a pending SPLC_SYSTEM_CMD_REBOOT whose grace
+     * period has elapsed -- see plc_system_cmd_service.c), everything
+     * else this cycle (retain_service()'s Flash write, the scan-time
+     * measurement above, ...) has already run to completion first.
+     */
+    plc_system_cmd_service();
 }
 
 void plc_engine_scan_once(void)

@@ -141,6 +141,46 @@ void modbus_config_service(void);
 void plc_modbus_cfg_record_scan_time(uint32_t scan_time_ms);
 
 /*
+ * Returns the most recently ACCEPTED SYSTEM_COMMAND (write_system_command(),
+ * SYSTEM_COMMAND register 0x0A00) that has not yet been consumed, or
+ * SPLC_SYSTEM_CMD_NONE if there is nothing pending. Consume-once: each
+ * accepted command is returned by exactly one call to this function --
+ * the internal pending-command flag is cleared as part of the read, so a
+ * caller that polls this every scan cycle (plc_system_cmd_service(),
+ * Layer 4, per docs/handoff.md) never sees, and never acts on, the same
+ * command twice.
+ *
+ * Deliberately separate from read_system_command_result()/
+ * SYSTEM_COMMAND_RESULT (0x0A01-0x0A02): that register pair is the
+ * App-facing status (ACCEPTED/DONE/ERROR, read over Modbus), whereas this
+ * function is the internal Layer 3->Layer 4 hand-off that decides WHEN
+ * and WHETHER to actually perform the command's real-world effect
+ * (NVIC_SystemReset(), Flash erase, ...) -- this file does not, and must
+ * not, call into that Layer 0/1 functionality itself (see
+ * write_system_command()'s and plc_system_cmd.h's own comments on why
+ * that boundary exists).
+ */
+SPLC_SystemCommand plc_modbus_cfg_get_pending_system_command(void);
+
+/*
+ * Lets Layer 4 (plc_system_cmd_service()) update SYSTEM_COMMAND_RESULT
+ * once it has actually finished acting on a command previously returned
+ * by plc_modbus_cfg_get_pending_system_command() -- e.g. flipping status
+ * from ACCEPTED to DONE, or to ERROR with a specific error_code if the
+ * action itself failed (as opposed to write_system_command()'s own
+ * ERROR case, which only covers "this command value is not a valid
+ * SPLC_SystemCommand at all").
+ *
+ * Not applicable to SPLC_SYSTEM_CMD_REBOOT: a successful reboot never
+ * returns to call this (the MCU resets first), so its
+ * SYSTEM_COMMAND_RESULT after a REBOOT command stays at ACCEPTED across
+ * the reset -- read again by the App as CONFIG_STATUS/DEVICE_HEALTH
+ * naturally reset to their power-on defaults on the next connection, not
+ * because this function was called with DONE.
+ */
+void plc_modbus_cfg_set_system_command_result(SPLC_CommandStatus status, SPLC_ErrorCode error_code);
+
+/*
  * --- Wire-format CRC helpers (section 8.4) ------------------------------
  *
  * Exposed here (no longer `static` in plc_modbus_cfg.c) so

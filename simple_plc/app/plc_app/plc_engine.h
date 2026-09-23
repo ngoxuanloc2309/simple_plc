@@ -83,7 +83,14 @@ void plc_engine_poll(void);
  * Fixed order (docs/architecture.md section 4.2's scan cycle ordering, and
  * each function's own doc-comment cross-referencing this order):
  *   input_scan() -> rule_scan(now) -> output_scan() ->
- *   modbus_config_service() -> retain_service()
+ *   modbus_config_service() -> retain_service() -> plc_system_cmd_service()
+ *
+ * plc_system_cmd_service() runs last on purpose: it may call
+ * sx_system_reset() (a pending SPLC_SYSTEM_CMD_REBOOT whose grace period
+ * has elapsed), which never returns -- everything else this cycle must
+ * already be done first. See plc_system_cmd_service.h for why REBOOT
+ * itself is staggered a few cycles past the command that requested it,
+ * rather than resetting within the same cycle that first saw it.
  *
  * The tick is sampled ONCE at the start of the cycle and that single value
  * is handed to rule_scan(), so every rule in the cycle shares one "now".

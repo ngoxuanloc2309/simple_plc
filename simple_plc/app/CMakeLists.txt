@@ -17,6 +17,7 @@
 
 add_library(splc_app STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_app/plc_engine.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_app/plc_system_cmd_service.c
 )
 
 target_include_directories(splc_app PUBLIC
@@ -42,8 +43,10 @@ target_link_libraries(splc_app PUBLIC
 # splc_board (Layer 4, board/) supplies board.h (board_init(),
 # board_get_modbus_transport()), which plc_engine.c calls directly.
 # Transitively brings in splc_components (sx_time.h's sx_get_tick_ms(),
-# also called directly by plc_engine.c) and splc_port (modbus_transport.h)
-# via splc_board's own PUBLIC links -- not repeated here.
+# also called directly by plc_engine.c, AND sx_system.h's
+# sx_system_reset(), called directly by plc_system_cmd_service.c) and
+# splc_port (modbus_transport.h) via splc_board's own PUBLIC links -- not
+# repeated here.
 target_link_libraries(splc_app PUBLIC
     splc_board
 )
