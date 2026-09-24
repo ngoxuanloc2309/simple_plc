@@ -11,8 +11,13 @@
 
 ## 0. Trạng thái hiện tại
 
-- Branch `ruleflash`. Board: **Zigbee-IO SKU** (`board/board_zigbee_io.c`),
-  4 DI / 4 DO / 0 AI, STM32H523CCU6.
+- Branch **`board_dev`** (tiếp nối sau `ruleflash` — Rule Engine + Flash
+  persistence + REBOOT ở `ruleflash` coi như đã xong và mang nguyên sang
+  đây; `board_dev` tập trung riêng cho việc chuyển sang kiến trúc
+  multi-board, mục 1e). Board hiện dùng: **Zigbee-IO SKU**
+  (`board/board_device/board_zigbee_io.c` — **đã chuyển vào thư mục con
+  `board_device/`**, không còn nằm thẳng trong `board/`), 4 DI / 4 DO /
+  0 AI, STM32H523CCU6.
 - **Rule Engine chạy đúng trên board thật, App thật (SimplePLC.Studio) đã
   nạp và chạy đúng N rule (đã test tới 4), kể cả live watch.** Cả 2 bug
   chặn việc này đều đã tìm ra và sửa xong (mục 1, mục 1b) — không còn bug
@@ -25,10 +30,24 @@
   **`FACTORY_RESET`/`CLEAR_RULES`/`CLEAR_RETAIN` vẫn CHƯA implement** —
   đang chờ người dùng chốt phạm vi "factory default" nghĩa là gì cho SKU
   này (mục 3.2 có câu hỏi cụ thể cần trả lời trước khi code).
+- **Multi-board refactor (nhánh `board_dev`): ĐÃ XONG, đã verify compile
+  sạch.** Layer 2 (`plc_tag.c`) không còn hard-code 1 layout duy nhất —
+  nhận `SPLC_TagLayout` (số lượng DI/DO/AI/...) qua tham số runtime, tự
+  tính offset. Đổi board giờ chỉ cần viết 1 file `board_<sku>.c` mới
+  trong `board/board_device/`, không phải sửa Layer 2/3. Chi tiết đầy đủ
+  + các lỗi phát sinh khi refactor (đã sửa hết): mục 1e.
 - Việc treo cũ, chưa quay lại: test tay `--manual` của `test_rule.py`
   (`m_basic`, `m_dwell`, `m_guard`, `m_wiring`) và
   `test_rule_manual_simple.py` — người dùng nói đã chạy nhưng log MCU bị
   trôi, chưa có bằng chứng bằng số. Xin lại log khi rảnh.
+- `test_plc.py` (repo gốc, ngoài `simple_plc/`) có thêm subcommand
+  `read_info` (`python test_plc.py <PORT> read_info`) — chỉ đọc
+  `DEVICE_DESCRIPTOR`+`DEVICE_RESOURCE_INFO`+`RULE_TABLE_INFO`+
+  `DEVICE_HEALTH` rồi dừng, mô phỏng đúng bước đầu tiên App làm lúc kết
+  nối, không stage/commit rule gì. Trước đây script hoàn toàn không đọc
+  `DEVICE_RESOURCE_INFO` (0x0020) và có `TAG_DO0 = 8` hard-code sai theo
+  layout Remote-IO cũ — cả 2 đã sửa, `TAG_DO0` giờ tính động từ
+  `di_count` đọc được qua Modbus.
 
 ## 1. Rule Table trên Flash (2-sector A/B) — ĐÃ XONG
 
@@ -167,13 +186,85 @@ trigger và guard trùng nhau.
 **Lưu ý:** rule nào đã lỡ nạp+lưu Flash với `guard_tag=0` sai TRƯỚC khi
 sửa vẫn còn sai trong Flash A/B cho tới khi nạp lại bằng App bản đã sửa.
 
+## 1e. Multi-board refactor (`board_dev`) — ĐÃ XONG
+
+**Mục tiêu:** trước đây `core/plc_tag/plc_tag_def.h` (Layer 2) hard-code
+cứng 1 layout duy nhất (8DI/8DO/4AI, `TAG_DO0 = 8`) — Layer 2 không biết
+board thật đang build là gì. Muốn đổi board (Zigbee-IO 4DI/4DO vs
+Remote-IO 8DI/8DO...) chỉ cần sửa layer `board/`, không đụng Layer 2/3.
+
+**Thiết kế đã áp dụng (không phá nguyên tắc Layer 2 build độc lập trên
+PC, không include Layer 0/1):**
+- `core/plc_tag/plc_tag.h`: thêm `struct SPLC_TagLayout` (đếm
+  `di_count/do_count/ai_count/vflag_count/vreg_count/
+  vreg_retain_count/counter_count`); đổi chữ ký
+  `tag_table_load_from_flash(void)` →
+  `tag_table_load_from_flash(const SPLC_TagLayout *layout)` — Layer 2 tự
+  tính offset động (DI→DO→AI→VFLAG(32)→VREG(32)→VREG_RETAIN(32)→
+  COUNTER(8)), không cần biết trước con số cụ thể.
+- Thêm getter `tag_di_base_index()`/`tag_do_base_index()`/
+  `tag_vreg_retain_base_index()` — Layer 3/4 hỏi offset qua hàm thay vì
+  biết trước bằng macro cố định.
+- `board/board.h`: thêm `SPLC_TagLayout board_get_tag_layout(void)` —
+  mỗi board tự khai báo số liệu của mình; `plc_engine_init()` gọi hàm
+  này TRƯỚC `tag_table_load_from_flash()`.
+- `core/plc_tag/plc_tag_def.h` (file cũ, hard-code 1 layout): **đã XOÁ**
+  khỏi repo hoàn toàn.
+- `board/board_tag_define.h`: **vẫn còn trong repo nhưng KHÔNG còn được
+  include ở đâu nữa** (đã tự xác nhận bằng grep repo-wide, 0 kết quả) —
+  chỉ còn giá trị tham khảo (bảng tag map). Lý do bị bỏ: tránh 2 nguồn dữ
+  liệu tay (macro `TAG_DI0`/`TAG_DO0` compile-time trong file này, và
+  `s_tag_layout` runtime trong `board_<sku>.c`) có thể lệch nhau nếu chỉ
+  sửa 1 bên. `board/board_device/board_zigbee_io.c` giờ dùng
+  `tag_di_base_index()`/`tag_do_base_index()` (runtime) thay vì include
+  file này.
+- `board/board_device/board_zigbee_io.c`: implement
+  `board_get_tag_layout()` trả `{di_count=4, do_count=4, ai_count=0,...}`
+  qua `s_tag_layout` (`static const SPLC_TagLayout`); `board_device_info_
+  init()` cũng lấy `di_count/do_count/ai_count` từ `s_tag_layout` thay vì
+  hard-code riêng — tránh lệch giữa tag table thật và
+  `DEVICE_RESOURCE_INFO` gửi App (đây chính là loại bug 8/8-vs-4/4 từng
+  gặp).
+- `board/board_device/`: **thư mục mới** — mỗi board 1 file
+  `board_<sku>.c` (+`.h`) nằm ở đây, không nằm thẳng trong `board/` nữa.
+
+**3 lỗi phát sinh trong lúc refactor, tất cả ĐÃ SỬA và verify compile
+sạch bằng `gcc -fsyntax-only` (không cần ARM toolchain):**
+
+1. Vòng lặp đăng ký DI/DO trong `board_di_do_init()` từng hard-code
+   `for (int i = 0; i < 4; i++)` (2 chỗ), không đọc từ
+   `s_tag_layout.di_count`/`do_count` — nếu sau này đổi
+   `s_tag_layout.di_count` mà quên sửa vòng lặp, sẽ chỉ đăng ký đúng
+   4/8 kênh, bug im lặng (tag "mồ côi", giống bug 8/8-vs-4/4 cũ). **Sửa:**
+   vòng lặp giờ đọc `s_tag_layout.di_count`/`do_count`.
+2. Mảng `di_pins[4]`/`do_pins[4]` trong `zigbee_io_board_t` từng thử đổi
+   sang `di_pins[s_tag_layout.di_count]` — **KHÔNG compile được** (C
+   không cho phép dùng giá trị của biến `static const` làm kích thước
+   mảng ở phạm vi file/struct — `error: variably modified at file
+   scope`, khác C++). **Sửa đúng:** thêm `#define ZIGBEE_IO_DI_NUM 4` /
+   `ZIGBEE_IO_DO_NUM 4` trong `board_zigbee_io.h`, dùng chung cho cả kích
+   thước mảng struct lẫn giá trị gán vào `s_tag_layout` — đây mới là
+   hằng số compile-time thật.
+3. Log "DI/DO registered (4 DI, 4 DO)" và "%d of 8 channel(s) FAILED"
+   trong `board_hw_init()` hard-code số `4`/`8` — sửa dùng
+   `ZIGBEE_IO_DI_NUM`/`ZIGBEE_IO_DO_NUM` thay vì số cứng.
+
+**Bug CMake phát sinh khi chuyển `board_zigbee_io.c` vào thư mục con
+`board_device/` — ĐÃ SỬA:** `board/CMakeLists.txt` không được cập nhật
+theo, vẫn trỏ `${CMAKE_CURRENT_SOURCE_DIR}/board_${SPLC_BOARD_SKU}.c`
+(thiếu `board_device/`) → build thật báo `CMake Error ... Cannot find
+source file` + `No SOURCES given to target: splc_board`. Đã sửa đường
+dẫn thành `${CMAKE_CURRENT_SOURCE_DIR}/board_device/board_${SPLC_BOARD_
+SKU}.c`.
+
 ## 2. Kiến trúc trong 30 giây
 
 7 layer, include một chiều từ trên xuống, không heap. Chi tiết:
 `docs/architecture.md`.
 
 ```
-Layer 4    app/, board/        plc_engine, plc_system_cmd_service, board_<sku>.c
+Layer 4    app/, board/        plc_engine, plc_system_cmd_service,
+                                board/board_device/board_<sku>.c
 Layer 3    services/           plc_io, plc_retain, plc_modbus_cfg, plc_rule_flash
 Layer 3.5  port/               modbus_transport_t, modbus_usb
 Layer 2    core/               tag table + rule engine (build được trên PC)
@@ -241,12 +332,6 @@ policy sản phẩm", không định nghĩa chi tiết):
 - `TRG_TIME_WINDOW`: `now_hhmm` hardcode 0, chưa có nguồn RTC.
 - `ACT_WRITE_REMOTE` / `ACT_LOG_EVENT` / `ACT_SEND_ALARM`: chưa có
   implementation.
-
-### 3.4 Tồn tại trong repo nhưng KHÔNG PHẢI việc của Claude sửa
-
-`STM32H523xx_FLASH.ld` khai `LENGTH = 512K`, chip thật chỉ 256KB. File
-CubeMX tự sinh — nếu sửa thì phải qua CubeMX/`.ioc`, không sửa tay. Chỉ
-báo người dùng.
 
 ## 4. Bài học đã rút ra (quan trọng, đọc kỹ)
 
@@ -323,7 +408,7 @@ NÊN hỏi xác nhận phạm vi cụ thể trước, không suy đoán "chắc 
   người dùng báo "đã push": `git pull`, rồi **build/compile verify thật**
   (không chỉ đọc diff).
 - **2 repo liên quan:** firmware (`ngoxuanloc2309/simple_plc`, branch
-  `ruleflash`) và App (`ngoxuanloc2309/paa`, .NET). Bug giao tiếp
+  `board_dev`) và App (`ngoxuanloc2309/paa`, .NET). Bug giao tiếp
   App↔MCU có thể nằm ở BẤT KỲ phía nào — đọc cả 2 khi log firmware
   "trông đúng" nhưng App vẫn lỗi (mục 4.7).
 - **Giao file:** người dùng muốn nhận **nguyên file** (present từng file
