@@ -18,9 +18,10 @@ chi tiết nén ở mục 1. Việc cần làm tiếp theo: mục 2 (kế hoạc
 bước nhỏ theo thứ tự). **Bước 1 và Bước 2 đã xong và verify trên board** (kể cả reset runtime
 rule khi thoát diag, quyết định #5: `test_diag.py manual-dwell --expire`
 ALL PASS). **Bước 3 và Bước 5 đã verify trên board** (`test_tags.py`;
-Bước 5: log `baseline reset, 2 tag(s) set to 0`). **Bước 4 đã code + verify
-PC, CHƯA build ARM/board** — chạy `python test_tags.py COM14 --commit`
-(ghi Flash thật). Quyết định lưu retain: **phương án A** (dùng lại
+Bước 5: log `baseline reset, 2 tag(s) set to 0`). **Bước 4 đã verify trên board**
+(`test_tags.py --commit` ALL PASS: nháp, DISCARD, EXIT bị chặn, COMMIT ghi Flash
++ đọc lại kiểm OK). **Chưa verify:** giá trị commit còn sau khi mất điện thật
+(rút nguồn khi retain = giá trị đã commit, bật lại, đọc RETAIN0). Quyết định lưu retain: **phương án A** (dùng lại
 `plc_retain.c`), xem mục 2.2 #3.
 
 Board hiện dùng: **Zigbee-IO SKU** (`board/board_device/board_zigbee_io.c`),
@@ -231,7 +232,7 @@ mục 2.1 câu 1 về 1 mâu thuẫn đã gặp và cách xử lý):
   vật lý đổi thật; ghi DI0 → bị reject `0x02`; ghi khi ENGINE_RUNNING →
   bị reject `0x02`.
 
-**Bước 4 — Retain Dirty Interlock cho `VREG_RETAIN` — ĐÃ CODE, verify PC (Flash giả, kể cả giả lỗi ghi), CHƯA build ARM/board**
+**Bước 4 — Retain Dirty Interlock cho `VREG_RETAIN` — ĐÃ VERIFY TRÊN BOARD (COMMIT/DISCARD/EXIT-chặn); còn thiếu: giữ giá trị sau mất điện**
 
 *Đã làm* (`plc_modbus_cfg.c`, `plc_retain.{c,h}`):
 - Ghi retain trong diag chỉ vào bản nháp `s_retain_shadow[32]` + `s_retain_pending`, **không** vào `g_tag_value[]` — nên lưu định kỳ 5 phút của `plc_retain.c` không bao giờ lưu nhầm giá trị chưa commit. `RETAIN_DIRTY` = `s_retain_pending != 0`. FC03 trả giá trị nháp khi có.
