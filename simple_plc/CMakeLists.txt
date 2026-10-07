@@ -113,6 +113,18 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     splc_app
 )
 
+# RTC: keep the time across warm resets without editing CubeMX code.
+# The generated MX_RTC_Init() unconditionally writes 2000-01-01 at every
+# boot; these options route HAL_RTC_SetTime/SetDate through the
+# __wrap_ filters in platforms/stm32/stm32h5/rtc/stm32h5_rtc.c, which skip
+# that write while the clock is synced. See the comment there. (Separate
+# from the target_link_libraries() call above, so the plain-vs-keyword
+# rule discussed there does not apply.)
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+    -Wl,--wrap=HAL_RTC_SetTime
+    -Wl,--wrap=HAL_RTC_SetDate
+)
+
 # --- Everything else: not yet split into its own CMakeLists.txt --------
 
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE

@@ -17,6 +17,51 @@
 #define RTC_YEAR_BASE   2000U
 #define RTC_YEAR_MAX    2099U
 
+/*
+ * Keeping the time across a warm reset WITHOUT touching CubeMX files.
+ *
+ * Problem: the generated MX_RTC_Init() (Core/Src/rtc.c, called from main())
+ * ends with an unconditional HAL_RTC_SetTime()/HAL_RTC_SetDate() of
+ * 2000-01-01 00:00:00. On a warm reset (REBOOT, watchdog) the RTC itself kept
+ * counting, and that call would overwrite the time Studio had given us.
+ *
+ * Fix: the linker option --wrap=HAL_RTC_SetTime / --wrap=HAL_RTC_SetDate
+ * (set in simple_plc/CMakeLists.txt) redirects every call to those two HAL
+ * functions to the __wrap_ functions below. They let the call through only
+ * when it comes from this driver, or when the clock has never been synced
+ * (first power-up: writing the CubeMX default is harmless). While the clock
+ * is synced, the CubeMX default write at boot is silently skipped.
+ *
+ * Why this and not an edit in rtc.c: nothing generated is modified, so
+ * regenerating the project or moving to other hardware cannot lose it. If
+ * the RTC is ever removed from CubeMX the wrappers simply have no caller.
+ *
+ * If the build fails with "undefined reference to __real_HAL_RTC_SetTime",
+ * the --wrap link options were dropped from CMake -- restore them (failing
+ * loudly is intentional: without them the time would silently be lost on
+ * every REBOOT).
+ */
+extern HAL_StatusTypeDef __real_HAL_RTC_SetTime(RTC_HandleTypeDef *h, RTC_TimeTypeDef *t, uint32_t fmt);
+extern HAL_StatusTypeDef __real_HAL_RTC_SetDate(RTC_HandleTypeDef *h, RTC_DateTypeDef *d, uint32_t fmt);
+
+static bool s_driver_write = false;   /* true only inside sx_rtc_set_epoch() */
+
+HAL_StatusTypeDef __wrap_HAL_RTC_SetTime(RTC_HandleTypeDef *h, RTC_TimeTypeDef *t, uint32_t fmt)
+{
+    if (!s_driver_write && sx_rtc_is_synced()) {
+        return HAL_OK;   /* keep the running, synced time */
+    }
+    return __real_HAL_RTC_SetTime(h, t, fmt);
+}
+
+HAL_StatusTypeDef __wrap_HAL_RTC_SetDate(RTC_HandleTypeDef *h, RTC_DateTypeDef *d, uint32_t fmt)
+{
+    if (!s_driver_write && sx_rtc_is_synced()) {
+        return HAL_OK;
+    }
+    return __real_HAL_RTC_SetDate(h, d, fmt);
+}
+
 bool sx_rtc_is_synced(void)
 {
     return HAL_RTCEx_BKUPRead(&hrtc, STM32H5_RTC_SYNC_BKP_REG) == STM32H5_RTC_SYNC_MAGIC;
@@ -52,10 +97,11 @@ bool sx_rtc_set_epoch(uint32_t epoch_utc_s)
     d.Date    = dt.day;
     d.Year    = (uint8_t)(dt.year - RTC_YEAR_BASE);
 
-    if (HAL_RTC_SetTime(&hrtc, &t, RTC_FORMAT_BIN) != HAL_OK) {
-        return false;
-    }
-    if (HAL_RTC_SetDate(&hrtc, &d, RTC_FORMAT_BIN) != HAL_OK) {
+    s_driver_write = true;   /* let our own calls through the __wrap_ filter above */
+    const bool ok = (HAL_RTC_SetTime(&hrtc, &t, RTC_FORMAT_BIN) == HAL_OK) &&
+                    (HAL_RTC_SetDate(&hrtc, &d, RTC_FORMAT_BIN) == HAL_OK);
+    s_driver_write = false;
+    if (!ok) {
         return false;
     }
 
