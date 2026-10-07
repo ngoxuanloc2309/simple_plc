@@ -6,6 +6,7 @@
 #include "plc_io.h"
 #include "plc_retain.h"
 #include "plc_modbus_cfg.h"
+#include "plc_rtc.h"
 #include "plc_system_cmd_service.h"
 #include "board.h"
 #include "sx_time.h"
@@ -95,7 +96,16 @@ static void scan_cycle(uint32_t now_ms)
         if (s_rule_engine_was_suspended) {
             rule_runtime_reset();
         }
-        rule_scan(now_ms);
+        /*
+         * Local time of day for TRG_TIME_WINDOW (Structs doc V2.0 section
+         * 7), read once per cycle so every rule in the pass sees the same
+         * time. RULE_HHMM_INVALID while the RTC is not synced or its
+         * timezone has not been written yet: Time Window rules then do
+         * not fire.
+         */
+        uint16_t hhmm = 0U;
+        rule_scan(now_ms, plc_rtc_get_local_hhmm(&hhmm) ? (uint32_t)hhmm
+                                                         : RULE_HHMM_INVALID);
     }
     s_rule_engine_was_suspended = suspended;
 
