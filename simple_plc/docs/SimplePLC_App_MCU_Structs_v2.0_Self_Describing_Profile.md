@@ -180,7 +180,7 @@ typedef struct SPLC_PACKED {
   * `0 = NONE`, `1 = DENIED_FAULT`, `2 = LEASE_EXPIRED`, `3 = FLASH_CRC_MISMATCH`, `4 = INVALID_COMMAND`, `5 = RETAIN_DIRTY`.
 
 ### 3.6. `SPLC_FbTimerRecord_t` (0x0B00..0x0B3F, 8 Timers × 8 regs = 16 Bytes)
-Bảng viễn trắc 8 khối Timer chuẩn IEC 61131-3 (TON, TOF, TP). Địa chỉ Timer $i$: `0x0B00 + (i * 8)`.
+Bảng viễn trắc 8 khối Timer chuẩn IEC 61131-3 (TON, TOF, TP). Địa chỉ Timer `i`: `0x0B00 + (i * 8)`.
 
 ```c
 typedef struct SPLC_PACKED {
@@ -193,7 +193,7 @@ typedef struct SPLC_PACKED {
 ```
 
 ### 3.7. `SPLC_FbCounterRecord_t` (0x0B40..0x0B7F, 8 Counters × 8 regs = 16 Bytes)
-Bảng viễn trắc 8 khối Counter chuẩn IEC 61131-3 (CTU, CTD). Địa chỉ Counter $i$: `0x0B40 + (i * 8)`.
+Bảng viễn trắc 8 khối Counter chuẩn IEC 61131-3 (CTU, CTD). Địa chỉ Counter `i`: `0x0B40 + (i * 8)`.
 
 ```c
 typedef struct SPLC_PACKED {
@@ -231,7 +231,7 @@ typedef struct SPLC_PACKED {
 ## 4. Phân bổ `TagIndex` Remote I/O V1 (124 Active Tags)
 
 Địa chỉ thanh ghi Modbus của mỗi Tag được ánh xạ cố định theo công thức bất biến:
-$$\text{Modbus Address} = 0x0900 + (\text{TagIndex} \times 2)$$
+`Modbus Address = 0x0900 + (TagIndex * 2)`
 
 ```text
 TagIndex    Ký hiệu Tag     Số lượng   Loại Tag                  Địa chỉ Modbus     Quyền truy cập
@@ -296,15 +296,17 @@ Host (Studio)                                    MCU Firmware
 
 MCU tính toán giờ địa phương danh định `HHmm` trong chu kỳ quét 10ms:
 
-$$\text{local\_epoch} = \text{epoch\_utc\_s} + (\text{tz\_offset\_min} \times 60)$$
-$$\text{seconds\_of\_day} = \text{local\_epoch} \pmod{86400}$$
-$$\text{current\_hhmm} = \left(\lfloor \text{seconds\_of\_day} / 3600 \rfloor \times 100\right) + \left(\lfloor (\text{seconds\_of\_day} \pmod{3600}) / 60 \rfloor\right)$$
+```text
+local_epoch = epoch_utc_s + (tz_offset_min * 60)
+seconds_of_day = local_epoch % 86400
+current_hhmm = (floor(seconds_of_day / 3600) * 100) + floor((seconds_of_day % 3600) / 60)
+```
 
-* **Khung giờ trong ngày ($Lo \le Hi$, ví dụ 07:00..17:00 $\rightarrow 700..1700$):**
-  $$\text{Active} \iff 700 \le \text{current\_hhmm} \le 1700$$
-* **Khung giờ qua nửa đêm ($Lo > Hi$, ví dụ 18:00..06:00 sáng hôm sau $\rightarrow 1800..600$):**
-  $$\text{Active} \iff \text{current\_hhmm} \ge 1800 \lor \text{current\_hhmm} \le 600$$
-* **Điểm thời gian chính xác ($Op == \text{EQ}$, $Lo == Hi$, ví dụ đúng 08:30 $\rightarrow 830$):**
+* **Khung giờ trong ngày (`Lo <= Hi`, ví dụ 07:00..17:00 → `700..1700`):**
+  - Điều kiện đúng: `700 <= current_hhmm <= 1700`.
+* **Khung giờ qua nửa đêm (`Lo > Hi`, ví dụ 18:00..06:00 sáng hôm sau → `1800..600`):**
+  - Điều kiện đúng: `current_hhmm >= 1800 || current_hhmm <= 600`.
+* **Điểm thời gian chính xác (`Op == EQ`, `Lo == Hi`, ví dụ đúng 08:30 → `830`):**
   Chỉ kích hoạt tại sườn lên chuyển phút (minute edge transition), không lặp lại trong suốt 60 giây của phút đó.
 
 ---
@@ -313,13 +315,13 @@ $$\text{current\_hhmm} = \left(\lfloor \text{seconds\_of\_day} / 3600 \rfloor \t
 
 Mọi triển khai firmware phải so khớp chính xác từng byte frame Modbus RTU với [`tests/SimplePLC.Protocol.Tests/GoldenVectors/golden_vectors_v2_0.json`](file:///g:/HoaNV/Projects/SimplePLC/tests/SimplePLC.Protocol.Tests/GoldenVectors/golden_vectors_v2_0.json):
 
-1. **`GV-001` (DeviceDescriptor)**: FC03 tại `0x0000` (10 regs) $\rightarrow$ `ProtocolVersion=2`, `RuleFormatVersion=7`.
-2. **`GV-002` (DeviceResourceInfo)**: FC03 tại `0x0020` (10 regs) $\rightarrow$ `WireProfile=2`, `MaxRules=100`, `ActiveTags=124`.
-3. **`GV-003` (DeviceHealth)**: FC03 tại `0x0800` (10 regs) $\rightarrow$ `scan_time_ms=10ms`.
-4. **`GV-004` (RTC Clock)**: FC03 tại `0x0810` (4 regs) $\rightarrow$ Epoch UTC, Timezone Offset +420, Flags=3.
-5. **`GV-005` (Diagnostic Block)**: FC03 tại `0x0A20` (5 regs) $\rightarrow$ `CMD=2`, `STATE=2`, `FLAGS=2`, `LEASE=3000ms`.
-6. **`GV-006` (FB Timer 0)**: FC03 tại `0x0B00` (8 regs) $\rightarrow$ TON, `PT=5000ms`, `ET=2500ms`, `IN=1`, `RUNNING=1`.
-7. **`GV-007` (FB Counter 0)**: FC03 tại `0x0B40` (8 regs) $\rightarrow$ CTU, `PV=10`, `CV=4`, `RetainTag=84`, `CU=1`.
-8. **`GV-008` (Time Window Rule)**: 32-byte binary payload cho khung giờ 07:00..17:00 $\rightarrow$ CRC-16 payload `0xAB68`.
-9. **`GV-009` (Diag Heartbeat Write)**: FC06 tại `0x0A20` ghi giá trị `2` $\rightarrow$ Frame: `01 06 0A 20 00 02 0A 19`.
-10. **`GV-010` (Commit Command)**: FC06 tại `0xA000` ghi giá trị `0xA5A5` $\rightarrow$ Frame: `01 06 A0 00 A5 A5 10 E1`.
+1. **`GV-001` (DeviceDescriptor)**: FC03 tại `0x0000` (10 regs) → `ProtocolVersion=2`, `RuleFormatVersion=7`.
+2. **`GV-002` (DeviceResourceInfo)**: FC03 tại `0x0020` (10 regs) → `WireProfile=2`, `MaxRules=100`, `ActiveTags=124`.
+3. **`GV-003` (DeviceHealth)**: FC03 tại `0x0800` (10 regs) → `scan_time_ms=10ms`.
+4. **`GV-004` (RTC Clock)**: FC03 tại `0x0810` (4 regs) → Epoch UTC, Timezone Offset +420, Flags=3.
+5. **`GV-005` (Diagnostic Block)**: FC03 tại `0x0A20` (5 regs) → `CMD=2`, `STATE=2`, `FLAGS=2`, `LEASE=3000ms`.
+6. **`GV-006` (FB Timer 0)**: FC03 tại `0x0B00` (8 regs) → TON, `PT=5000ms`, `ET=2500ms`, `IN=1`, `RUNNING=1`.
+7. **`GV-007` (FB Counter 0)**: FC03 tại `0x0B40` (8 regs) → CTU, `PV=10`, `CV=4`, `RetainTag=84`, `CU=1`.
+8. **`GV-008` (Time Window Rule)**: 32-byte binary payload cho khung giờ 07:00..17:00 → CRC-16 payload `0xAB68`.
+9. **`GV-009` (Diag Heartbeat Write)**: FC06 tại `0x0A20` ghi giá trị `2` → Frame: `01 06 0A 20 00 02 0A 19`.
+10. **`GV-010` (Commit Command)**: FC06 tại `0xA000` ghi giá trị `0xA5A5` → Frame: `01 06 A0 00 A5 A5 10 E1`.
