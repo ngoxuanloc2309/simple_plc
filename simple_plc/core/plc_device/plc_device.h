@@ -6,11 +6,13 @@
  *
  * Device identity and runtime health type definitions, per the official
  * data contract in
- * docs/SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md, section
- * 1 (DEVICE DESCRIPTOR) and the DEVICE_HEALTH register block (section 8.1,
+ * docs/SimplePLC_App_MCU_Structs_v2.0_Self_Describing_Profile.md, section
+ * 3.1 (SPLC_DeviceDescriptor_t) and 3.3 (SPLC_DeviceHealth_t,
  * 0x0800-0x0809). SPLC_DeviceDescriptor and SPLC_DeviceHealth are
- * unchanged between v1.7 and v1.9 -- only SPLC_DeviceResourceInfo below is
- * new in v1.9. This file must not include anything from Layer 0/1
+ * unchanged between v1.7/v1.9/v2.0 (same 20-byte layout) -- V2.0 only adds
+ * new register blocks elsewhere (RTC, Diagnostic Control, Function
+ * Blocks), it does not change these two structs. This file must not
+ * include anything from Layer 0/1
  * (platform or driver headers). This is the porting boundary: Layer 2 must
  * build and unit test on a plain PC toolchain, independent of any real
  * hardware.
@@ -155,13 +157,24 @@ typedef struct {
 } SPLC_DeviceHealth; /* 20 bytes */
 
 /*
- * V1.9: Wire profile identifies the layout/tag-addressing contract that
- * App and MCU both understand. SPLC_WIRE_PROFILE_V1 is the only defined
- * profile at this time.
+ * Wire profile identifies the layout/tag-addressing contract that App and
+ * MCU both understand.
+ *
+ * SPLC_WIRE_PROFILE_V1: v1.9 baseline (frozen) -- DeviceDescriptor,
+ * DeviceResourceInfo, ActiveRuleTable, DeviceHealth, RuntimeTagValues
+ * (read-only), SystemCommand.
+ *
+ * SPLC_WIRE_PROFILE_V2: v2.0 superset (SimplePLC_Wire_Contract_V2_Draft.md)
+ * -- adds RTC (0x0810), Diagnostic Control Block (0x0A20, lease-based
+ * runtime tag writes to DO/VFLAG/VREG/VREG_RETAIN/COUNTER), and the
+ * Function Block Timer/Counter subsystem (0x0B00/0x0B40). 100% backward
+ * compatible with V1 register layout -- V2 only adds new register ranges,
+ * never changes existing ones.
  */
 typedef enum {
     SPLC_WIRE_PROFILE_UNKNOWN = 0,
-    SPLC_WIRE_PROFILE_V1      = 1
+    SPLC_WIRE_PROFILE_V1      = 1,
+    SPLC_WIRE_PROFILE_V2      = 2
 } SPLC_WireProfile;
 
 /*

@@ -186,19 +186,27 @@ static void board_di_do_init(void)
  * Layer 2's tag_table_load_from_flash() also builds g_tag_table[] from)
  * makes this a single source of truth -- it cannot drift again.
  * device_variant is a separate, purely identity/diagnostic field
- * (docs/SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md section
- * 1: "ProductVariant chi la identity, khong quyet dinh resource layout
- * trong App") -- it is set to SPLC_REMOTE_IO_VARIANT_4DI_4DO (3) so
+ * (docs/SimplePLC_App_MCU_Structs_v2.0_Self_Describing_Profile.md section
+ * 3.1: device_variant is identity only, it does not drive the App's
+ * resource layout) -- it is set to SPLC_REMOTE_IO_VARIANT_4DI_4DO (3) so
  * App-side diagnostics can tell this board apart from a fully-populated
  * 8DI_8DO_4AI unit, without that value affecting how the App builds its
- * resource/tag catalog (that always comes from DEVICE_RESOURCE_INFO alone,
- * per section 8.6).
+ * resource/tag catalog (that always comes from DEVICE_RESOURCE_INFO alone).
  *
- * hw_version, fw_version and rule_format_version are not yet backed by any
- * project-wide version source (no VERSION file / CMake variable found) --
- * hardcoded to 1.0.0 (and rule_format_version = 1) here as a starting
- * point; revisit once such a source exists so this does not silently go
- * stale across firmware builds.
+ * hw_version and fw_version are not yet backed by any project-wide version
+ * source (no VERSION file / CMake variable found) -- hardcoded to 1.0.0
+ * here as a starting point; revisit once such a source exists so this does
+ * not silently go stale across firmware builds.
+ *
+ * protocol_version = 2 and rule_format_version = 7: fixed values mandated
+ * by Wire Profile V2.0 (docs/SimplePLC_App_MCU_Structs_v2.0_Self_
+ * Describing_Profile.md section 3.1 and Golden Vector GV-001), NOT derived
+ * from anything -- unlike hw/fw version above, these are protocol contract
+ * numbers, not this board's own version. rule_format_version = 7 bumps
+ * from 1 to signal the V2.0 wire contract to the App even though
+ * SPLC_RuleRecord itself is still the same 32-byte layout (no field
+ * changes) -- see handoff.md section 2.1 decision #1 for why
+ * protocol_version is 2 and not 1 (the two source docs briefly disagreed).
  */
 static void board_device_info_init(void)
 {
@@ -213,10 +221,10 @@ static void board_device_info_init(void)
     g_device_descriptor.fw_version_minor    = 0;
     g_device_descriptor.fw_version_patch    = 0;
 
-    g_device_descriptor.protocol_version    = 1;
-    g_device_descriptor.rule_format_version = 1;
+    g_device_descriptor.protocol_version    = 2;
+    g_device_descriptor.rule_format_version = 7;
 
-    g_device_resource_info.wire_profile         = SPLC_WIRE_PROFILE_V1;
+    g_device_resource_info.wire_profile         = SPLC_WIRE_PROFILE_V2;
     g_device_resource_info.max_rules            = MAX_RULES;
     g_device_resource_info.runtime_tag_count    =
         (uint16_t)(s_tag_layout.di_count + s_tag_layout.do_count +
