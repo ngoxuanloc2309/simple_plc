@@ -82,8 +82,15 @@ void plc_engine_poll(void);
  *
  * Fixed order (docs/architecture.md section 4.2's scan cycle ordering, and
  * each function's own doc-comment cross-referencing this order):
- *   input_scan() -> rule_scan(now) -> output_scan() ->
- *   modbus_config_service() -> retain_service() -> plc_system_cmd_service()
+ *   plc_modbus_cfg_diag_tick(elapsed) -> input_scan() -> rule_scan(now) ->
+ *   output_scan() -> modbus_config_service() -> retain_service() ->
+ *   plc_system_cmd_service()
+ *
+ * rule_scan() is skipped while a Host holds DIAG_CONTROL (Wire Profile V2,
+ * plc_modbus_cfg_is_rule_engine_suspended()); the diagnostic lease tick runs
+ * first so a lease that expires this cycle hands the Tag Store back to the
+ * Rule Engine before rule_scan() is considered. `elapsed` is the real time
+ * since the previous cycle, not PLC_SCAN_INTERVAL_MS.
  *
  * plc_system_cmd_service() runs last on purpose: it may call
  * sx_system_reset() (a pending SPLC_SYSTEM_CMD_REBOOT whose grace period

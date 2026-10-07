@@ -21,6 +21,15 @@
  * ever runs.
  */
 
+/*
+ * Tick sampled at the start of the previous scan cycle. Feeds the real
+ * elapsed time (not the nominal PLC_SCAN_INTERVAL_MS) to
+ * plc_modbus_cfg_diag_tick(), so the diagnostic lease measures wall-clock
+ * time even when a cycle overruns. Seeded at the end of plc_engine_init()
+ * so the first cycle does not see boot time as elapsed time.
+ */
+static uint32_t s_prev_cycle_tick_ms = 0U;
+
 void plc_engine_init(void)
 {
     /*
@@ -45,6 +54,8 @@ void plc_engine_init(void)
 
     modbus_transport_t transport = board_get_modbus_transport();
     plc_modbus_cfg_init(&transport);
+
+    s_prev_cycle_tick_ms = sx_get_tick_ms();
 }
 
 /*
@@ -54,8 +65,29 @@ void plc_engine_init(void)
  */
 static void scan_cycle(uint32_t now_ms)
 {
+    /*
+     * First, on purpose: if the diagnostic lease runs out in this tick,
+     * Tag Store ownership is back with the Rule Engine BEFORE the checks
+     * below, so this same cycle already runs a full pass on fresh inputs
+     * (Wire Contract section 1, invariant 4).
+     */
+    plc_modbus_cfg_diag_tick((uint32_t)(now_ms - s_prev_cycle_tick_ms));
+    s_prev_cycle_tick_ms = now_ms;
+
     input_scan();
-    rule_scan(now_ms);
+
+    /*
+     * Suspended while a Host holds DIAG_CONTROL (Wire Contract section 1,
+     * invariant 2). input_scan()/output_scan() still run: DO pins keep
+     * following their tags and DI/AI tags stay current for the Host to
+     * read. rule_scan()'s per-rule state is not touched while skipped, so
+     * on resume the first pass compares against stale previous values and
+     * can report an edge that happened during the diagnostic session.
+     */
+    if (!plc_modbus_cfg_is_rule_engine_suspended()) {
+        rule_scan(now_ms);
+    }
+
     output_scan();
     modbus_config_service();
     retain_service();

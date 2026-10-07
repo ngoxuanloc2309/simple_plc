@@ -139,7 +139,24 @@ mục 2.1 câu 1 về 1 mâu thuẫn đã gặp và cách xử lý):
   qua Modbus trên board — nên verify khi tiện, không bắt buộc trước khi
   làm Bước 2.
 
-**Bước 2 — Diagnostic Control Block (`0x0A20`), KHÔNG kèm write runtime tag**
+**Bước 2 — Diagnostic Control Block (`0x0A20`), KHÔNG kèm write runtime tag — CODE XONG, CHỜ VERIFY TRÊN BOARD**
+
+*Đã làm (verify trên PC: compile -Wall -Wextra sạch phần code mới, 48 check callback + chạy `test_diag.py` đầu-cuối qua frame RTU thật với firmware PC, kể cả frame GV-009 khớp từng byte. `plc_engine.c` mới chỉ kiểm cú pháp, chưa chạy):*
+- `core/plc_diag/plc_diag.h` (Layer 2, chỉ type): enum command/state/flags/error + hằng số lease. `SPLC_DiagErrorCode` là enum RIÊNG, không dùng chung `SPLC_ErrorCode`.
+- `plc_modbus_cfg.{c,h}` (Layer 3) sở hữu RAM state. `0x0A20` xử lý trực tiếp trong `cb_write_single_register` (FC06) và đầu `cb_write_multiple_registers` (FC16 quantity=1 OK, quantity>1 → exception `0x03`), KHÔNG qua `s_blocks[]`. `0x0A20..0x0A24` đọc qua `s_blocks[]`.
+- `plc_engine.c` (Layer 4): gọi `plc_modbus_cfg_diag_tick(elapsed_ms)` ĐẦU `scan_cycle()` (elapsed = thời gian thật, không phải 10ms danh nghĩa), và bỏ qua `rule_scan()` khi `DIAG_CONTROL`. `input_scan`/`output_scan` vẫn chạy.
+- `test_diag.py`: script verify trên board (`python test_diag.py COM5`, thêm `--skip-expiry` để bỏ test 4s).
+
+*Diễn giải spec đã chọn (xác nhận lại nếu không đúng ý):*
+1. Lệnh xử lý ngay trong callback Modbus, không có mailbox hàng đợi (callback chạy sau `output_scan()`, trước `input_scan()` vòng sau = đúng scan boundary). `STATE_TRANSITIONING` đã định nghĩa nhưng Bước 2 không bao giờ đặt nó.
+2. Cột "`ERR_NONE`" trong ma trận 4.7 hiểu là "không phát sinh lỗi mới", KHÔNG xoá latch. Chỉ ENTER thành công / DISCARD (xoá `ERR_RETAIN_DIRTY`) / reboot mới xoá, theo 4.5. Nếu không, HEARTBEAT 1s/lần sẽ xoá `ERR_LEASE_EXPIRED` trước khi App kịp đọc.
+3. HEARTBEAT sau khi lease hết hạn giữ nguyên `ERR_LEASE_EXPIRED` (không ghi đè bằng `INVALID_COMMAND`).
+4. Đọc `0x0A20` trả lệnh cuối đã ghi (để khớp GV-005: `CMD=2`), dù Wire Contract ghi WO.
+5. Ghi giá trị `0` vào `0x0A20` = không làm gì, không báo lỗi; giá trị >5 → `ERR_INVALID_COMMAND`.
+
+*Còn để ngỏ cho Bước 4/5 (đã đánh dấu `STEP 4` trong code):* COMMIT/DISCARD hiện là no-op vì `RETAIN_DIRTY` luôn 0; lease hết hạn chưa huỷ RAM shadow retain; khi `rule_scan()` tiếp tục sau diag, `prev_value` của rule còn giá trị cũ nên có thể sinh 1 edge giả (chưa xử lý, xem comment trong `scan_cycle()`).
+
+*Kế hoạch gốc của bước này:*
 - Thêm state machine `DIAG_STATE` (ENGINE_RUNNING/DIAG_CONTROL/
   TRANSITIONING/FAULT), xử lý `CMD_ENTER_DIAG`/`CMD_HEARTBEAT`/
   `CMD_EXIT_DIAG` theo bảng state transition ở Wire Contract mục 4.7.

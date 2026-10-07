@@ -45,6 +45,7 @@
 #include "plc_device.h"
 #include "plc_system_cmd.h"
 #include "plc_error.h"
+#include "plc_diag.h"
 #include "modbus_transport.h"
 #include "plc_rule.h" /* SPLC_RuleRecord, for the wire-format helpers below */
 
@@ -128,6 +129,50 @@ void plc_modbus_cfg_init(const modbus_transport_t *transport);
  * order.
  */
 void modbus_config_service(void);
+
+/*
+ * --- Diagnostic Control (Wire Profile V2, 0x0A20..0x0A24) ---------------
+ *
+ * State machine behind DIAG_COMMAND/STATE/FLAGS/LEASE/ERROR_CODE, per
+ * docs/SimplePLC_Wire_Contract_V2_Draft.md sections 3, 4.7 and 6. All RAM
+ * state lives in plc_modbus_cfg.c (Layer 3); plc_diag.h (Layer 2) only
+ * defines the types.
+ *
+ * Commands are executed directly inside the Modbus write callback rather
+ * than queued to a mailbox: modbus_config_service() runs after
+ * output_scan() and before the next cycle's input_scan(), i.e. already
+ * exactly at a scan boundary, and nothing in this step needs to wait for
+ * anything. A Modbus ACK still only means "frame accepted" -- the host
+ * must read DIAG_STATE/DIAG_ERROR_CODE for the outcome (Wire Contract
+ * section 6).
+ */
+
+/*
+ * Advances the diagnostic lease. Layer 4 calls this ONCE per scan cycle,
+ * at the very START of the cycle (before input_scan()/rule_scan()), with
+ * the real milliseconds elapsed since the previous call -- not the
+ * nominal PLC_SCAN_INTERVAL_MS. Layer 3 must not include plc_engine.h
+ * (Layer 4), so it cannot know the scan period itself, and using the
+ * real elapsed time keeps the 3000 ms lease honest even when a cycle
+ * overruns (scan_time_ms has been measured up to 83 ms under load).
+ *
+ * No-op unless DIAG_STATE == DIAG_CONTROL. When the lease reaches 0:
+ * diagnostic ownership is revoked, DIAG_STATE returns to ENGINE_RUNNING,
+ * DIAG_ERROR_CODE latches ERR_LEASE_EXPIRED, and (from step 4 onwards)
+ * the uncommitted retain shadow is discarded. Calling this before the
+ * cycle's rule_scan() means a revocation takes effect in the SAME cycle:
+ * the Rule Engine runs a full pass on fresh inputs immediately (Wire
+ * Contract section 1, invariant 4).
+ */
+void plc_modbus_cfg_diag_tick(uint32_t elapsed_ms);
+
+/*
+ * true while the Host owns the Tag Store (DIAG_STATE == DIAG_CONTROL).
+ * Layer 4 skips rule_scan() in that case (Wire Contract section 1,
+ * invariant 2). input_scan()/output_scan() keep running: DO pins keep
+ * following their tags, and DI/AI tags stay current.
+ */
+bool plc_modbus_cfg_is_rule_engine_suspended(void);
 
 /*
  * Records one scan cycle's duration into g_device_health.scan_time_ms /

@@ -4,6 +4,7 @@
 
 #include "nanomodbus.h"
 #include "plc_tag.h"
+#include "plc_diag.h"
 #include "plc_rule.h"
 #include "plc_rule_flash.h" /* plc_rule_flash_save(), called from write_commit_command() */
 #include "sx_time.h"
@@ -291,6 +292,178 @@ static void write_system_command(uint16_t value)
             s_system_command_result.error_code = SPLC_ERROR_INVALID_COMMAND;
             break;
     }
+}
+
+/* --- Diagnostic Control (0x0A20..0x0A24) ---------------------------------
+ *
+ * Wire Contract: docs/SimplePLC_Wire_Contract_V2_Draft.md sections 3, 4.5
+ * and 4.7. Types are in core/plc_diag/plc_diag.h (Layer 2); the RAM state
+ * below is owned here, same split as SYSTEM_COMMAND.
+ *
+ * Step 2 scope: state machine + lease only. Runtime tag writes
+ * (0x0900..0x09FF) are NOT enabled yet, so nothing can set RETAIN_DIRTY
+ * and COMMIT/DISCARD have no shadow to act on -- the places where step 4
+ * must plug in are marked "STEP 4" below.
+ */
+
+static SPLC_DiagState s_diag_state        = SPLC_DIAG_STATE_ENGINE_RUNNING;
+static uint16_t       s_diag_flags        = 0U;
+static uint16_t       s_diag_lease_ms     = 0U;
+static uint16_t       s_diag_error_code   = SPLC_DIAG_ERR_NONE;
+
+/*
+ * Last command value accepted at 0x0A20. The register is documented WO,
+ * but golden vector GV-005 (Structs v2.0 section 8) reads the whole
+ * 0x0A20..0x0A24 block back with CMD=2, so reading it returns the last
+ * accepted command. Writes still behave as a command, never as storage.
+ */
+static uint16_t       s_diag_last_command = SPLC_DIAG_CMD_NONE;
+
+/* Wire Contract 4.5 rule 1: a rejection overwrites the latched code. */
+static void diag_latch_error(SPLC_DiagErrorCode code)
+{
+    s_diag_error_code = (uint16_t)code;
+}
+
+static void diag_revoke_to_engine(void)
+{
+    s_diag_state    = SPLC_DIAG_STATE_ENGINE_RUNNING;
+    s_diag_flags    = 0U;   /* LEASE_ACTIVE and RETAIN_DIRTY both cleared */
+    s_diag_lease_ms = 0U;
+}
+
+static void read_diag_block(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
+{
+    for (uint16_t i = 0; i < quantity; i++) {
+        switch (offset + i) {
+            case SPLC_DIAG_REG_COMMAND:    registers_out[i] = s_diag_last_command; break;
+            case SPLC_DIAG_REG_STATE:      registers_out[i] = (uint16_t)s_diag_state; break;
+            case SPLC_DIAG_REG_FLAGS:      registers_out[i] = s_diag_flags; break;
+            case SPLC_DIAG_REG_LEASE_MS:   registers_out[i] = s_diag_lease_ms; break;
+            case SPLC_DIAG_REG_ERROR_CODE: registers_out[i] = s_diag_error_code; break;
+            default:                       registers_out[i] = 0U; break;
+        }
+    }
+}
+
+/*
+ * One command, evaluated against Wire Contract 4.7's matrix.
+ *
+ * "ERR_NONE" in that matrix's result column is read as "this command
+ * produced no NEW error", not "clear the latch": section 4.5 lists the
+ * only events that clear DIAG_ERROR_CODE (successful ENTER_DIAG,
+ * successful DISCARD_RETAIN of ERR_RETAIN_DIRTY, reboot), and it must
+ * survive a periodic HEARTBEAT or a no-op EXIT or the host would never
+ * get to read why it was kicked out (ERR_LEASE_EXPIRED).
+ */
+static void write_diag_command(uint16_t value)
+{
+    s_diag_last_command = value;
+
+    if (value == SPLC_DIAG_CMD_NONE) {
+        return;   /* Writing 0 is "no command", not an error. */
+    }
+    if (value > SPLC_DIAG_CMD_DISCARD_RETAIN) {
+        diag_latch_error(SPLC_DIAG_ERR_INVALID_COMMAND);
+        log_warn(TAG, "diag: unrecognized command %u", (unsigned)value);
+        return;
+    }
+    if (s_diag_state == SPLC_DIAG_STATE_FAULT) {
+        diag_latch_error(SPLC_DIAG_ERR_DENIED_FAULT);
+        return;
+    }
+
+    const bool in_control = (s_diag_state == SPLC_DIAG_STATE_DIAG_CONTROL);
+
+    switch ((SPLC_DiagCommand)value) {
+        case SPLC_DIAG_CMD_ENTER_DIAG:
+            if (in_control || s_diag_state == SPLC_DIAG_STATE_TRANSITIONING) {
+                break;   /* Idempotent: lease is NOT reset (heartbeat isolation). */
+            }
+            s_diag_state      = SPLC_DIAG_STATE_DIAG_CONTROL;
+            s_diag_flags      = SPLC_DIAG_FLAG_LEASE_ACTIVE;
+            s_diag_lease_ms   = (uint16_t)SPLC_DEFAULT_DIAG_LEASE_MS;
+            s_diag_error_code = SPLC_DIAG_ERR_NONE;   /* 4.5 rule 2 */
+            log_info(TAG, "diag: ENTER -> DIAG_CONTROL, lease=%u ms, Rule Engine suspended",
+                     (unsigned)s_diag_lease_ms);
+            break;
+
+        case SPLC_DIAG_CMD_HEARTBEAT:
+            if (in_control) {
+                s_diag_lease_ms = (uint16_t)SPLC_DEFAULT_DIAG_LEASE_MS;
+            } else if (s_diag_error_code != SPLC_DIAG_ERR_LEASE_EXPIRED) {
+                /* A heartbeat arriving AFTER expiry keeps ERR_LEASE_EXPIRED
+                 * (that is exactly what the code means, per its enum
+                 * comment) instead of overwriting the reason with a
+                 * generic INVALID_COMMAND. */
+                diag_latch_error(SPLC_DIAG_ERR_INVALID_COMMAND);
+            }
+            break;
+
+        case SPLC_DIAG_CMD_EXIT_DIAG:
+            if (!in_control) {
+                break;   /* Idempotent no-op: already in automatic mode. */
+            }
+            if ((s_diag_flags & SPLC_DIAG_FLAG_RETAIN_DIRTY) != 0U) {
+                diag_latch_error(SPLC_DIAG_ERR_RETAIN_DIRTY);
+                log_warn(TAG, "diag: EXIT rejected, retain data not committed");
+                break;
+            }
+            diag_revoke_to_engine();
+            log_info(TAG, "diag: EXIT -> ENGINE_RUNNING");
+            break;
+
+        case SPLC_DIAG_CMD_COMMIT_RETAIN:
+            if (!in_control) {
+                diag_latch_error(SPLC_DIAG_ERR_INVALID_COMMAND);
+                break;
+            }
+            /* RETAIN_DIRTY is always 0 until step 4 lets the host write
+             * VREG_RETAIN, so this is the "clean" row: No-Op Success.
+             * STEP 4: when dirty, write the shadow to the alternate Flash
+             * sector, clear RETAIN_DIRTY, or latch ERR_FLASH_CRC_MISMATCH. */
+            break;
+
+        case SPLC_DIAG_CMD_DISCARD_RETAIN:
+            if (!in_control) {
+                diag_latch_error(SPLC_DIAG_ERR_INVALID_COMMAND);
+                break;
+            }
+            /* STEP 4: reload s_vreg_retain_shadow[] from the active Flash
+             * sector here. Nothing can differ from Flash yet. */
+            s_diag_flags &= (uint16_t)~SPLC_DIAG_FLAG_RETAIN_DIRTY;
+            if (s_diag_error_code == SPLC_DIAG_ERR_RETAIN_DIRTY) {
+                s_diag_error_code = SPLC_DIAG_ERR_NONE;   /* 4.5 rule 3 */
+            }
+            break;
+
+        default:
+            break;   /* Unreachable: range-checked above. */
+    }
+}
+
+void plc_modbus_cfg_diag_tick(uint32_t elapsed_ms)
+{
+    if (s_diag_state != SPLC_DIAG_STATE_DIAG_CONTROL) {
+        return;
+    }
+
+    if (elapsed_ms >= s_diag_lease_ms) {
+        /* Failsafe revocation (Wire Contract 6.4). Deliberately NOT
+         * "all DO = 0": the Rule Engine takes over this same cycle and
+         * computes the real outputs from fresh inputs. */
+        diag_revoke_to_engine();
+        diag_latch_error(SPLC_DIAG_ERR_LEASE_EXPIRED);   /* 4.5 rule 4 */
+        /* STEP 4: also discard the uncommitted retain shadow here. */
+        log_warn(TAG, "diag: lease expired -> ENGINE_RUNNING");
+        return;
+    }
+    s_diag_lease_ms = (uint16_t)(s_diag_lease_ms - elapsed_ms);
+}
+
+bool plc_modbus_cfg_is_rule_engine_suspended(void)
+{
+    return s_diag_state == SPLC_DIAG_STATE_DIAG_CONTROL;
 }
 
 /* --- Rule Transfer: CONFIG_STATUS/CONFIG_ERROR_CODE (0x9000-0x9001, RO) - */
@@ -709,6 +882,7 @@ static const modbus_block_t s_blocks[] = {
     { 0x0800, 0x0809, true,  read_device_health,          NULL },
     { 0x0900, 0x09FF, false, read_runtime_tag_values,     NULL },
     { 0x0A01, 0x0A02, true,  read_system_command_result,  NULL },
+    { 0x0A20, 0x0A24, true,  read_diag_block,             NULL },   /* 0x0A20 writes handled in cb_write_*, not here */
 
     { 0x9000, 0x9000, true,  read_config_status,          NULL },
     { 0x9001, 0x9001, true,  read_config_error_code,      NULL },
@@ -782,6 +956,25 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
     (void)unit_id;
     (void)arg;
 
+    /*
+     * DIAG_COMMAND (0x0A20) is a single 16-bit command word (Wire
+     * Contract 4.6): FC16 with quantity 1 is accepted, anything longer
+     * is ILLEGAL_DATA_VALUE -- including a request that starts here and
+     * runs on into the read-only 0x0A21..0x0A24 registers. This cannot
+     * go through s_blocks, whose write path lets a request span freely.
+     * A request that merely ENDS at/after 0x0A20 from below starts in an
+     * unmapped gap and is rejected by the table path as usual.
+     */
+    if (address == SPLC_ADDR_DIAG_BLOCK) {
+        if (quantity != 1U) {
+            log_warn(TAG, "diag: FC16 to 0x%04X quantity=%u rejected (command is 1 register)",
+                     address, quantity);
+            return NMBS_EXCEPTION_ILLEGAL_DATA_VALUE;
+        }
+        write_diag_command(registers[0]);
+        return NMBS_ERROR_NONE;
+    }
+
     uint16_t written = 0;
     while (written < quantity) {
         uint16_t cur_addr = address + written;
@@ -814,7 +1007,7 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
 
 /*
  * FC06 (Write Single Register). SYSTEM_COMMAND (0x0A00) and
- * COMMIT_COMMAND (0xA000) are both WO, single-register, and documented
+ * COMMIT_COMMAND (0xA000) are both WO, single-register (DIAG_COMMAND, 0x0A20, likewise), and documented
  * in section 6/8 as written via "FC16/FC06", so they are handled
  * directly here (they have no read_cb and are not in s_blocks).
  *
@@ -831,6 +1024,7 @@ static nmbs_error cb_write_single_register(uint16_t address, uint16_t value, uin
 
     switch (address) {
         case 0x0A00: write_system_command((uint16_t)value); return NMBS_ERROR_NONE;
+        case SPLC_ADDR_DIAG_BLOCK: write_diag_command((uint16_t)value); return NMBS_ERROR_NONE;
         case 0xA000: write_commit_command((uint16_t)value); return NMBS_ERROR_NONE;
         default:     break;
     }
