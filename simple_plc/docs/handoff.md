@@ -15,10 +15,13 @@
 phần V2.0 nào.** Toàn bộ nền tảng V1.9 (Rule Engine, Flash persistence,
 REBOOT, multi-board) đã chạy ổn trên board thật + App thật, coi là xong,
 chi tiết nén ở mục 1. Việc cần làm tiếp theo: mục 2 (kế hoạch V2.0, chia
-bước nhỏ theo thứ tự). **Bước 1 và Bước 2 đã xong và verify trên board;
-Bước 3 là bước kế tiếp.** Đã thêm và verify trên board (cả `CMD_EXIT_DIAG`
-lẫn hết lease): reset runtime của mọi rule khi Rule Engine chạy lại
-sau diag (mục 2.1 quyết định #5).
+bước nhỏ theo thứ tự). **Bước 1 và Bước 2 đã xong và verify trên board** (kể cả reset runtime
+rule khi thoát diag, quyết định #5: `test_diag.py manual-dwell --expire`
+ALL PASS). **Bước 3 và Bước 5 đã verify trên board** (`test_tags.py`;
+Bước 5: log `baseline reset, 2 tag(s) set to 0`). **Bước 4 đã code + verify
+PC, CHƯA build ARM/board** — chạy `python test_tags.py COM14 --commit`
+(ghi Flash thật). Quyết định lưu retain: **phương án A** (dùng lại
+`plc_retain.c`), xem mục 2.2 #3.
 
 Board hiện dùng: **Zigbee-IO SKU** (`board/board_device/board_zigbee_io.c`),
 4 DI / 4 DO / 0 AI, STM32H523CCU6. Branch **`board_dev`**.
@@ -136,20 +139,9 @@ mục 2.1 câu 1 về 1 mâu thuẫn đã gặp và cách xử lý):
      `scan_cycle()` gọi nó khi `plc_modbus_cfg_is_rule_engine_suspended()`
      chuyển từ true sang false, ngay trước `rule_scan()`. Cả 2 đường
      thoát đều qua đây vì `diag_tick()` chạy đầu chu kỳ.
-   - **ĐÃ VERIFY TRÊN BOARD (07/10/2026), đường `CMD_EXIT_DIAG`:**
-     - `test_diag.py manual`: DO0 bắt đầu từ 0, DI0 kích nhiều lần trong
-       diag giữ nguyên DO0 = 0; DI0 giữ cao lúc EXIT → log MCU đúng 1 dòng
-       `rule[0] FIRED` ngay sau `diag: EXIT`, không có lần fire thứ 2.
-     - `test_diag.py manual-dwell` (rule DI1 rise, dwell 3000 ms → DO1=1;
-       vào diag khi đang dwell ~1 s, ở lại 5 s với DI1 giữ cao): DO1 lên
-       **2992 ms sau EXIT** → dwell đếm lại từ 0, không fire tức thì. Cả 2
-       check PASS. (Mock PC với hành vi cũ không reset cho kết quả fire ở
-       0 ms, nên test này phân biệt được 2 hành vi.)
-   - **Đường hết lease cũng ĐÃ VERIFY** (`test_diag.py manual-dwell
-     --expire`: không gửi EXIT, ngừng heartbeat): MCU tự về
-     `ENGINE_RUNNING` sau ~2.2 s, `ERR_LEASE_EXPIRED` latch (=2), DO1 lên
-     **2972 ms sau khi thoát** → dwell đếm lại từ 0. Cả 2 đường thoát diag
-     đều reset đúng. `test_diag.py` auto vẫn 31/31 PASS sau thay đổi.
+   - **Chưa verify trên board.** Kiểm tra: `test_diag.py manual` với DI0
+     giữ cao lúc EXIT → rule fire đúng 1 lần ngay sau EXIT; rule có dwell:
+     vào diag giữa lúc đang dwell, thoát ra, dwell phải đếm lại từ 0.
 
 ### 2.2 Câu hỏi còn treo (hỏi khi code tới phần liên quan, đừng tự suy đoán)
 
@@ -160,7 +152,7 @@ mục 2.1 câu 1 về 1 mâu thuẫn đã gặp và cách xử lý):
 2. **Bit `SPLC_RTC_FLAG_HW_PRESENT`** (0x0810, status_flags bit 1) nên
    set `1` hay `0` với RTC nội STM32H5 — tài liệu có vẻ ngụ ý bit này
    dành cho IC RTC rời, cần hỏi lại ý nghĩa đúng trước khi code phần RTC.
-3. **Flash sector cho `VREG_RETAIN` ping-pong** (Wire Contract Appendix A
+3. **[ĐÃ CHỐT 07/10/2026: phương án A — dùng lại `plc_retain.c` (log xoay vòng 3 sector, record 208 byte), KHÔNG làm ping-pong Appendix A. Lệch tài liệu CÓ CHỦ ĐÍCH ở định dạng Flash; App không thấy vì không đọc được Flash.]** (câu hỏi gốc:) **Flash sector cho `VREG_RETAIN` ping-pong** (Wire Contract Appendix A
    mô tả 1 scheme riêng, header 16 byte + CRC) — có dùng chung cơ chế/
    sector với Rule Table A/B hiện có (mục 1, `plc_rule_flash.c`) hay cần
    vùng Flash riêng? Đối chiếu với `plc_retain.c` hiện tại trước khi code
@@ -202,7 +194,7 @@ mục 2.1 câu 1 về 1 mâu thuẫn đã gặp và cách xử lý):
 - Môi trường: `test_diag.py`/`test_plc.py` cần `pip install pyserial` đúng interpreter (dùng `python -m pip`, máy dev có nhiều Python do ESP-IDF).
 
 **ĐÃ CHỐT — edge giả khi thoát diag (xem mục 2.1 quyết định #5):**
-Ở lần chạy `manual` thứ 3, DI0 đang ở mức cao lúc `EXIT` và rule fire ngay 1 lần, vì `rule_scan()` bị bỏ qua suốt phiên diag nên `prev_value` còn là giá trị cũ (chưa đo trực tiếp, nhưng khớp bằng chứng log). Quyết định: reset toàn bộ runtime của mọi rule khi thoát diag, chạy lại như vừa nạp. Hành vi "fire ngay khi thoát nếu input đang cao" được chấp nhận có chủ đích. Đã code và verify trên board cho cả 2 đường thoát (xem 2.1 #5).
+Ở lần chạy `manual` thứ 3, DI0 đang ở mức cao lúc `EXIT` và rule fire ngay 1 lần, vì `rule_scan()` bị bỏ qua suốt phiên diag nên `prev_value` còn là giá trị cũ (chưa đo trực tiếp, nhưng khớp bằng chứng log). Quyết định: reset toàn bộ runtime của mọi rule khi thoát diag, chạy lại như vừa nạp. Hành vi "fire ngay khi thoát nếu input đang cao" được chấp nhận có chủ đích. Code đã thêm, chờ build ARM + verify board.
 
 *Còn để ngỏ cho Bước 4/5 (đã đánh dấu `STEP 4` trong code):* COMMIT/DISCARD hiện là no-op vì `RETAIN_DIRTY` luôn 0; lease hết hạn chưa huỷ RAM shadow retain; (edge giả khi thoát diag đã chốt, xem trên).
 
@@ -218,7 +210,15 @@ mục 2.1 câu 1 về 1 mâu thuẫn đã gặp và cách xử lý):
   lùi đúng; để quá 3000ms không heartbeat, xác nhận tự động rơi về
   ENGINE_RUNNING với `DIAG_ERROR_CODE=LEASE_EXPIRED`.
 
-**Bước 3 — Runtime Tag Write qua `0900..09FF` khi `DIAG_CONTROL`**
+**Bước 3 — Runtime Tag Write qua `0900..09FF` khi `DIAG_CONTROL` — ĐÃ CODE, verify PC 33/33, CHƯA build ARM/board**
+
+*Đã làm* (`services/plc_modbus_cfg/plc_modbus_cfg.c`, chỉ file này):
+- `write_runtime_tag_values()` — pre-flight 2 pha (Wire Contract 5.2): state → căn chỉnh → từng tag; sai 1 tag là reject cả frame, không ghi gì. Thứ tự lỗi: sai state / tag cấm / vượt `0x09FF` → `0x02`; quantity lẻ / địa chỉ lẻ → `0x03`; FC06 vào vùng tag → `0x03` (bất kể state).
+- **Validate theo KIND thật trong `g_tag_table[]`** (không theo `runtime_tag_count`, không theo vị trí cố định): ghi được = DO/VFLAG/VREG/COUNTER; cấm = DI/AI/NONE (chưa khai báo)/MB_*. Layout trên board này là **DENSE** (Zigbee-IO: DI 0-3, DO 4-7, VFLAG 8-39 ...), khác bảng cố định ở Wire Contract 5 / Structs doc mục 4 (DO ở 8..15). Code hiện tại đã dùng dense từ trước (rule/test đang chạy trên board) nên Bước 3 bám theo kind để đúng cho cả hai.
+- ~~`VREG_RETAIN` tạm thời bị CẤM ghi (`0x02`)~~ (đã mở ở Bước 4, đọc phần dưới) — đánh dấu `STEP 4` trong `diag_tag_is_writable()`. Lý do: chưa có RAM shadow + COMMIT/DISCARD; cho ghi thì `RETAIN_DIRTY` không có đường xoá và `EXIT_DIAG` bị khoá. Bước 4 mở lại.
+- Dirty-bitmap `s_diag_dirty[]` (1 bit/tag): set khi ghi thành công, xoá khi ENTER và khi `diag_revoke_to_engine()` (EXIT / lease hết hạn).
+
+**(cũ) Kế hoạch gốc Bước 3:**
 - Thêm `write_runtime_tag_values()`, validate theo per-tag group (mục
   2.0's tham chiếu Wire Contract mục 5.1 — KHÔNG dùng `TagIndex <
   runtime_tag_count`, dùng validate theo từng group capacity riêng).
@@ -231,7 +231,20 @@ mục 2.1 câu 1 về 1 mâu thuẫn đã gặp và cách xử lý):
   vật lý đổi thật; ghi DI0 → bị reject `0x02`; ghi khi ENGINE_RUNNING →
   bị reject `0x02`.
 
-**Bước 4 — Retain Dirty Interlock cho `VREG_RETAIN`**
+**Bước 4 — Retain Dirty Interlock cho `VREG_RETAIN` — ĐÃ CODE, verify PC (Flash giả, kể cả giả lỗi ghi), CHƯA build ARM/board**
+
+*Đã làm* (`plc_modbus_cfg.c`, `plc_retain.{c,h}`):
+- Ghi retain trong diag chỉ vào bản nháp `s_retain_shadow[32]` + `s_retain_pending`, **không** vào `g_tag_value[]` — nên lưu định kỳ 5 phút của `plc_retain.c` không bao giờ lưu nhầm giá trị chưa commit. `RETAIN_DIRTY` = `s_retain_pending != 0`. FC03 trả giá trị nháp khi có.
+- `COMMIT`: sạch → no-op (không tốn chu kỳ Flash); bẩn → nháp vào `g_tag_value[]`, gọi `retain_snapshot_write()`. Hàm này **nay trả `bool`** và tự đọc lại kiểm CRC + seq (trước đây `void`, không kiểm). Lỗi → trả giá trị live cũ, giữ nháp + `RETAIN_DIRTY`, latch `ERR_FLASH_CRC_MISMATCH`. Thành công → xoá luôn `ERR_RETAIN_DIRTY`/`ERR_FLASH_CRC_MISMATCH` còn latch.
+- `DISCARD`: bỏ nháp; **không** nạp lại từ Flash (xem lệch #2).
+- Lease hết hạn, `ENTER`, `SYSTEM_COMMAND`: bỏ nháp. `EXIT` khi bẩn: từ chối (`ERR_RETAIN_DIRTY`) như cũ.
+
+*Lệch có chủ đích so với tài liệu — cần người dùng/đội App biết:*
+1. Định dạng Flash: phương án A, không theo Appendix A (xem 2.2 #3).
+2. `DISCARD` bỏ nháp chứ không "reload từ Flash" (Wire Contract mục 7): Rule Engine dừng trong diag nên giá trị live = lúc ENTER; nạp lại Flash sẽ lùi tới 5 phút thay đổi thật do rule.
+3. Quyết định #4 nói đưa `VREG_RETAIN` về 0 trước `SYSTEM_COMMAND`: ở đây nháp bị **bỏ**, KHÔNG ghi 0 vào giá trị live — ghi 0 sẽ phá dữ liệu đã commit (và lưu định kỳ sau đó lưu luôn số 0). `CLEAR_RETAIN`/`FACTORY_RESET` (Bước 6) mới là chỗ xoá retain thật. **Cần người dùng xác nhận.**
+
+**(cũ) Kế hoạch gốc Bước 4:**
 - Ghi `VREG_RETAIN` trong diag chỉ sửa RAM shadow, set `RETAIN_DIRTY=1`.
 - `CMD_COMMIT_RETAIN`/`CMD_DISCARD_RETAIN` theo mục 7 Wire Contract —
   cần trả lời câu hỏi treo #3 (mục 2.2) trước bước này.
@@ -240,7 +253,12 @@ mục 2.1 câu 1 về 1 mâu thuẫn đã gặp và cách xử lý):
   mục 2.1 CHỈ miễn trừ cho `SYSTEM_COMMAND`, KHÔNG miễn trừ cho
   `CMD_EXIT_DIAG` — 2 luồng này có quy tắc khác nhau, đừng nhầm).
 
-**Bước 5 — Baseline reset trước khi thực thi SYSTEM_COMMAND (quyết định #4)**
+**Bước 5 — Baseline reset trước khi thực thi SYSTEM_COMMAND (quyết định #4) — ĐÃ CODE, verify PC, CHƯA build ARM/board**
+
+*Đã làm:* `diag_baseline_reset_dirty_tags()`, gọi trong `write_system_command()` cho cả 4 lệnh (REBOOT/FACTORY_RESET/CLEAR_RULES/CLEAR_RETAIN), chỉ khi `DIAG_CONTROL`, luôn thực thi (quyết định #3 — không chặn). Chỉ reset tag **host đã ghi trong phiên** (theo bitmap), không đụng tag do rule/engine đặt. Chân DO tắt thật ở `output_scan()` kế tiếp, nằm trong 300 ms `PLC_REBOOT_DELAY_MS`.
+*Diễn giải cần xác nhận:* quyết định #4 nói "mọi tag ghi-được-trong-diag" nhưng cơ chế ghi là "tag nào đã bị ghi trong phiên" — mình hiểu là chỉ tag đã ghi. Nếu muốn mạnh hơn (đưa TẤT CẢ DO về 0 kể cả DO do rule bật trước khi ENTER) thì đổi sang quét theo kind, 1 chỗ sửa.
+
+**(cũ) Kế hoạch gốc Bước 5:**
 - Implement đúng mục 2.1 câu 4: khi nhận `SYSTEM_COMMAND` bất kỳ mà
   đang `DIAG_CONTROL`, set về `0` mọi tag có trong dirty-bitmap (từ bước
   3) trước khi gọi hành động thật (`sx_system_reset()`, Flash erase...).
@@ -336,18 +354,6 @@ có nghĩa bug không nằm ở đó. Đọc code App thật khi nghi ngờ, đ�
 mơ hồ — đã hỏi xác nhận phạm vi cụ thể trước khi code (mục 2.1, quyết
 định #3/#4). Nguyên tắc chung: bất cứ lệnh nào Flash-erase dữ liệu nên
 hỏi xác nhận phạm vi cụ thể trước, không suy đoán "chắc ý họ là...".
-
-### 3.9 Test tay trên board: kiểm tra đúng cổng input và trạng thái đầu ra
-
-- Số kênh trên sơ đồ mạch lệch firmware (sơ đồ IN1..IN4, firmware
-  DI0..DI3, ghi chú trong `test_plc.py`). Lần test `manual-dwell` đầu tiên
-  bị "DI1 never went high" vì nâng nhầm cổng, không phải lỗi firmware.
-  Trước khi kết luận, chạy `test_diag.py manual` và kích từng cổng để xem
-  DI nào thật sự đổi.
-- Rule thử chỉ SET đầu ra, nên phải reset board để đầu ra về 0 trước mỗi
-  lần test; đầu ra đã là 1 thì mọi kết luận "rule chạy/không chạy" đều vô
-  nghĩa. `manual-dwell` thay toàn bộ bảng rule — chạy lại `test_plc.py`
-  để khôi phục rule DI0 → DO0.
 
 ## 4. Quy trình làm việc với người dùng
 

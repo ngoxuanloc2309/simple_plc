@@ -290,7 +290,7 @@ void retain_store_restore(void)
     s_last_snapshot_tick_ms = sx_get_tick_ms();
 }
 
-void retain_snapshot_write(void)
+bool retain_snapshot_write(void)
 {
     if (!s_write_pos_known) {
         /* Defensive: retain_store_restore() must run first (Layer 4's
@@ -298,7 +298,7 @@ void retain_snapshot_write(void)
          * plc_retain.h). Refusing to write with an unknown position
          * avoids silently clobbering a slot whose validity hasn't been
          * established yet. */
-        return;
+        return false;
     }
 
     if (s_write_slot >= SPLC_RETAIN_RECORDS_PER_SECTOR) {
@@ -335,8 +335,17 @@ void retain_snapshot_write(void)
     sx_flash_write(addr, raw, SPLC_RETAIN_RECORD_SIZE);
     sx_flash_lock();
 
+    const uint32_t written_seq  = s_next_seq_num;
+    const uint32_t written_sect = s_write_sector;
+    const uint32_t written_slot = s_write_slot;
+
     s_next_seq_num++;
     s_write_slot++;
+
+    /* Read back and verify (Wire Contract section 7, step 3). */
+    uint32_t seq_back = 0U;
+    return retain_record_is_valid(written_sect, written_slot, &seq_back) &&
+           (seq_back == written_seq);
 }
 
 void retain_service(void)

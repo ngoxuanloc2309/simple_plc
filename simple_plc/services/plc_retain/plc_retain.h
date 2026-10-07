@@ -92,13 +92,21 @@ void retain_service(void);
  * complete a single bounded Flash write and return, with no blocking
  * wait beyond what sx_flash_write() itself does.
  *
+ * Returns true only if the record was read back from Flash with a valid
+ * CRC and the expected seq_num (Wire Contract section 7 step 3: commit is
+ * verified). false = write position unknown, or the read-back check
+ * failed; the slot is still consumed (a partly programmed slot cannot be
+ * reused), and the previous record stays the newest valid one, so a failed
+ * write never loses data already saved. retain_service() ignores the
+ * result; CMD_COMMIT_RETAIN (plc_modbus_cfg.c) uses it.
+ *
  * Uses a monotonically increasing seq_num so retain_store_restore() can
  * always identify the most recent record; wraps the write position
  * forward within the current active sector, erasing and advancing to the
  * next sector in rotation (per app/splc_flash_define.h's
  * SPLC_FLASH_RETAIN_SECTOR_COUNT) when the active sector is full.
  */
-void retain_snapshot_write(void);
+bool retain_snapshot_write(void);
 
 #ifdef __cplusplus
 }

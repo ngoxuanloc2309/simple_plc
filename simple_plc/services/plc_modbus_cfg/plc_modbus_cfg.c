@@ -7,6 +7,7 @@
 #include "plc_diag.h"
 #include "plc_rule.h"
 #include "plc_rule_flash.h" /* plc_rule_flash_save(), called from write_commit_command() */
+#include "plc_retain.h"     /* retain_snapshot_write(), called from CMD_COMMIT_RETAIN */
 #include "sx_time.h"
 #include "logger.h"
 
@@ -223,7 +224,9 @@ static void read_device_health(uint16_t offset, uint16_t quantity, uint16_t *reg
     }
 }
 
-/* --- RUNTIME_TAG_VALUES (0x0900-0x09FF, RO, 256 max registers, 2 reg/tag) */
+/* --- RUNTIME_TAG_VALUES (0x0900-0x09FF, 256 max registers, 2 reg/tag). Reads always allowed; FC16 writes only in DIAG_CONTROL, see write_runtime_tag_values() */
+
+static int32_t runtime_tag_read_value(uint16_t idx);   /* defined in the Diagnostic section: honours the retain draft */
 
 static void read_runtime_tag_values(uint16_t address, uint16_t quantity, uint16_t *registers_out)
 {
@@ -237,7 +240,7 @@ static void read_runtime_tag_values(uint16_t address, uint16_t quantity, uint16_
             continue;
         }
 
-        int32_t value = tag_read(tag_idx);
+        int32_t value = runtime_tag_read_value(tag_idx);
         registers_out[i] = is_high ? (uint16_t)((uint32_t)value >> 16)
                                     : (uint16_t)((uint32_t)value & 0xFFFFU);
     }
@@ -274,6 +277,8 @@ static void read_system_command_result(uint16_t offset, uint16_t quantity, uint1
  * questions (what exactly "factory default" means for this SKU) that
  * need answering before those three can be implemented the same way.
  */
+static void diag_baseline_reset_dirty_tags(void);   /* defined in the Diagnostic section below */
+
 static void write_system_command(uint16_t value)
 {
     SPLC_SystemCommand cmd = (SPLC_SystemCommand)value;
@@ -283,6 +288,12 @@ static void write_system_command(uint16_t value)
         case SPLC_SYSTEM_CMD_FACTORY_RESET:
         case SPLC_SYSTEM_CMD_CLEAR_RULES:
         case SPLC_SYSTEM_CMD_CLEAR_RETAIN:
+            /* Decision #4 (handoff 2.1): before ANY system command, while the
+             * Host owns the Tag Store, every tag it wrote goes back to the
+             * factory baseline 0, so no actuator is left latched by a test
+             * write when the MCU resets / data is erased. Always executed,
+             * never blocked (decision #3). */
+            diag_baseline_reset_dirty_tags();
             s_system_command_result.status     = SPLC_CMD_STATUS_ACCEPTED;
             s_system_command_result.error_code = SPLC_ERROR_NONE;
             s_pending_system_command            = cmd;
@@ -300,10 +311,9 @@ static void write_system_command(uint16_t value)
  * and 4.7. Types are in core/plc_diag/plc_diag.h (Layer 2); the RAM state
  * below is owned here, same split as SYSTEM_COMMAND.
  *
- * Step 2 scope: state machine + lease only. Runtime tag writes
- * (0x0900..0x09FF) are NOT enabled yet, so nothing can set RETAIN_DIRTY
- * and COMMIT/DISCARD have no shadow to act on -- the places where step 4
- * must plug in are marked "STEP 4" below.
+ * Scope (steps 2-5): state machine + lease; runtime tag writes through
+ * 0x0900..0x09FF with a per-session dirty bitmap; VREG_RETAIN draft +
+ * COMMIT/DISCARD (RETAIN_DIRTY); baseline reset before SYSTEM_COMMAND.
  */
 
 static SPLC_DiagState s_diag_state        = SPLC_DIAG_STATE_ENGINE_RUNNING;
@@ -319,6 +329,75 @@ static uint16_t       s_diag_error_code   = SPLC_DIAG_ERR_NONE;
  */
 static uint16_t       s_diag_last_command = SPLC_DIAG_CMD_NONE;
 
+/*
+ * Dirty bitmap: one bit per tag index, set when the Host writes that tag
+ * through 0x0900..0x09FF during the CURRENT diag session. Needed because
+ * RETAIN_DIRTY only covers VREG_RETAIN, not DO/VFLAG/VREG/COUNTER. Used by
+ * the SYSTEM_COMMAND baseline reset (diag_baseline_reset_dirty_tags()).
+ * Cleared on ENTER and whenever ownership returns to the Rule Engine.
+ */
+static uint32_t s_diag_dirty[(MAX_TAGS + 31U) / 32U];
+
+static void diag_dirty_clear(void)
+{
+    memset(s_diag_dirty, 0, sizeof(s_diag_dirty));
+}
+
+static void diag_dirty_mark(uint16_t idx)
+{
+    s_diag_dirty[idx / 32U] |= (1UL << (idx % 32U));
+}
+
+static bool diag_dirty_test(uint16_t idx)
+{
+    return (s_diag_dirty[idx / 32U] & (1UL << (idx % 32U))) != 0U;
+}
+
+/*
+ * VREG_RETAIN draft (Wire Contract section 7 "s_vreg_retain_shadow[]").
+ * A Host write to a retain tag goes ONLY here, never into g_tag_value[], so
+ * the periodic Flash snapshot (plc_retain.c reads g_tag_value[]) can never
+ * save an uncommitted value. s_retain_pending bit i = retain slot i (tag
+ * tag_vreg_retain_base_index() + i) holds a draft value. RETAIN_DIRTY is
+ * exactly "s_retain_pending != 0".
+ *   COMMIT  : draft -> g_tag_value[], then verified Flash snapshot.
+ *   DISCARD : draft dropped. Live values (g_tag_value[]) are NOT touched --
+ *             the Rule Engine is suspended in diag, so they still equal what
+ *             they were at ENTER_DIAG. (The spec says "reload from Flash";
+ *             that would also roll back up to 5 minutes of real rule-driven
+ *             changes, so it is deliberately not done.)
+ */
+#define DIAG_RETAIN_SLOTS 32U
+static int32_t  s_retain_shadow[DIAG_RETAIN_SLOTS];
+static uint32_t s_retain_pending;
+
+static void retain_sync_dirty_flag(void)
+{
+    if (s_retain_pending != 0U) {
+        s_diag_flags |= SPLC_DIAG_FLAG_RETAIN_DIRTY;
+    } else {
+        s_diag_flags &= (uint16_t)~SPLC_DIAG_FLAG_RETAIN_DIRTY;
+    }
+}
+
+static void retain_discard_draft(void)
+{
+    s_retain_pending = 0U;
+    retain_sync_dirty_flag();
+}
+
+/* Value the Host should see at tag `idx`: the draft while one exists. */
+static int32_t runtime_tag_read_value(uint16_t idx)
+{
+    if (s_retain_pending != 0U && tag_get_kind(idx) == TAG_VREG_RETAIN) {
+        uint16_t slot = (uint16_t)(idx - tag_vreg_retain_base_index());
+        if (slot < DIAG_RETAIN_SLOTS && (s_retain_pending & (1UL << slot)) != 0U) {
+            return s_retain_shadow[slot];
+        }
+    }
+    return tag_read(idx);
+}
+
 /* Wire Contract 4.5 rule 1: a rejection overwrites the latched code. */
 static void diag_latch_error(SPLC_DiagErrorCode code)
 {
@@ -330,6 +409,8 @@ static void diag_revoke_to_engine(void)
     s_diag_state    = SPLC_DIAG_STATE_ENGINE_RUNNING;
     s_diag_flags    = 0U;   /* LEASE_ACTIVE and RETAIN_DIRTY both cleared */
     s_diag_lease_ms = 0U;
+    s_retain_pending = 0U;   /* uncommitted retain draft is dropped (Wire Contract 6.4) */
+    diag_dirty_clear();      /* session over: nothing left to reset to baseline */
 }
 
 static void read_diag_block(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
@@ -384,6 +465,8 @@ static void write_diag_command(uint16_t value)
             s_diag_flags      = SPLC_DIAG_FLAG_LEASE_ACTIVE;
             s_diag_lease_ms   = (uint16_t)SPLC_DEFAULT_DIAG_LEASE_MS;
             s_diag_error_code = SPLC_DIAG_ERR_NONE;   /* 4.5 rule 2 */
+            diag_dirty_clear();
+            s_retain_pending = 0U;
             log_info(TAG, "diag: ENTER -> DIAG_CONTROL, lease=%u ms, Rule Engine suspended",
                      (unsigned)s_diag_lease_ms);
             break;
@@ -418,10 +501,38 @@ static void write_diag_command(uint16_t value)
                 diag_latch_error(SPLC_DIAG_ERR_INVALID_COMMAND);
                 break;
             }
-            /* RETAIN_DIRTY is always 0 until step 4 lets the host write
-             * VREG_RETAIN, so this is the "clean" row: No-Op Success.
-             * STEP 4: when dirty, write the shadow to the alternate Flash
-             * sector, clear RETAIN_DIRTY, or latch ERR_FLASH_CRC_MISMATCH. */
+            if (s_retain_pending == 0U) {
+                break;   /* Clean: No-Op Success, no Flash cycle spent (4.7). */
+            }
+            {
+                const uint16_t base = tag_vreg_retain_base_index();
+                int32_t old_live[DIAG_RETAIN_SLOTS];
+                for (uint16_t i = 0; i < DIAG_RETAIN_SLOTS; i++) {
+                    if ((s_retain_pending & (1UL << i)) != 0U) {
+                        old_live[i] = tag_read((uint16_t)(base + i));
+                        tag_write((uint16_t)(base + i), s_retain_shadow[i]);
+                    }
+                }
+                if (retain_snapshot_write()) {
+                    retain_discard_draft();   /* committed: clears RETAIN_DIRTY */
+                    if (s_diag_error_code == SPLC_DIAG_ERR_RETAIN_DIRTY ||
+                        s_diag_error_code == SPLC_DIAG_ERR_FLASH_CRC_MISMATCH) {
+                        s_diag_error_code = SPLC_DIAG_ERR_NONE;   /* cause is gone */
+                    }
+                    log_info(TAG, "diag: retain committed to Flash");
+                } else {
+                    /* Verify failed: nothing is lost -- put the live values
+                     * back, keep the draft and RETAIN_DIRTY so the Host can
+                     * retry or discard (Wire Contract 7 step 2.6). */
+                    for (uint16_t i = 0; i < DIAG_RETAIN_SLOTS; i++) {
+                        if ((s_retain_pending & (1UL << i)) != 0U) {
+                            tag_write((uint16_t)(base + i), old_live[i]);
+                        }
+                    }
+                    diag_latch_error(SPLC_DIAG_ERR_FLASH_CRC_MISMATCH);
+                    log_error(TAG, "diag: retain commit FAILED (Flash verify)");
+                }
+            }
             break;
 
         case SPLC_DIAG_CMD_DISCARD_RETAIN:
@@ -429,9 +540,7 @@ static void write_diag_command(uint16_t value)
                 diag_latch_error(SPLC_DIAG_ERR_INVALID_COMMAND);
                 break;
             }
-            /* STEP 4: reload s_vreg_retain_shadow[] from the active Flash
-             * sector here. Nothing can differ from Flash yet. */
-            s_diag_flags &= (uint16_t)~SPLC_DIAG_FLAG_RETAIN_DIRTY;
+            retain_discard_draft();
             if (s_diag_error_code == SPLC_DIAG_ERR_RETAIN_DIRTY) {
                 s_diag_error_code = SPLC_DIAG_ERR_NONE;   /* 4.5 rule 3 */
             }
@@ -454,11 +563,119 @@ void plc_modbus_cfg_diag_tick(uint32_t elapsed_ms)
          * computes the real outputs from fresh inputs. */
         diag_revoke_to_engine();
         diag_latch_error(SPLC_DIAG_ERR_LEASE_EXPIRED);   /* 4.5 rule 4 */
-        /* STEP 4: also discard the uncommitted retain shadow here. */
+        /* diag_revoke_to_engine() above also dropped the retain draft. */
         log_warn(TAG, "diag: lease expired -> ENGINE_RUNNING");
         return;
     }
     s_diag_lease_ms = (uint16_t)(s_diag_lease_ms - elapsed_ms);
+}
+
+/*
+ * Can the Host write this tag right now? Decided from the tag's real KIND
+ * in g_tag_table[] (filled from this board's SPLC_TagLayout), so a tag
+ * beyond a group's declared count is TAG_NONE and therefore denied --
+ * Wire Contract 5.1 "validate per declared group capacity", never
+ * TagIndex < runtime_tag_count.
+ *
+ * DI / AI / NONE / MB_* : always denied (physical inputs, unpopulated, reserved).
+ * DO / VFLAG / VREG / COUNTER : writable in DIAG_CONTROL.
+ * VREG_RETAIN : writable, but into the RAM draft only (see above).
+ */
+static bool diag_tag_is_writable(uint16_t idx)
+{
+    switch (tag_get_kind(idx)) {
+        case TAG_DO:
+        case TAG_VFLAG:
+        case TAG_VREG:
+        case TAG_COUNTER:
+        case TAG_VREG_RETAIN:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/*
+ * FC16 into RUNTIME_TAG_VALUES, Wire Contract 5.2 two-phase transaction.
+ * Check order follows Phase 1: state, then alignment, then every tag in
+ * the span. Any failure rejects the WHOLE frame and writes nothing.
+ *   0x02 ILLEGAL_DATA_ADDRESS: not in DIAG_CONTROL, read-only/unpopulated/
+ *        reserved tag anywhere in the span, or span runs past 0x09FF.
+ *   0x03 ILLEGAL_DATA_VALUE  : odd quantity or start not on a tag boundary.
+ */
+static nmbs_error write_runtime_tag_values(uint16_t address, uint16_t quantity,
+                                           const uint16_t *registers)
+{
+    if (s_diag_state != SPLC_DIAG_STATE_DIAG_CONTROL) {
+        log_warn(TAG, "tag write 0x%04X x%u rejected: not in DIAG_CONTROL", address, quantity);
+        return NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+    }
+
+    uint32_t offset = (uint32_t)address - 0x0900UL;
+    if (((offset & 1U) != 0U) || ((quantity & 1U) != 0U) || (quantity == 0U)) {
+        log_warn(TAG, "tag write 0x%04X x%u rejected: not tag-aligned", address, quantity);
+        return NMBS_EXCEPTION_ILLEGAL_DATA_VALUE;
+    }
+    if ((offset + quantity) > (uint32_t)(MAX_TAGS * 2U)) {
+        log_warn(TAG, "tag write 0x%04X x%u rejected: past 0x09FF", address, quantity);
+        return NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+    }
+
+    const uint16_t first = (uint16_t)(offset / 2U);
+    const uint16_t count = (uint16_t)(quantity / 2U);
+
+    /* Phase 1: pre-flight every tag, nothing is modified yet. */
+    for (uint16_t i = 0; i < count; i++) {
+        if (!diag_tag_is_writable((uint16_t)(first + i))) {
+            log_warn(TAG, "tag write rejected: tag %u is not writable (kind=%u)",
+                     (unsigned)(first + i), (unsigned)tag_get_kind((uint16_t)(first + i)));
+            return NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+        }
+    }
+
+    /* Phase 2: atomic RAM commit (High Word first, then Low Word). */
+    for (uint16_t i = 0; i < count; i++) {
+        uint16_t idx   = (uint16_t)(first + i);
+        uint32_t value = ((uint32_t)registers[2U * i] << 16) | registers[2U * i + 1U];
+        if (tag_get_kind(idx) == TAG_VREG_RETAIN) {
+            uint16_t slot = (uint16_t)(idx - tag_vreg_retain_base_index());
+            s_retain_shadow[slot] = (int32_t)value;   /* draft only, never g_tag_value */
+            s_retain_pending     |= (1UL << slot);
+        } else {
+            tag_write(idx, (int32_t)value);
+            diag_dirty_mark(idx);
+        }
+    }
+    retain_sync_dirty_flag();
+    log_debug(TAG, "diag: wrote %u tag(s) from tag %u", (unsigned)count, (unsigned)first);
+    return NMBS_ERROR_NONE;
+}
+
+/*
+ * Baseline reset for decision #4: every tag the Host wrote in this session
+ * goes back to 0 (always 0, NOT a snapshot taken at ENTER_DIAG). Only acts
+ * while in DIAG_CONTROL. DO pins follow on the next output_scan(), which
+ * still runs before a REBOOT's 300 ms grace period ends.
+ */
+static void diag_baseline_reset_dirty_tags(void)
+{
+    if (s_diag_state != SPLC_DIAG_STATE_DIAG_CONTROL) {
+        return;
+    }
+    uint16_t n = 0U;
+    for (uint16_t idx = 0; idx < MAX_TAGS; idx++) {
+        if (diag_dirty_test(idx)) {
+            tag_write(idx, 0);
+            n++;
+        }
+    }
+    diag_dirty_clear();
+    /* An uncommitted retain draft is dropped, NOT zeroed: zeroing the live
+     * retain values would destroy committed data (and the periodic snapshot
+     * would then save the zeros). Dropping it is the "baseline" for a value
+     * that was never committed. */
+    retain_discard_draft();
+    log_info(TAG, "diag: SYSTEM_COMMAND baseline reset, %u tag(s) set to 0, retain draft dropped", (unsigned)n);
 }
 
 bool plc_modbus_cfg_is_rule_engine_suspended(void)
@@ -965,6 +1182,10 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
      * A request that merely ENDS at/after 0x0A20 from below starts in an
      * unmapped gap and is rejected by the table path as usual.
      */
+    if (address >= 0x0900U && address <= 0x09FFU) {
+        return write_runtime_tag_values(address, quantity, registers);
+    }
+
     if (address == SPLC_ADDR_DIAG_BLOCK) {
         if (quantity != 1U) {
             log_warn(TAG, "diag: FC16 to 0x%04X quantity=%u rejected (command is 1 register)",
@@ -1021,6 +1242,13 @@ static nmbs_error cb_write_single_register(uint16_t address, uint16_t value, uin
 {
     (void)unit_id;
     (void)arg;
+
+    /* Wire Contract 5.3: FC06 on RUNTIME_TAG_VALUES is never allowed
+     * (a tag is 2 registers; only FC16 can write one atomically). */
+    if (address >= 0x0900U && address <= 0x09FFU) {
+        log_warn(TAG, "FC06 to runtime tag 0x%04X rejected (use FC16)", address);
+        return NMBS_EXCEPTION_ILLEGAL_DATA_VALUE;
+    }
 
     switch (address) {
         case 0x0A00: write_system_command((uint16_t)value); return NMBS_ERROR_NONE;
