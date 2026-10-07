@@ -16,7 +16,9 @@ phần V2.0 nào.** Toàn bộ nền tảng V1.9 (Rule Engine, Flash persistence
 REBOOT, multi-board) đã chạy ổn trên board thật + App thật, coi là xong,
 chi tiết nén ở mục 1. Việc cần làm tiếp theo: mục 2 (kế hoạch V2.0, chia
 bước nhỏ theo thứ tự). **Bước 1 và Bước 2 đã xong và verify trên board;
-Bước 3 là bước kế tiếp.**
+Bước 3 là bước kế tiếp.** Đã thêm (chưa build ARM/chưa test board):
+reset runtime của mọi rule khi Rule Engine chạy lại sau diag (mục 2.1
+quyết định #5).
 
 Board hiện dùng: **Zigbee-IO SKU** (`board/board_device/board_zigbee_io.c`),
 4 DI / 4 DO / 0 AI, STM32H523CCU6. Branch **`board_dev`**.
@@ -111,6 +113,33 @@ mục 2.1 câu 1 về 1 mâu thuẫn đã gặp và cách xử lý):
      Wire Contract doc mục 6.3 Case B: chạy 1 vòng scan thật, Rule Engine
      tự tính output dựa trên input vật lý + rule hiện hành.
 
+5. **Khi thoát diag (`CMD_EXIT_DIAG` HOẶC hết lease), reset trạng thái
+   runtime của MỌI rule và chạy lại như khi vừa nạp** (người dùng chốt
+   sau khi trao đổi với đội App, 07/10/2026). Bảng rule giữ nguyên, không
+   ghi lại Flash. Cụ thể: `state = IDLE`, `prev_value = 0`, dwell chưa
+   bắt đầu, `last_fire_tick = 0` — đúng bằng những gì `rule_table_commit()`
+   làm cho phần runtime.
+   - Tài liệu (Wire Contract 6.3 Case B / invariant #4) chỉ nói "quét
+     input mới + chạy 1 lượt đánh giá đầy đủ", KHÔNG nói gì về
+     `prev_value`/dwell — đây là quyết định bổ sung cho chỗ tài liệu bỏ
+     ngỏ, không mâu thuẫn tài liệu. Rule Spec v0.1 mục 6.3 chỉ ghi
+     `RuleRuntime` "reset về 0 mỗi lần khởi động".
+   - **Hệ quả đã biết, chấp nhận (giống khởi động nguội):** input đang giữ
+     mức cao lúc thoát diag → rule `ON_RISE` fire ở lượt đầu (vì
+     `prev_value=0`). Đội App cần biết: output có thể đổi ngay khi thoát
+     diag; nên cảnh báo trên UI trước khi bấm Exit.
+   - Đã loại hướng "đồng bộ `prev_value` với giá trị tag hiện tại"
+     (không edge giả nhưng khác khởi động nguội) và hướng "App nạp lại
+     rule" (hết lease thì không có App; tốn Flash A/B vô ích).
+   - Cài đặt: `rule_runtime_reset()` (`core/plc_rule/plc_rule.{c,h}`, Layer
+     2, `rule_table_commit()` cũng gọi lại hàm này); `plc_engine.c`
+     `scan_cycle()` gọi nó khi `plc_modbus_cfg_is_rule_engine_suspended()`
+     chuyển từ true sang false, ngay trước `rule_scan()`. Cả 2 đường
+     thoát đều qua đây vì `diag_tick()` chạy đầu chu kỳ.
+   - **Chưa verify trên board.** Kiểm tra: `test_diag.py manual` với DI0
+     giữ cao lúc EXIT → rule fire đúng 1 lần ngay sau EXIT; rule có dwell:
+     vào diag giữa lúc đang dwell, thoát ra, dwell phải đếm lại từ 0.
+
 ### 2.2 Câu hỏi còn treo (hỏi khi code tới phần liên quan, đừng tự suy đoán)
 
 1. **Thứ tự ưu tiên implement**: Diagnostic Control trước hay FB
@@ -161,11 +190,10 @@ mục 2.1 câu 1 về 1 mâu thuẫn đã gặp và cách xử lý):
 - **Bài học test (đừng lặp lại):** rule thử chỉ SET DO0=1, không có gì kéo về 0. Hai lần chạy `manual` đầu KHÔNG kết luận được vì DO0 đã kẹt ở 1 từ trước (board chưa reset) — DO0 đã là 1 thì rule chạy hay dừng đều không nhìn thấy khác biệt. Trước khi chạy `manual`: reset board, xác nhận dòng đầu `NORMAL` là `DO0=0`. Sau Bước 3 (ghi được DO qua diag) test này sẽ không cần reset nữa.
 - Môi trường: `test_diag.py`/`test_plc.py` cần `pip install pyserial` đúng interpreter (dùng `python -m pip`, máy dev có nhiều Python do ESP-IDF).
 
-**CÂU HỎI MỞ — edge giả khi thoát diag (có bằng chứng, cần người dùng quyết):**
-Ở lần chạy `manual` thứ 3, DI0 đang ở mức cao (kích lần cuối trong diag, chưa nhả) lúc `EXIT`. Dòng đầu của giai đoạn `NORMAL again` đã là `DI0=1 DO0=1` và log chỉ có đúng 1 dòng `FIRED` ngay sau `EXIT`, trước khi người dùng kích thêm lần nào. Giải thích hợp lý nhất (chưa đo trực tiếp `prev_value`): `rule_scan()` bị bỏ qua suốt phiên diag nên `prev_value` của rule còn là 0 từ trước diag; vòng đầu sau khi thoát thấy DI0=1 so với `prev_value=0` → coi là sườn lên → fire. Tức là 1 input giữ cao SUỐT phiên diag (hoặc thay đổi trong diag) có thể kích rule `ON_RISE` ngay khi thoát, dù không có sườn thật nào xảy ra SAU khi thoát.
-- Hai hướng, CHƯA code (đợi người dùng chọn): (a) giữ nguyên — khớp Wire Contract 6.3 Case B ("chạy 1 vòng scan thật, Rule Engine tự tính output theo input vật lý + rule hiện hành") và quyết định #4 mục 2.1; (b) đồng bộ lại `prev_value` của mọi rule với giá trị tag hiện tại ở vòng đầu sau diag (không edge giả, nhưng rule `ON_RISE` sẽ bỏ lỡ sườn "đã xảy ra trong diag"). Hướng (b) cần hàm mới ở Layer 2 (`rule_resync_prev_values()` hoặc tương tự) — hỏi người dùng trước, đừng tự thêm.
+**ĐÃ CHỐT — edge giả khi thoát diag (xem mục 2.1 quyết định #5):**
+Ở lần chạy `manual` thứ 3, DI0 đang ở mức cao lúc `EXIT` và rule fire ngay 1 lần, vì `rule_scan()` bị bỏ qua suốt phiên diag nên `prev_value` còn là giá trị cũ (chưa đo trực tiếp, nhưng khớp bằng chứng log). Quyết định: reset toàn bộ runtime của mọi rule khi thoát diag, chạy lại như vừa nạp. Hành vi "fire ngay khi thoát nếu input đang cao" được chấp nhận có chủ đích. Code đã thêm, chờ build ARM + verify board.
 
-*Còn để ngỏ cho Bước 4/5 (đã đánh dấu `STEP 4` trong code):* COMMIT/DISCARD hiện là no-op vì `RETAIN_DIRTY` luôn 0; lease hết hạn chưa huỷ RAM shadow retain; edge giả khi thoát diag (xem CÂU HỎI MỞ ở trên, đã xác nhận trên board).
+*Còn để ngỏ cho Bước 4/5 (đã đánh dấu `STEP 4` trong code):* COMMIT/DISCARD hiện là no-op vì `RETAIN_DIRTY` luôn 0; lease hết hạn chưa huỷ RAM shadow retain; (edge giả khi thoát diag đã chốt, xem trên).
 
 *Kế hoạch gốc của bước này:*
 - Thêm state machine `DIAG_STATE` (ENGINE_RUNNING/DIAG_CONTROL/
