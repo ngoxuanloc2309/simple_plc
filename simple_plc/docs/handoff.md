@@ -20,8 +20,9 @@
   4 DO / 0 AI / 32 VFLAG / 32 VREG / 32 VREG_RETAIN / 8 COUNTER,
   STM32H523CCU6. Branch **`board_dev`**.
 - **Bước 1 → 6 của Wire Profile V2.0 đã xong và verify trên board thật.**
-- **Việc tiếp theo: Bước 7 (RTC), rồi Bước 8 (FB Timer/Counter).** Chưa có
-  dòng code nào của 2 bước này.
+- **Bước 7 (RTC) đang làm dở:** phần driver (Layer U/1/0) đã viết và build ARM
+  thành công; còn Layer 3/4/2 và test. Chi tiết ở mục 3.
+- **Sau đó: Bước 8 (FB Timer/Counter).** Chưa có dòng code nào.
 - **Chưa verify (không chặn việc tiếp theo):**
   - Rút nguồn thật khi retain = giá trị đã commit, bật lại, đọc lại. Đã
     verify qua `REBOOT` (dữ liệu sống sót qua reset), chưa verify qua mất điện.
@@ -48,6 +49,7 @@
 | 4 | `VREG_RETAIN` ghi vào bản nháp RAM; `RETAIN_DIRTY`; COMMIT/DISCARD; `EXIT_DIAG` bị chặn khi bẩn | `plc_modbus_cfg.c`, `plc_retain.{c,h}` |
 | 5 | Trước mọi `SYSTEM_COMMAND` trong diag, tag host đã ghi trong phiên về 0 (`diag_baseline_reset_dirty_tags()`) | `plc_modbus_cfg.c` |
 | 6 | `CLEAR_RULES` / `CLEAR_RETAIN` / `FACTORY_RESET` thật | `app/plc_app/plc_system_clear.{c,h}`, `plc_system_cmd_service.c` |
+| 7a | RTC driver (chưa nối Modbus/Rule Engine) | `utils/epoch/`, `components/rtc/sx_rtc.h`, `platforms/stm32/stm32h5/rtc/` |
 
 **Cơ chế Bước 6:** không erase sector thô. Ghi một bản ghi RỖNG hợp lệ qua
 đường lưu đã verify (`plc_rule_flash_save()` / `retain_snapshot_write()`, tự
@@ -87,6 +89,15 @@ V2.0 là **strict superset** của V1.9. Khi 2 tài liệu mâu thuẫn về HÀ
    byte), KHÔNG làm ping-pong Appendix A. Lệch tài liệu CÓ CHỦ ĐÍCH ở định
    dạng Flash; App không thấy vì không đọc được Flash.
 7. **Phạm vi Bước 6** như mục 1 (chỉ rule + retain).
+8. **RTC (Bước 7): RTC nội, clock LSI 32 kHz, KHÔNG có VBAT/pin, KHÔNG có
+   thạch anh riêng.** Hệ quả đã chốt: mất điện → RTC về "chưa đồng bộ"
+   (`SYNCED=0`), Studio ghi lại giờ ngay khi kết nối; reset mềm (REBOOT,
+   watchdog) → giữ giờ và giữ `SYNCED`. `HW_PRESENT=0`, `BATTERY_LOW=0` cố
+   định. Giờ lệch dần theo sai số LSI giữa 2 lần đồng bộ — chấp nhận được với
+   Time Window theo phút; cần chính xác hơn thì thêm thạch anh LSE.
+9. **KHÔNG sửa file CubeMX tự sinh, kể cả trong khối `USER CODE`** (người
+   dùng chốt: sửa sẽ phá cấu trúc layer, mất khi regenerate/đổi phần cứng).
+   Giải pháp cho RTC xem mục 3 (linker `--wrap`).
 
 **Lệch có chủ đích khác so với tài liệu (đội App cần biết):**
 - `DISCARD_RETAIN` bỏ bản nháp, KHÔNG reload từ Flash (Rule Engine dừng trong
@@ -119,39 +130,87 @@ V2.0 là **strict superset** của V1.9. Khi 2 tài liệu mâu thuẫn về HÀ
 
 ## 3. Kế hoạch các bước tiếp theo
 
-### Bước 7 — RTC (`0x0810`, 4 reg)
+### Bước 7 — RTC (`0x0810`, 4 reg) — ĐANG LÀM DỞ
 
 Layout: `epoch_utc_s` (u32, High Word trước), `tz_offset_min` (i16),
 `status_flags` (u16: `0x0001` SYNCED, `0x0002` HW_PRESENT, `0x0004`
-BATTERY_LOW). Studio tự ghi FC16 4 reg ngay sau khi kết nối để đồng bộ giờ.
+BATTERY_LOW). Studio ghi cả 4 thanh ghi trong 1 lệnh FC16 ngay sau khi kết nối.
 
-Việc cần làm:
-- Đọc/ghi `0x0810..0x0813` trong `plc_modbus_cfg.c` (nguồn thật là RTC nội
-  qua một API Layer 1 mới, vd. `sx_rtc.h`, và implementation
-  `platforms/stm32/stm32h5/rtc/`). Khớp GV-004 (`Flags=3`, tz `+420`).
-- Mỗi scan cycle tính `current_hhmm` rồi truyền vào `TRG_TIME_WINDOW`
-  (đang hardcode `now_hhmm = 0` trong `plc_rule.c`). Công thức (Structs mục 7):
-  ```
-  local_epoch    = epoch_utc_s + tz_offset_min * 60
-  seconds_of_day = local_epoch % 86400
-  current_hhmm   = (seconds_of_day / 3600) * 100 + (seconds_of_day % 3600) / 60
-  ```
-  Khung `Lo<=Hi` : `Lo <= hhmm <= Hi`; qua nửa đêm `Lo>Hi`: `hhmm>=Lo || hhmm<=Hi`;
-  `Op==EQ, Lo==Hi`: chỉ fire ở sườn lên chuyển phút.
-- Layer 2 không được include Layer 0/1 → `hhmm` truyền vào `rule_scan()` như
-  tham số (giống `now_ms`).
-- Test: golden vector GV-004 / GV-008; viết `test_rtc.py` (ghi epoch + tz, đọc
-  lại, rule `TIME_WINDOW` fire đúng khung giờ); kiểm tra chưa sync thì rule
-  time-window không fire bừa.
+**Cấu hình CubeMX đã chốt (đừng đổi khi regenerate):** RTC clock source = LSI
+(`RCC_RTCCLKSOURCE_LSI`, LSI bật trong RCC), Activate Calendar, 24 h,
+**Async 127 / Sync 249** (cho 1 Hz với LSI 32 kHz; 127/255 chỉ đúng với LSE
+32.768 kHz, dùng nhầm thì giờ chậm ~2,3 %), alarm/wakeup/timestamp tắt.
 
-**Câu hỏi PHẢI hỏi người dùng trước khi code Bước 7:**
-1. Bit `HW_PRESENT` với RTC nội STM32H5 nên set `1` hay `0`? Structs doc ghi
-   bit này là "có IC RTC hoặc thạch anh 32.768 kHz" — có vẻ dành cho RTC rời.
-2. Board Zigbee-IO có nối **VBAT** nuôi backup domain không (xem schematic /
-   `RS485_IO_RF_V2.ioc`)? Quyết định có được giả định "mất điện vẫn giữ giờ"
-   và cách set `BATTERY_LOW`. Nếu không có VBAT, mỗi lần cấp điện lại phải đồng
-   bộ lại → `SYNCED=0` sau reset.
-3. Có lưu `tz_offset_min` vào Flash không (mặc định: không, chỉ RAM)?
+**ĐÃ XONG (build ARM thành công; chưa test trên board vì chưa có đường
+đồng bộ giờ từ Studio):**
+- `utils/epoch/splc_epoch.{h,c}` (Layer U): epoch ↔ ngày giờ, và
+  `splc_epoch_to_hhmm(epoch, tz_offset_min)`. Đã kiểm trên PC với 3011 epoch
+  so với `datetime` của Python: 0 sai lệch (gồm năm nhuận, 1970, 2106,
+  tz `+420` và `-300`).
+- `components/rtc/sx_rtc.h` (Layer 1): `sx_rtc_set_epoch()`,
+  `sx_rtc_get_epoch()`, `sx_rtc_is_synced()`. Chỉ nói UTC epoch; múi giờ KHÔNG
+  nằm ở đây mà ở khối Layer 3 `0x0810`.
+- `platforms/stm32/stm32h5/rtc/stm32h5_rtc.{h,c}` (Layer 0): dùng `hrtc` do
+  CubeMX sinh. Năm hợp lệ 2000..2099 (giới hạn RTC), ngoài khoảng → `false`.
+  Cờ SYNCED lưu ở thanh ghi backup **`RTC_BKP_DR8`** (không dùng DR0..DR7 vì
+  các thanh ghi đó không đọc được nếu khoá boot hardware key), magic
+  `0x53504C43`. Backup domain mất cùng RTC khi mất VDD → đúng vòng đời cần.
+  `HAL_RTC_GetTime` luôn theo sau bởi `HAL_RTC_GetDate`.
+- CMake: `components/CMakeLists.txt` (thêm `rtc` vào include),
+  `platforms/stm32/stm32h5/CMakeLists.txt` (thêm `rtc/stm32h5_rtc.c`, include
+  `rtc` + `utils/epoch`), `simple_plc/CMakeLists.txt` (thêm `splc_epoch.c` và
+  include `utils/epoch` vào executable, như `cqueue.c`).
+
+**ĐÃ GIAO, CHƯA XÁC NHẬN ĐÃ ÁP DỤNG + BUILD — giữ giờ qua reset mềm bằng
+linker `--wrap`:** `MX_RTC_Init()` (CubeMX, `Core/Src/rtc.c`) kết thúc bằng
+`HAL_RTC_SetTime/SetDate` ghi 01/01/2000 vô điều kiện mỗi lần boot, nên mỗi
+`REBOOT` sẽ xoá giờ. Để không sửa file CubeMX:
+- `stm32h5_rtc.c` định nghĩa `__wrap_HAL_RTC_SetTime` / `__wrap_HAL_RTC_SetDate`:
+  cho qua nếu gọi từ chính driver (cờ `s_driver_write`) hoặc nếu chưa SYNCED;
+  bỏ qua (trả `HAL_OK`) nếu đã SYNCED.
+- `simple_plc/CMakeLists.txt` thêm
+  `target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -Wl,--wrap=HAL_RTC_SetTime -Wl,--wrap=HAL_RTC_SetDate)`.
+- Thiếu 2 dòng link option này thì link lỗi
+  `undefined reference to __real_HAL_RTC_SetTime` — cố ý (không để mất giờ
+  âm thầm). HAL_RTC_Init tự bỏ qua cấu hình prescaler khi lịch đã khởi tạo
+  (INITS) nên không làm mất giờ.
+- Logic đã kiểm bằng mô hình nhỏ trên PC (3 bước: mặc định khi chưa sync, ghi
+  giờ khi sync, bỏ qua mặc định ở boot sau). CHƯA kiểm trên ARM/board.
+- **Việc tiếp:** hỏi người dùng đã áp dụng 2 file này (`stm32h5_rtc.c`,
+  `simple_plc/CMakeLists.txt`) và build ARM thành công chưa. Nếu link lỗi
+  với `--wrap` trên toolchain thật, báo lại để tìm hướng khác.
+
+**CÒN LẠI:**
+1. **Layer 3, `plc_modbus_cfg.c`:** `0x0810..0x0813`: FC03 đọc; FC16 ghi 4
+   thanh ghi → `sx_rtc_set_epoch()`, giữ `tz_offset_min` trong RAM (không
+   Flash). Quyết định cuối về `status_flags`, xem bên dưới. Ghi epoch ngoài
+   2000..2099 → Modbus exception `0x02`/`0x03` (chọn khi code, theo Wire
+   Contract mục 5.3 nếu có quy định; nếu không, hỏi người dùng).
+2. **Layer 4, `plc_engine.c`:** mỗi scan cycle tính `hhmm` bằng
+   `splc_epoch_to_hhmm()` nếu `sx_rtc_is_synced()`; nếu chưa sync báo "không
+   có giờ hợp lệ".
+3. **Layer 2, `plc_rule.c`:** `rule_scan()` nhận thêm tham số `hhmm` (Layer 2
+   không được include Layer 0/1), bỏ `now_hhmm = 0` hardcode. Rule
+   `TRG_TIME_WINDOW` KHÔNG được fire khi chưa sync. Cần đọc
+   `plc_rule_eval.c` (`trigger_timing_ok`) để xử lý `Op==EQ, Lo==Hi` (chỉ fire
+   ở sườn lên chuyển phút) và khung qua nửa đêm (`Lo>Hi`).
+4. **Test:** viết `test_rtc.py`: đọc/ghi/đọc lại `0x0810`, khớp GV-004 (trừ bit
+   HW_PRESENT nếu chọn phương án A), giờ sống sót qua `REBOOT` (cần `--wrap`
+   đã áp dụng), sau mất điện thật về `SYNCED=0`, rule time-window fire đúng
+   khung giờ và không fire khi chưa sync.
+
+**QUYẾT ĐỊNH ĐANG TREO — `status_flags` (`0x0813`):** người dùng chưa chốt
+(nói "chưa hiểu", rồi dừng phiên). Đã giải thích: Studio ghi cả 4 thanh ghi
+trong 1 FC16 nên firmware nhận 1 giá trị `status_flags` từ Studio và phải
+quyết định xử lý. Ba phương án:
+- **A (đề xuất của Claude):** bỏ qua giá trị Studio ghi, tự tính khi đọc:
+  `SYNCED` từ `sx_rtc_is_synced()`, `HW_PRESENT=0`, `BATTERY_LOW=0`. Lệch
+  GV-004 (`Flags=3`) đúng 1 bit `HW_PRESENT` — lệch có chủ đích vì board dùng
+  LSI nội.
+- **B:** theo đúng GV-004 (`HW_PRESENT=1`) — đúng byte nhưng báo sai sự thật.
+- **C:** lưu nguyên giá trị Studio ghi — rủi ro báo sai SYNCED.
+**Đừng tự chọn:** nhắc lại và hỏi người dùng bằng `ask_user_input_v0` trước
+khi code Layer 3 (giải thích bằng lời đơn giản, người dùng đã nói chưa hiểu).
 
 ### Bước 8 — FB Timer / Counter (`0x0B00` / `0x0B40`)
 
@@ -182,6 +241,9 @@ Khối lớn nhất, chạy độc lập song song Rule Engine, theo Wire Contra
   `plc_rule_flash_save()` (copy A→B) đã huỷ bản cũ trước khi biết lỗi. Có từ
   trước V2.0, áp dụng cho cả COMMIT rule thường và `CLEAR_RULES`.
 - `docs/architecture.md` cần được soát lại cho khớp V2.0 và code hiện tại.
+- Sai số LSI: nếu Time Window cần chính xác hơn, cân nhắc hiệu chuẩn hoặc thêm
+  thạch anh LSE (đổi cấu hình CubeMX + prescaler về 127/255, code `sx_rtc` giữ
+  nguyên).
 
 ## 4. Bài học đã rút ra
 
@@ -212,6 +274,15 @@ Khối lớn nhất, chạy độc lập song song Rule Engine, theo Wire Contra
    phạm vi cụ thể trước.
 9. **`switch/case` + fallthrough không tự nhiên an toàn hơn `if/continue`**;
    state machine phải test thực nghiệm kỹ.
+10. **Cần hành vi khác với code CubeMX sinh ra?** Đừng sửa file sinh (kể cả khối
+    `USER CODE`). Chặn ở lớp thấp hơn: linker `--wrap` cho hàm HAL, hoặc dựng
+    lớp `sx_*` riêng. Giữ mọi thứ ở Layer 0 + CMake để regenerate/đổi phần cứng
+    không làm mất.
+11. **Kiểm cú pháp driver ARM trên PC:** biên dịch bằng gcc host với HAL thật của
+    repo (`-DUSE_HAL_DRIVER -DSTM32H523xx -ICore/Inc -IDrivers/...`). Cảnh báo
+    `cast to pointer from integer` trong header vendor là do host 64-bit, bỏ
+    qua; chỉ lỗi/cảnh báo từ file của mình mới quan trọng. Stub HAL tự viết phải
+    có include guard, nếu không sinh lỗi giả.
 
 ## 5. Quy trình làm việc với người dùng
 
@@ -240,9 +311,15 @@ interpreter — dùng `python -m pip`, máy dev có nhiều Python do ESP-IDF):
 | `test_plc.py` | descriptor, nạp rule, commit, live watch |
 | `test_diag.py [manual \| manual-dwell --expire] COM14` | state machine diag, lease, Rule Engine thực sự dừng, reset runtime khi thoát diag |
 | `test_tag.py COM14 [--pins --commit --reboot]` | ghi tag trong diag, all-or-nothing, retain draft/COMMIT/DISCARD, baseline reset trước REBOOT |
+| `test_rtc.py` | **CHƯA VIẾT** (Bước 7, xem mục 3) |
 | `test_sysclear.py COM14 [--reboot]` | Bước 6: 3 lệnh xoá, persistence qua reboot, lệnh trong diag, lệnh sai. **Ghi Flash và xoá sạch rule + retain trên board.** |
 
 Trước `test_diag.py manual`: reset board, xác nhận `DO0=0`.
+
+**`splc_epoch` trên PC:** `gcc -std=c11 -Wall -Wextra -Iutils/epoch` + chương trình
+in `epoch y m d H M S weekday hhmm(+420) hhmm(-300) roundtrip` cho nhiều epoch,
+so với `datetime` của Python (đã làm: 3011 mẫu, 0 sai lệch). Làm lại khi sửa
+`splc_epoch.c`.
 
 **Layer 2 không cần toolchain ARM:** compile `core/plc_tag/plc_tag.c`,
 `core/plc_rule/plc_rule.c`, `core/plc_internal_rule/*.c` bằng `gcc -std=c11` +
