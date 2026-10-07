@@ -118,10 +118,13 @@ def time_rule(op, lo, hi, tag):
 
 def upload_rules(d, rules):
     """Stage + commit a list of rules (each a list of 16 registers)."""
-    regs = [r for rule in rules for r in rule]
     crc = tp.crc16_modbus(b"".join(tp.rule_registers_to_bytes(r) for r in rules))
     d.fc06(REG_RULE_COUNT_STAGED, len(rules))
-    d.fc16(REG_STAGING, regs)
+    # One FC16 per rule (16 registers = 41-byte frame), like test_plc.py and
+    # test_rule.py. A single FC16 carrying 2 rules is a 73-byte frame, longer
+    # than one 64-byte USB CDC packet, and was not answered on the board.
+    for i, rule in enumerate(rules):
+        d.fc16(REG_STAGING + i * 16, rule)
     d.fc06(REG_EXPECTED_CRC, crc)
     d.fc06(REG_COMMIT, COMMIT_MAGIC)
     t0 = time.time()

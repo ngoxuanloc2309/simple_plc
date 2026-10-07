@@ -20,9 +20,10 @@
   4 DO / 0 AI / 32 VFLAG / 32 VREG / 32 VREG_RETAIN / 8 COUNTER,
   STM32H523CCU6. Branch **`board_dev`**.
 - **Bước 1 → 6 của Wire Profile V2.0 đã xong và verify trên board thật.**
-- **Bước 7 (RTC): code đã viết xong toàn bộ Layer U/1/0/2/3/4, đã verify trên
-  PC (Layer 2, `plc_rtc`, đầu-cuối qua nanoMODBUS thật). CHƯA build ARM, CHƯA
-  chạy `test_rtc.py` trên board.** Chi tiết ở mục 3.
+- **Bước 7 (RTC): xong và verify trên board thật** (`test_rtc.py COM14`: ALL PASS
+  — khối `0x0810`, `status_flags` RO, từ chối ghi sai, đồng hồ -0.1 % so với
+  thời gian thật, Time Window mốc phút/khung/qua nửa đêm). **Còn chưa chạy:**
+  `test_rtc.py --reboot` và test mất điện thật bằng tay. Chi tiết ở mục 3.
 - **Sau đó: Bước 8 (FB Timer/Counter).** Chưa có dòng code nào.
 - **Chưa verify (không chặn việc tiếp theo):**
   - Rút nguồn thật khi retain = giá trị đã commit, bật lại, đọc lại. Đã
@@ -155,7 +156,7 @@ V2.0 là **strict superset** của V1.9. Khi 2 tài liệu mâu thuẫn về HÀ
 
 ## 3. Kế hoạch các bước tiếp theo
 
-### Bước 7 — RTC (`0x0810`, 4 reg) — CODE XONG, CHỜ BUILD ARM + TEST BOARD
+### Bước 7 — RTC (`0x0810`, 4 reg) — XONG, ĐÃ VERIFY TRÊN BOARD (trừ reboot/mất điện)
 
 Layout: `epoch_utc_s` (u32, High Word trước), `tz_offset_min` (i16),
 `status_flags` (u16, RO, firmware tự tính — quyết định #10).
@@ -191,9 +192,20 @@ với transport giả (exception `0x02`/`0x03` đúng, các block khác không b
 hưởng). `plc_engine.c` qua `-fsyntax-only` với HAL thật. `board_zigbee_io.c`
 chưa kiểm được trên PC (thiếu submodule tinyusb) — chỉ thêm include + 1 dòng gán.
 
-**Việc tiếp:** người dùng build ARM; chạy `python test_rtc.py COM14 [--reboot]`
-(ghi Flash, xoá rule); test mất điện thật bằng tay (xem docstring `test_rtc.py`);
-rồi báo đội App sinh rule "đúng giờ" dạng `EQ, Lo=Hi` (quyết định #11).
+**Đã verify trên board:** build ARM OK với `--wrap`; `test_rtc.py COM14` ALL PASS
+(bước 1–8 trừ `--reboot`). LSI + prescaler 127/249 cho sai số -0.1 % trong 5 s.
+**Còn lại:** `python test_rtc.py COM14 --reboot` (giờ + SYNCED sống sót qua
+REBOOT, tz về 0, Time Window im lặng đến khi Host ghi lại giờ); test mất điện
+thật bằng tay (xem docstring `test_rtc.py`: `flags` phải về 0); báo đội App sinh
+rule "đúng giờ" dạng `EQ, Lo=Hi` (quyết định #11).
+
+**Phát hiện phụ (chưa điều tra):** một FC16 dài hơn 64 byte (vd. 2 rule = 32
+thanh ghi, khung 73 byte) vào `0x9010` KHÔNG được firmware trả lời trên board
+(pymodbus: "No response received after 3 retries"); mỗi rule một FC16 thì ổn.
+`test_rtc.py` đã đổi sang mỗi rule một lệnh. Nghi liên quan FIFO RX CDC 64 byte
+(`CFG_TUD_CDC_RX_BUFSIZE`) + `MODBUS_BYTE_TIMEOUT_MS = 5`; nếu App
+(`ModbusChunkPlanner`, tới 64 thanh ghi/chunk) nạp nhiều rule một lệnh thì có thể
+gặp lại. Cần xác nhận phía App và điều tra nếu đúng.
 
 ### Bước 8 — FB Timer / Counter (`0x0B00` / `0x0B40`)
 
