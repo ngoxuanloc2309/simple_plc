@@ -11,423 +11,282 @@
 
 ## 0. Trạng thái hiện tại
 
-- Branch **`board_dev`** (tiếp nối sau `ruleflash` — Rule Engine + Flash
-  persistence + REBOOT ở `ruleflash` coi như đã xong và mang nguyên sang
-  đây; `board_dev` tập trung riêng cho việc chuyển sang kiến trúc
-  multi-board, mục 1e). Board hiện dùng: **Zigbee-IO SKU**
-  (`board/board_device/board_zigbee_io.c` — **đã chuyển vào thư mục con
-  `board_device/`**, không còn nằm thẳng trong `board/`), 4 DI / 4 DO /
-  0 AI, STM32H523CCU6.
-- **Rule Engine chạy đúng trên board thật, App thật (SimplePLC.Studio) đã
-  nạp và chạy đúng N rule (đã test tới 4), kể cả live watch.** Cả 2 bug
-  chặn việc này đều đã tìm ra và sửa xong (mục 1, mục 1b) — không còn bug
-  đã biết nào ở đường nạp rule qua App.
-- **Rule Table lưu Flash (2-sector A/B): ĐÃ XONG**, verify thật trên board
-  (log `PLC_RULE_FLASH : rule table saved to Flash A+B (seq_num=N)`, N
-  tăng dần, `CONFIG_ERROR_CODE` luôn 0). Thiết kế đầy đủ: mục 1.1.
-- **`SPLC_SYSTEM_CMD_REBOOT`: ĐÃ XONG** (mục 1c) — nút Reboot Device trên
-  App giờ thực sự reset MCU, không chỉ trả `ACCEPTED` suông như trước.
-  **`FACTORY_RESET`/`CLEAR_RULES`/`CLEAR_RETAIN` vẫn CHƯA implement** —
-  đang chờ người dùng chốt phạm vi "factory default" nghĩa là gì cho SKU
-  này (mục 3.2 có câu hỏi cụ thể cần trả lời trước khi code).
-- **Multi-board refactor (nhánh `board_dev`): ĐÃ XONG, đã verify compile
-  sạch.** Layer 2 (`plc_tag.c`) không còn hard-code 1 layout duy nhất —
-  nhận `SPLC_TagLayout` (số lượng DI/DO/AI/...) qua tham số runtime, tự
-  tính offset. Đổi board giờ chỉ cần viết 1 file `board_<sku>.c` mới
-  trong `board/board_device/`, không phải sửa Layer 2/3. Chi tiết đầy đủ
-  + các lỗi phát sinh khi refactor (đã sửa hết): mục 1e.
-- Việc treo cũ, chưa quay lại: test tay `--manual` của `test_rule.py`
-  (`m_basic`, `m_dwell`, `m_guard`, `m_wiring`) và
-  `test_rule_manual_simple.py` — người dùng nói đã chạy nhưng log MCU bị
-  trôi, chưa có bằng chứng bằng số. Xin lại log khi rảnh.
-- `test_plc.py` (repo gốc, ngoài `simple_plc/`) có thêm subcommand
-  `read_info` (`python test_plc.py <PORT> read_info`) — chỉ đọc
-  `DEVICE_DESCRIPTOR`+`DEVICE_RESOURCE_INFO`+`RULE_TABLE_INFO`+
-  `DEVICE_HEALTH` rồi dừng, mô phỏng đúng bước đầu tiên App làm lúc kết
-  nối, không stage/commit rule gì. Trước đây script hoàn toàn không đọc
-  `DEVICE_RESOURCE_INFO` (0x0020) và có `TAG_DO0 = 8` hard-code sai theo
-  layout Remote-IO cũ — cả 2 đã sửa, `TAG_DO0` giờ tính động từ
-  `di_count` đọc được qua Modbus.
+**Đang ở giai đoạn lập kế hoạch cho Wire Profile V2.0 — CHƯA bắt đầu code
+phần V2.0 nào.** Toàn bộ nền tảng V1.9 (Rule Engine, Flash persistence,
+REBOOT, multi-board) đã chạy ổn trên board thật + App thật, coi là xong,
+chi tiết nén ở mục 1. Việc cần làm tiếp theo: mục 2 (kế hoạch V2.0, chia
+bước nhỏ theo thứ tự).
 
-## 1. Rule Table trên Flash (2-sector A/B) — ĐÃ XONG
+Board hiện dùng: **Zigbee-IO SKU** (`board/board_device/board_zigbee_io.c`),
+4 DI / 4 DO / 0 AI, STM32H523CCU6. Branch **`board_dev`**.
 
-### 1.1 Thiết kế đã chốt (đừng đổi mà không hỏi lại)
+## 1. Nền tảng V1.9 — ĐÃ XONG (tóm tắt, không sửa lại trừ khi có lý do mới)
 
-- 2 sector A (chạy) + B (sao lưu), lấy từ vùng Retain cũ (Retain còn lại
-  3 sector thay vì 4). Cơ chế: commit mới → copy A→B (backup) → clear+ghi
-  A → đọc lại CRC A → đúng thì đồng bộ B=A, sai thì phục hồi copy B→A.
-  Tại mọi bước, luôn có ≥1 sector giữ bản hợp lệ kể cả mất điện giữa
-  chừng — bảng lần bước chi tiết xem code `plc_rule_flash.c`'s comment.
-- **Ghi Flash NGAY trong `write_commit_command()`** (đồng bộ, không tách
-  lệnh riêng) — khớp đúng spec gốc (`SimplePLC_RuleStruct_MCU_Spec_v0.1.md`
-  mục 5.2 bước 4: atomic-swap RAM + lưu Flash là CÙNG một bước).
-- Ghi Flash lỗi nhưng RAM đổi đúng: `CONFIG_STATUS = READY` +
-  `CONFIG_ERROR_CODE = SPLC_ERROR_FLASH` (không dùng `ERROR`, App sẽ hiểu
-  nhầm rule không chạy).
-- CRC Rule Table (Modbus lẫn Flash) PHẢI dùng `rule_table_wire_crc16()`
-  (byte wire, không phải byte RAM struct) — xem mục 4.2, tốn 3 vòng debug
-  trước khi chốt.
-- File: `services/plc_rule_flash/plc_rule_flash.{c,h}` (Layer 3, ngang
-  hàng `plc_retain/`, không gộp chung).
+- **Rule Engine chạy đúng trên board thật + App thật**, nạp/chạy đúng N
+  rule (test tới 4), kể cả live watch. 2 bug lớn từng chặn việc này đã sửa
+  (chunk size App > 64 register vỡ gói USB CDC 64 byte; `guard_tag=0` bị
+  App hiểu nhầm là "không guard" thay vì `GUARD_TAG_NONE=0x7FFF`) — chi
+  tiết đầy đủ ở lịch sử git log nếu triệu chứng tương tự tái diễn.
+- **Rule Table lưu Flash (2-sector A/B, atomic, ping-pong)**: ĐÃ XONG, đã
+  verify Flash thật trên board. Thiết kế: `services/plc_rule_flash/
+  plc_rule_flash.{c,h}`, CRC tính trên **byte wire** (`rule_table_wire_
+  crc16()`), KHÔNG phải byte RAM struct (mục 4.2 — tốn 3 vòng debug mới
+  chốt, đừng lặp lại sai lầm này ở V2.0).
+- **`SPLC_SYSTEM_CMD_REBOOT`**: ĐÃ XONG. `app/plc_app/plc_system_cmd_
+  service.{c,h}` (Layer 4) dịch lệnh Modbus thành `sx_system_reset()`
+  thật, gọi cuối `scan_cycle()`. Trì hoãn 300ms (`PLC_REBOOT_DELAY_MS`)
+  trước khi reset thật — để phản hồi FC06 kịp truyền hết qua USB trước
+  khi MCU biến mất, ĐỪNG bỏ delay này khi sửa lại.
+- **Multi-board refactor**: ĐÃ XONG. Layer 2 (`plc_tag.c`) nhận
+  `SPLC_TagLayout` qua tham số runtime thay vì hard-code. Đổi board chỉ
+  cần viết 1 file `board_<sku>.c` mới trong `board/board_device/`.
+- **`FACTORY_RESET`/`CLEAR_RULES`/`CLEAR_RETAIN`**: CHƯA implement thật,
+  chỉ trả `ACCEPTED` suông. Giờ đã có đủ quyết định để code (mục 2, bước
+  2.5) — không còn là "chờ chốt phạm vi" nữa.
 
-### 1.2 Bugfix: Retain Flash ghi hỏng sau ~5 phút chạy liên tục — ĐÃ SỬA
+## 2. KẾ HOẠCH: Chuyển sang Wire Profile V2.0
 
-Nguyên nhân: `SPLC_RETAIN_RECORD_SIZE` (200 byte) không align 16 byte
-(STM32H5 flash quad-word). Sửa: làm tròn size lên 208 byte. Xác nhận
-bằng đọc Flash thật qua STM32CubeProgrammer (SWD, không qua ICACHE)
-trước khi sửa.
+### 2.0 Bối cảnh & tài liệu nguồn
 
-## 1c. `SPLC_SYSTEM_CMD_REBOOT` — ĐÃ XONG
+Không dùng v1.7/v1.9 nữa. V2.0 là **strict superset** của v1.9 — mọi thứ
+ở mục 1 vẫn giữ nguyên layout wire, V2.0 chỉ **thêm** 3 khối chức năng
+mới. 2 tài liệu nguồn (đọc theo thứ tự ưu tiên khi có mâu thuẫn — xem
+mục 2.1 câu 1 về 1 mâu thuẫn đã gặp và cách xử lý):
 
-**Vấn đề:** `write_system_command()` (`plc_modbus_cfg.c`) chỉ từng decode
-lệnh + set `SYSTEM_COMMAND_RESULT.status = ACCEPTED` — không có Layer 4
-nào thực thi hành động thật (`NVIC_SystemReset()`...). Nút "Reboot" trên
-App bấm không có tác dụng, dù App nhận `ACCEPTED` OK. Đây không phải bug
-mới — chính code đã tự ghi TODO này từ trước; giờ mới bị lộ ra khi App
-test tính năng.
+1. `docs/SimplePLC_App_MCU_Structs_v2.0_Self_Describing_Profile.md` —
+   struct nhị phân, memory map tổng quan.
+2. `docs/SimplePLC_Wire_Contract_V2_Draft.md` — hành vi chi tiết,
+   state machine, validation rule, golden vector. **Ưu tiên tài liệu này
+   khi 2 tài liệu mâu thuẫn về HÀNH VI** (structs doc chỉ định nghĩa
+   layout, không định nghĩa behavior).
 
-**Đã sửa — file mới:**
-- `components/system/sx_system.h` — Layer 1 contract, `sx_system_reset()`.
-- `platforms/stm32/stm32h5/system/stm32h5_system.{h,c}` — Layer 0, gọi
-  `NVIC_SystemReset()` thật.
-- `app/plc_app/plc_system_cmd_service.{h,c}` — Layer 4, "chất keo" dịch
-  lệnh Modbus (Layer 3) thành hành động thật (Layer 0/1). Gọi từ
-  `plc_engine.c`'s `scan_cycle()`, **cuối cùng** trong scan cycle (sau
-  `modbus_config_service()`), vì nó có thể gọi `sx_system_reset()`
-  (không return) — mọi việc khác trong cycle đó phải xong trước.
+**3 khối mới cần implement:**
+- **RTC** (`0x0810`, 4 reg) — đồng bộ epoch time từ App, phục vụ
+  `TRG_TIME_WINDOW` (đang hardcode `now_hhmm=0`, mục 3.3 cũ).
+- **Diagnostic Control Block** (`0x0A20`, 5 reg) — cơ chế lease-based
+  (3000ms, heartbeat) cho phép App ghi trực tiếp DO/VFLAG/VREG/
+  VREG_RETAIN/COUNTER qua `0x0900..0x09FF` khi ở state `DIAG_CONTROL`.
+  DI/AI luôn Read-Only (đúng mô hình vật lý, không đổi).
+- **Function Block Timer/Counter** (`0x0B00`/`0x0B40`, 128 reg) — 8 Timer
+  (TON/TOF/TP) + 8 Counter (CTU/CTD/CTUD/HSC) kiểu IEC 61131-3, chạy độc
+  lập song song Rule Engine.
 
-**Sửa:**
-- `plc_modbus_cfg.{c,h}`: thêm `plc_modbus_cfg_get_pending_system_command()`
-  (Layer 3→4 hand-off, consume-once — trả lệnh 1 lần duy nhất, tránh
-  reboot lặp lại nếu gọi nhiều lần) và
-  `plc_modbus_cfg_set_system_command_result()` (Layer 4 cập nhật
-  DONE/ERROR sau khi xử lý — hiện REBOOT không dùng tới, vì reboot thành
-  công thì không bao giờ "quay lại" để báo DONE).
-- `plc_engine.{c,h}`: gọi `plc_system_cmd_service()` cuối `scan_cycle()`.
-- 3 file `CMakeLists.txt` (`app/`, `components/`, `platforms/stm32/stm32h5/`):
-  đăng ký file mới.
+### 2.1 Quyết định thiết kế đã chốt (người dùng xác nhận trực tiếp — ĐỪNG tự ý đổi, hỏi lại nếu nghi ngờ)
 
-**Điểm kỹ thuật quan trọng — ĐỪNG bỏ khi sửa lại:** Reboot **không xảy ra
-ngay lập tức** khi nhận lệnh. `plc_system_cmd_service.c` trì hoãn
-300ms (30 scan cycle, `PLC_REBOOT_DELAY_MS`) trước khi thật sự gọi
-`sx_system_reset()`. Lý do: phản hồi FC06 "ACCEPTED" chỉ được QUEUE vào
-`txQueue`, không có gì đảm bảo đã truyền hết qua USB ngay lúc đó — nếu
-reset ngay lập tức, App luôn thấy timeout dù MCU làm đúng (cùng họ
-triệu chứng với bug USB timing ở mục 1b cũ, dù nguyên nhân khác).
+1. **`protocol_version = 2`** trong `DeviceDescriptor` (0x0000). 2 tài
+   liệu từng mâu thuẫn (Structs doc + Golden Vector GV-001 ghi `2`, Wire
+   Contract doc header ghi `1`) — đã hỏi, chốt theo `2`. Dòng header
+   "Protocol Version: 1" trong Wire Contract doc là lỗi đánh máy của tài
+   liệu, bỏ qua.
 
-**Chưa làm — cần người dùng chốt trước khi code:**
-`FACTORY_RESET`/`CLEAR_RULES`/`CLEAR_RETAIN` vẫn chỉ trả `ACCEPTED` suông
-(giống REBOOT trước khi sửa). Không code liều vì cả 3 đều xoá dữ liệu
-thật (Flash erase) — xem câu hỏi cụ thể ở mục 3.2.
+2. **RTC dùng RTC nội của STM32H5** (built-in domain, không IC rời/thạch
+   anh 32.768kHz riêng trên board Zigbee-IO). Hệ quả cần làm rõ khi code
+   tới (xem mục 2.2 câu hỏi còn treo #2): bit `SPLC_RTC_FLAG_HW_PRESENT`
+   set sao cho đúng ý nghĩa; có `VBAT` nuôi domain backup khi mất nguồn
+   chính không — cần kiểm tra schematic/CubeMX trước khi giả định "mất
+   điện vẫn giữ giờ chạy tiếp".
 
-## 1b. Bug đã sửa: App chỉ nạp được 1 rule, ≥2 rule bị lỗi/timeout
+3. **`SYSTEM_COMMAND` (0x0A00: REBOOT/FACTORY_RESET/CLEAR_RULES/
+   CLEAR_RETAIN) LUÔN thực thi ngay lập tức**, bất kể `DIAG_STATE` đang
+   là gì hay `RETAIN_DIRTY` đang là `0`/`1`. KHÔNG áp dụng cơ chế chặn
+   "dirty interlock" (cơ chế đó trong Wire Contract doc chỉ áp dụng cho
+   `CMD_EXIT_DIAG`, KHÔNG áp dụng cho `SYSTEM_COMMAND`). Đã hỏi lại 2 lần
+   vì người dùng đảo ngược lựa chọn ban đầu — đây là quyết định cuối.
 
-Đây là bug lớn nhất đã tốn nhiều vòng điều tra trong phiên trước — ghi
-lại đầy đủ để không lặp lại sai lầm nếu triệu chứng tương tự tái diễn.
+4. **Trước khi thực thi `SYSTEM_COMMAND` bất kỳ trong lúc `DIAG_STATE ==
+   DIAG_CONTROL`, firmware phải tự động set MỌI tag ghi-được-trong-diag
+   (DO, VFLAG, VREG, VREG_RETAIN, COUNTER) về `0`** (baseline factory —
+   không phải snapshot lúc `ENTER_DIAG`, luôn luôn là `0`), rồi mới thực
+   thi lệnh. Mục đích: tránh actuator vật lý (relay/van) bị kẹt ở trạng
+   thái "lỡ tay bật test" khi MCU reboot hoặc dữ liệu bị xoá.
+   - Phạm vi: áp dụng cho **mọi lệnh** trong `SYSTEM_COMMAND` (không chỉ
+     REBOOT), và **mọi nhóm tag ghi được trong diag**.
+   - Hệ quả kỹ thuật: cần một cơ chế theo dõi "tag nào đã bị ghi trong
+     phiên diag hiện tại" (vd. dirty-bitmap theo tag_idx) — KHÔNG thể chỉ
+     dựa vào `RETAIN_DIRTY` vì flag đó chỉ bao phủ riêng `VREG_RETAIN`,
+     không bao quát DO/VFLAG/VREG/COUNTER.
+   - KHÔNG áp dụng cho luồng `CMD_EXIT_DIAG` bình thường (thoát diag khi
+     không có SYSTEM_COMMAND nào tới) — luồng đó giữ nguyên hành vi theo
+     Wire Contract doc mục 6.3 Case B: chạy 1 vòng scan thật, Rule Engine
+     tự tính output dựa trên input vật lý + rule hiện hành.
 
-**Triệu chứng:** `test_plc.py`/`test_rule.py`/`test_plc_4rules.py` (script
-Python) luôn nạp N rule thành công. App .NET thật (SimplePLC.Studio) chỉ
-nạp được **đúng 1 rule**; từ 2 rule trở lên App báo
-`Lỗi ngoại lệ: The operation has timed out` ngay sau bước ghi Staging
-buffer, MCU log dừng đúng sau dòng `rule_count_staged=N, status ->
-RECEIVING` (không có gì tiếp theo).
+### 2.2 Câu hỏi còn treo (hỏi khi code tới phần liên quan, đừng tự suy đoán)
 
-**Nguyên nhân gốc (đã xác nhận bằng cách đọc code App thật, repo
-`ngoxuanloc2309/paa`, không phải đoán):** App's
-`ModbusChunkPlanner.DefaultMaxChunkSize = 64` — đơn vị là REGISTER, không
-phải byte. 64 register = 128 byte data, cộng header+CRC ra tới ~137
-byte/frame Modbus RTU khi chunk đầy — vượt xa 1 gói USB CDC Full-Speed
-(`CFG_TUD_CDC_RX_BUFSIZE = 64 byte`, `port/usb/tusb_config.h`). Với 1
-rule (16 register, tổng frame 41 byte) luôn vừa 1 gói USB → không bao
-giờ lộ bug. Từ 2 rule (32 register, 73 byte) trở lên cần ≥2 gói USB →
-firmware (`nmbs_set_byte_timeout(0)`, non-blocking poll theo đúng thiết
-kế "never blocks scan budget") không có cơ chế đợi phần còn thiếu của
-cùng 1 frame qua nhiều lần poll → request coi như mất → App timeout sau
-đúng 1000ms (`UsbCdcTransport`'s `ReadTimeout` mặc định).
+1. **Thứ tự ưu tiên implement**: Diagnostic Control trước hay FB
+   Timer/Counter trước? (Kế hoạch bước ở mục 2.3 đang giả định Diagnostic
+   Control trước vì nó mở khóa test tay DO — xác nhận lại nếu người dùng
+   muốn đổi thứ tự.)
+2. **Bit `SPLC_RTC_FLAG_HW_PRESENT`** (0x0810, status_flags bit 1) nên
+   set `1` hay `0` với RTC nội STM32H5 — tài liệu có vẻ ngụ ý bit này
+   dành cho IC RTC rời, cần hỏi lại ý nghĩa đúng trước khi code phần RTC.
+3. **Flash sector cho `VREG_RETAIN` ping-pong** (Wire Contract Appendix A
+   mô tả 1 scheme riêng, header 16 byte + CRC) — có dùng chung cơ chế/
+   sector với Rule Table A/B hiện có (mục 1, `plc_rule_flash.c`) hay cần
+   vùng Flash riêng? Đối chiếu với `plc_retain.c` hiện tại trước khi code
+   để tránh xung đột sector.
 
-**Đã sửa (2 phía, cả 2 đều nên giữ):**
-- **App (đã sửa, xác nhận hoạt động):** giảm `DefaultMaxChunkSize` từ 64
-  xuống 16 register/chunk (đúng 1 rule/chunk) — đây là fix chính, đã xác
-  nhận qua test thật trên board.
-- **Firmware (đã làm, vẫn nên giữ dù không phải nguyên nhân chính của
-  bug này):** `plc_modbus_cfg.c`'s `nmbs_set_byte_timeout()` đổi từ `0`
-  sang `MODBUS_BYTE_TIMEOUT_MS = 5` — chỉ áp dụng cho byte SAU byte đầu
-  tiên của 1 request đang đến (không phải lúc rảnh chờ request mới, vẫn
-  giữ `read_timeout_ms = 0`), nên không phá "never blocks" khi App
-  rảnh/mất kết nối. Đây là cải thiện độ bền cho các trường hợp biên
-  tương lai (App khác, hoặc chunk size lại bị nới ra), không phải fix
-  của chính bug 1-rule-only này.
+### 2.3 Các bước implement (theo thứ tự, mỗi bước build/test độc lập trước khi sang bước sau)
 
-**Cảnh báo cho tương lai:** giới hạn thực tế an toàn của 1 request FC16
-ghi `STAGING_RULE_TABLE` là **≤41 byte tổng (16 register = 1 rule)**, do
-CDC Full-Speed 64-byte packet. Nếu ai đó (App hoặc firmware) sau này lại
-nới kích thước chunk lên, bug này tái hiện y hệt.
+**Bước 1 — DeviceDescriptor & DeviceResourceInfo báo đúng V2.0**
+- Set `protocol_version = 2`, `wire_profile = 2` ở 2 block đã có sẵn
+  trong `plc_modbus_cfg.c`/`plc_device.h`. Việc nhỏ, làm trước để App có
+  thể nhận diện thiết bị V2.0 ngay cả khi các block mới chưa xong.
+- Verify: `test_plc.py read_info` đọc đúng 2 field.
 
-## 1d. Bug đã sửa: guard_tag=0 khiến rule bị chặn sai (App)
+**Bước 2 — Diagnostic Control Block (`0x0A20`), KHÔNG kèm write runtime tag**
+- Thêm state machine `DIAG_STATE` (ENGINE_RUNNING/DIAG_CONTROL/
+  TRANSITIONING/FAULT), xử lý `CMD_ENTER_DIAG`/`CMD_HEARTBEAT`/
+  `CMD_EXIT_DIAG` theo bảng state transition ở Wire Contract mục 4.7.
+- Lease countdown 3000ms, giảm mỗi scan cycle (10ms).
+- CHƯA cho ghi `0900..09FF` ở bước này — chỉ test được state chuyển đúng
+  qua App/script (ENTER → đọc DIAG_STATE=2 → HEARTBEAT giữ lease →
+  EXIT → về DIAG_STATE=1).
+- Verify: script Python mô phỏng enter/heartbeat/exit, đọc lease đếm
+  lùi đúng; để quá 3000ms không heartbeat, xác nhận tự động rơi về
+  ENGINE_RUNNING với `DIAG_ERROR_CODE=LEASE_EXPIRED`.
 
-**Triệu chứng:** nạp 4 rule (DI0→DO0, DI1→DO1, DI2→DO2, DI3→DO3) qua App,
-chỉ DI0→DO0 chạy đúng; kích DI1/DI2/DI3 không có phản ứng gì.
+**Bước 3 — Runtime Tag Write qua `0900..09FF` khi `DIAG_CONTROL`**
+- Thêm `write_runtime_tag_values()`, validate theo per-tag group (mục
+  2.0's tham chiếu Wire Contract mục 5.1 — KHÔNG dùng `TagIndex <
+  runtime_tag_count`, dùng validate theo từng group capacity riêng).
+- All-or-nothing cho multi-tag FC16 (Wire Contract mục 5.2) — 1 tag sai
+  trong span thì reject toàn bộ frame, không ghi gì.
+- Chặn ghi khi `DIAG_STATE != DIAG_CONTROL` → Modbus Exception `0x02`.
+- Chặn ghi DI/AI/RESERVED ở MỌI state → luôn `0x02`.
+- Theo dõi dirty-bitmap tag đã ghi trong phiên diag (phục vụ bước 5).
+- Verify: ghi DO0 khi đang DIAG_CONTROL → đọc lại thấy giá trị mới, chân
+  vật lý đổi thật; ghi DI0 → bị reject `0x02`; ghi khi ENGINE_RUNNING →
+  bị reject `0x02`.
 
-**Nguyên nhân (repo App, `RuleMapper.cs`):** App mã hoá "rule không có
-guard" bằng `GuardTag = 0`. Nhưng theo tag layout v1.9 (đã chốt trong
-`architecture.md` mục 2.2), `0` là `TAG_DI0` thật, không phải sentinel
-trống — sentinel đúng là `GUARD_TAG_NONE = 0x7FFF`. Hệ quả: MỌI rule
-"không guard" từ App đều bị firmware hiểu nhầm thành "guard theo DI0" —
-chỉ rule nào tình cờ có `trigger_tag == DI0` mới "vô tình" chạy đúng vì
-trigger và guard trùng nhau.
+**Bước 4 — Retain Dirty Interlock cho `VREG_RETAIN`**
+- Ghi `VREG_RETAIN` trong diag chỉ sửa RAM shadow, set `RETAIN_DIRTY=1`.
+- `CMD_COMMIT_RETAIN`/`CMD_DISCARD_RETAIN` theo mục 7 Wire Contract —
+  cần trả lời câu hỏi treo #3 (mục 2.2) trước bước này.
+- `CMD_EXIT_DIAG` khi `RETAIN_DIRTY=1` → reject, latch
+  `ERR_RETAIN_DIRTY` (theo đúng bảng mục 4.7 — lưu ý: quyết định #3/#4 ở
+  mục 2.1 CHỈ miễn trừ cho `SYSTEM_COMMAND`, KHÔNG miễn trừ cho
+  `CMD_EXIT_DIAG` — 2 luồng này có quy tắc khác nhau, đừng nhầm).
 
-**Đã sửa (App, repo `ngoxuanloc2309/paa`):**
-- `ModbusRegisterMap.cs`: thêm hằng `GuardTagNone = 0x7FFF`.
-- `RuleMapper.cs`: `ToDto()` gán `GuardTagNone` thay vì `0` khi không có
-  guard; `ToDomain()` đổi điều kiện `GuardTagIndex > 0` thành
-  `GuardTagIndex != GuardTagNone` (điều kiện cũ hiểu nhầm guard=DI0 thật
-  thành "không có guard" — bug đối xứng ở chiều đọc).
+**Bước 5 — Baseline reset trước khi thực thi SYSTEM_COMMAND (quyết định #4)**
+- Implement đúng mục 2.1 câu 4: khi nhận `SYSTEM_COMMAND` bất kỳ mà
+  đang `DIAG_CONTROL`, set về `0` mọi tag có trong dirty-bitmap (từ bước
+  3) trước khi gọi hành động thật (`sx_system_reset()`, Flash erase...).
+- Verify: ENTER_DIAG → set DO0=1 → gửi REBOOT → xác nhận DO0 bị set về
+  0 (log hoặc đọc lại nếu kịp trước khi MCU reset) trước khi reset xảy
+  ra.
 
-**Lưu ý:** rule nào đã lỡ nạp+lưu Flash với `guard_tag=0` sai TRƯỚC khi
-sửa vẫn còn sai trong Flash A/B cho tới khi nạp lại bằng App bản đã sửa.
+**Bước 6 — `FACTORY_RESET`/`CLEAR_RULES`/`CLEAR_RETAIN` thực thi thật**
+- Giờ đã đủ điều kiện code (quyết định #3, #4 đã chốt — không còn mơ hồ
+  phạm vi). `CLEAR_RULES` = `rule_table_commit(rule_count=0)`.
+  `CLEAR_RETAIN` = ghi `s_vreg_retain_shadow[]` toàn `0` + Flash commit.
+  `FACTORY_RESET` = cả 2 cộng lại (xác nhận phạm vi chính xác với người
+  dùng ngay trước khi code bước này nếu còn điểm mơ hồ nào khác).
 
-## 1e. Multi-board refactor (`board_dev`) — ĐÃ XONG
+**Bước 7 — RTC (`0x0810`)**
+- `write` `epoch_utc_s`/`tz_offset_min` từ App lưu RAM (không Flash, trừ
+  khi câu hỏi treo #3 ở mục 2.2 nói khác).
+- Tính `current_hhmm` mỗi scan cycle theo công thức Structs doc mục 7,
+  cắm vào `TRG_TIME_WINDOW` (thay thế `now_hhmm=0` hardcode cũ).
+- Giải quyết câu hỏi treo #2 (mục 2.2) trước khi set `status_flags`.
 
-**Mục tiêu:** trước đây `core/plc_tag/plc_tag_def.h` (Layer 2) hard-code
-cứng 1 layout duy nhất (8DI/8DO/4AI, `TAG_DO0 = 8`) — Layer 2 không biết
-board thật đang build là gì. Muốn đổi board (Zigbee-IO 4DI/4DO vs
-Remote-IO 8DI/8DO...) chỉ cần sửa layer `board/`, không đụng Layer 2/3.
+**Bước 8 — FB Timer/Counter (`0x0B00`/`0x0B40`)**
+- Khối lớn nhất, độc lập Rule Engine. Implement theo pseudocode tham
+  khảo ở Wire Contract mục 9.5 (đã có sẵn ví dụ TON, cần làm thêm
+  TOF/TP đối xứng + CTD/CTUD/HSC).
+- Counter có `retain_tag_index` link tới `VREG_RETAIN` — phụ thuộc bước
+  4 đã xong.
 
-**Thiết kế đã áp dụng (không phá nguyên tắc Layer 2 build độc lập trên
-PC, không include Layer 0/1):**
-- `core/plc_tag/plc_tag.h`: thêm `struct SPLC_TagLayout` (đếm
-  `di_count/do_count/ai_count/vflag_count/vreg_count/
-  vreg_retain_count/counter_count`); đổi chữ ký
-  `tag_table_load_from_flash(void)` →
-  `tag_table_load_from_flash(const SPLC_TagLayout *layout)` — Layer 2 tự
-  tính offset động (DI→DO→AI→VFLAG(32)→VREG(32)→VREG_RETAIN(32)→
-  COUNTER(8)), không cần biết trước con số cụ thể.
-- Thêm getter `tag_di_base_index()`/`tag_do_base_index()`/
-  `tag_vreg_retain_base_index()` — Layer 3/4 hỏi offset qua hàm thay vì
-  biết trước bằng macro cố định.
-- `board/board.h`: thêm `SPLC_TagLayout board_get_tag_layout(void)` —
-  mỗi board tự khai báo số liệu của mình; `plc_engine_init()` gọi hàm
-  này TRƯỚC `tag_table_load_from_flash()`.
-- `core/plc_tag/plc_tag_def.h` (file cũ, hard-code 1 layout): **đã XOÁ**
-  khỏi repo hoàn toàn.
-- `board/board_tag_define.h`: **vẫn còn trong repo nhưng KHÔNG còn được
-  include ở đâu nữa** (đã tự xác nhận bằng grep repo-wide, 0 kết quả) —
-  chỉ còn giá trị tham khảo (bảng tag map). Lý do bị bỏ: tránh 2 nguồn dữ
-  liệu tay (macro `TAG_DI0`/`TAG_DO0` compile-time trong file này, và
-  `s_tag_layout` runtime trong `board_<sku>.c`) có thể lệch nhau nếu chỉ
-  sửa 1 bên. `board/board_device/board_zigbee_io.c` giờ dùng
-  `tag_di_base_index()`/`tag_do_base_index()` (runtime) thay vì include
-  file này.
-- `board/board_device/board_zigbee_io.c`: implement
-  `board_get_tag_layout()` trả `{di_count=4, do_count=4, ai_count=0,...}`
-  qua `s_tag_layout` (`static const SPLC_TagLayout`); `board_device_info_
-  init()` cũng lấy `di_count/do_count/ai_count` từ `s_tag_layout` thay vì
-  hard-code riêng — tránh lệch giữa tag table thật và
-  `DEVICE_RESOURCE_INFO` gửi App (đây chính là loại bug 8/8-vs-4/4 từng
-  gặp).
-- `board/board_device/`: **thư mục mới** — mỗi board 1 file
-  `board_<sku>.c` (+`.h`) nằm ở đây, không nằm thẳng trong `board/` nữa.
+### 2.4 Việc còn treo từ V1.9, giải quyết tiện thể trong kế hoạch trên
 
-**3 lỗi phát sinh trong lúc refactor, tất cả ĐÃ SỬA và verify compile
-sạch bằng `gcc -fsyntax-only` (không cần ARM toolchain):**
+- `guard_tag`/`trigger_tag`/`action_tag` chưa validate nằm trong
+  `0..MAX_TAGS-1` — index sai không crash nhưng rule bị vô hiệu hoá âm
+  thầm. Nên thêm validate khi động vào `plc_modbus_cfg.c` ở bước 3.
+- PVD → ghi Retain khẩn cấp chưa nối (`sx_power_register_low_voltage_
+  callback(retain_snapshot_write)` chưa ai gọi) — không thuộc V2.0 nhưng
+  nên tiện tay nối lại nếu đụng tới `plc_retain.c` ở bước 4.
+- `ACT_WRITE_REMOTE`/`ACT_LOG_EVENT`/`ACT_SEND_ALARM`: chưa implement,
+  không thuộc phạm vi V2.0 lần này, để riêng.
+- `modbus_usb_write()` bỏ qua `timeout_ms`, có thể vượt ngân sách scan
+  10ms dưới tải nặng (đo được 83ms với stress test 100 rule) — chưa
+  quyết định sửa hay chấp nhận, không thuộc V2.0.
 
-1. Vòng lặp đăng ký DI/DO trong `board_di_do_init()` từng hard-code
-   `for (int i = 0; i < 4; i++)` (2 chỗ), không đọc từ
-   `s_tag_layout.di_count`/`do_count` — nếu sau này đổi
-   `s_tag_layout.di_count` mà quên sửa vòng lặp, sẽ chỉ đăng ký đúng
-   4/8 kênh, bug im lặng (tag "mồ côi", giống bug 8/8-vs-4/4 cũ). **Sửa:**
-   vòng lặp giờ đọc `s_tag_layout.di_count`/`do_count`.
-2. Mảng `di_pins[4]`/`do_pins[4]` trong `zigbee_io_board_t` từng thử đổi
-   sang `di_pins[s_tag_layout.di_count]` — **KHÔNG compile được** (C
-   không cho phép dùng giá trị của biến `static const` làm kích thước
-   mảng ở phạm vi file/struct — `error: variably modified at file
-   scope`, khác C++). **Sửa đúng:** thêm `#define ZIGBEE_IO_DI_NUM 4` /
-   `ZIGBEE_IO_DO_NUM 4` trong `board_zigbee_io.h`, dùng chung cho cả kích
-   thước mảng struct lẫn giá trị gán vào `s_tag_layout` — đây mới là
-   hằng số compile-time thật.
-3. Log "DI/DO registered (4 DI, 4 DO)" và "%d of 8 channel(s) FAILED"
-   trong `board_hw_init()` hard-code số `4`/`8` — sửa dùng
-   `ZIGBEE_IO_DI_NUM`/`ZIGBEE_IO_DO_NUM` thay vì số cứng.
+## 3. Bài học đã rút ra (đọc kỹ, áp dụng khi code V2.0)
 
-**Bug CMake phát sinh khi chuyển `board_zigbee_io.c` vào thư mục con
-`board_device/` — ĐÃ SỬA:** `board/CMakeLists.txt` không được cập nhật
-theo, vẫn trỏ `${CMAKE_CURRENT_SOURCE_DIR}/board_${SPLC_BOARD_SKU}.c`
-(thiếu `board_device/`) → build thật báo `CMake Error ... Cannot find
-source file` + `No SOURCES given to target: splc_board`. Đã sửa đường
-dẫn thành `${CMAKE_CURRENT_SOURCE_DIR}/board_device/board_${SPLC_BOARD_
-SKU}.c`.
+### 3.1 Luôn đọc file định nghĩa trước khi thêm gì mới
 
-## 2. Kiến trúc trong 30 giây
+Trước khi thêm hằng số/enum mới, đọc file gốc trước — đã có 2 bài học
+thật (suýt trùng mã lỗi `SPLC_ERROR_FLASH`; suýt bỏ sót `GuardTagIndexMask`
+có sẵn). Áp dụng ở CẢ HAI phía App và firmware.
 
-7 layer, include một chiều từ trên xuống, không heap. Chi tiết:
-`docs/architecture.md`.
+### 3.2 CRC của Rule Table/Retain PHẢI tính trên byte wire, không phải byte RAM struct
 
-```
-Layer 4    app/, board/        plc_engine, plc_system_cmd_service,
-                                board/board_device/board_<sku>.c
-Layer 3    services/           plc_io, plc_retain, plc_modbus_cfg, plc_rule_flash
-Layer 3.5  port/               modbus_transport_t, modbus_usb
-Layer 2    core/               tag table + rule engine (build được trên PC)
-Layer 1    components/         driver contract (gpio/adc/flash/uart/usb_cdc/system)
-Layer 0    platforms/stm32/stm32h5/   HAL thật
-Layer U    utils/, libs/       cqueue, logger, filter, nanoMODBUS, TinyUSB
-```
+Tốn 3 vòng debug mới chốt ở V1.9. Quy ước: CRC tính trên dữ liệu **wire**
+(mỗi register high byte trước, mỗi trường 32-bit High Word rồi Low Word),
+KHÔNG dùng `nmbs_crc_calc` (nó trả CRC hoán byte, chỉ dùng cho RTU
+framing). Áp dụng tương tự cho CRC Retain ping-pong ở V2.0 (Wire Contract
+Appendix A.1 — CCITT-FALSE poly `0x1021`, khác thuật toán với CRC Modbus
+RTU `0xA001`, đừng nhầm 2 loại CRC này).
 
-Vòng quét: `plc_engine_poll()` (không chặn, tự canh nhịp
-`PLC_SCAN_INTERVAL_MS = 10ms`) gọi `scan_cycle(now)`:
-`input_scan → rule_scan(now) → output_scan → modbus_config_service →
-retain_service → plc_system_cmd_service`.
+### 3.3 Con số trong log là bằng chứng định danh phiên bản code, không phải để đoán
 
-Điểm cần nhớ khi đọc code:
-- Layout tag v1.9: **không có sentinel ở index 0**, `TAG_DI0 == 0`.
-  "Không có guard" = `GUARD_TAG_NONE` (`0x7FFF`), KHÔNG phải 0 — đã có 1
-  bug thật ở App vì hiểu sai điều này (mục 1d), kiểm tra kỹ nếu sửa gì
-  liên quan guard/tag index ở cả 2 phía App và firmware.
-- `SPLC_RuleRecord` = 32 byte. CRC của Rule Table (Modbus lẫn Flash)
-  PHẢI tính trên byte **wire** (`rule_table_wire_crc16()`), KHÔNG phải
-  byte RAM của struct — xem mục 4.2.
-- 1 request Modbus FC16 ghi `STAGING_RULE_TABLE` an toàn tối đa **16
-  register (1 rule, 41 byte)** — giới hạn thực tế do USB CDC Full-Speed
-  64-byte packet + firmware poll non-blocking (mục 1b). App/firmware nào
-  sau này đổi cách chia chunk phải nhớ giới hạn này.
-- `plc_device.h`, `plc_error.h`, `plc_system_cmd.h` cố ý chỉ có `.h`
-  (không thêm `.c` vào Layer 2).
-- Flash map: Rule Table A = sector #31, B = #30, Retain = #27-29.
+Khi bế tắc, in cả các giả thuyết cạnh nhau thay vì suy diễn từ 1 con số.
 
-## 3. Bug đã biết, CHƯA sửa
+### 3.4 Mô phỏng đầu-cuối trên PC trước khi lên board
 
-### 3.1 `modbus_usb_write()` bỏ qua `timeout_ms`
+Build chương trình C `#include` thẳng file `.c` cần test, transport/flash
+giả qua RAM hoặc stdin/stdout, chạy script Python thật nói chuyện với
+chương trình đó. Stub `logger.h` phải in ra `stderr`, không phải `stdout`.
 
-`sx_usb_tiny_write()` luôn block tới khi ghi xong. Nếu USB nghẽn có thể
-vượt ngân sách 10 ms của vòng quét. `test_rule.py`'s `t_load` (100 rule,
-stress 5s) từng đo `scan_time_ms` lên tới 83ms dưới tải nặng — nghi do
-đây. Cần quyết định: làm write non-blocking thật, hay chấp nhận.
-
-### 3.2 `FACTORY_RESET`/`CLEAR_RULES`/`CLEAR_RETAIN` — CHƯA thực thi
-
-`REBOOT` đã xong (mục 1c). 3 lệnh còn lại vẫn chỉ trả `ACCEPTED` suông,
-chưa Flash-erase gì thật. **Câu hỏi cụ thể cần người dùng trả lời trước
-khi code** (vì spec `v1.7`/`v1.9` chỉ ghi mơ hồ "khôi phục mặc định theo
-policy sản phẩm", không định nghĩa chi tiết):
-
-- `FACTORY_RESET` gồm những gì: chỉ Rule Table + Retain (giống
-  `CLEAR_RULES` + `CLEAR_RETAIN` cộng lại), hay còn xoá cả tag
-  config/network settings khác?
-- Sau khi xoá xong, có tự động reboot luôn không, hay chờ App gửi
-  `REBOOT` riêng?
-- `CLEAR_RULES`/`CLEAR_RETAIN` khi đứng riêng (không phải qua
-  `FACTORY_RESET`) có cần reboot theo sau không, hay chỉ cần xoá
-  Flash + reset RAM state là đủ (tương tự `rule_table_commit()` với
-  `rule_count=0`)?
-
-### 3.3 Các việc chưa thực thi / chưa validate khác
-
-- Chưa validate `guard_tag`/`trigger_tag`/`action_tag` nằm trong
-  `0..MAX_TAGS-1` (hoặc `GUARD_TAG_NONE`). Index sai không crash nhưng
-  rule bị vô hiệu hóa âm thầm.
-- **PVD → ghi Retain khẩn cấp chưa được nối.** Có sẵn: PVD bật trong
-  CubeMX, `HAL_PWR_PVDCallback()`, `sx_power_register_low_voltage_
-  callback()`, `retain_snapshot_write()`. Thiếu: không ai gọi
-  `sx_power_register_low_voltage_callback(retain_snapshot_write)`.
-- `TRG_TIME_WINDOW`: `now_hhmm` hardcode 0, chưa có nguồn RTC.
-- `ACT_WRITE_REMOTE` / `ACT_LOG_EVENT` / `ACT_SEND_ALARM`: chưa có
-  implementation.
-
-## 4. Bài học đã rút ra (quan trọng, đọc kỹ)
-
-### 4.1 Luôn đọc file định nghĩa trước khi thêm gì mới
-
-Trước khi thêm hằng số/enum mới, đọc file gốc trước. Đã có bài học thật
-2 lần: (1) suýt tạo mã lỗi Flash trùng ý nghĩa với `SPLC_ERROR_FLASH` có
-sẵn; (2) suýt bỏ sót `GuardTagIndexMask` đã tồn tại khi thêm
-`GuardTagNone` ở App. Áp dụng chung: mã lỗi, hằng số tag, địa chỉ Modbus
-— kiểm tra tồn tại trước khi định nghĩa mới, ở CẢ HAI phía App và
-firmware (chúng là 2 repo riêng, dễ quên kiểm tra phía kia).
-
-### 4.2 CRC của Rule Table PHẢI tính trên byte wire, không phải byte RAM struct
-
-Tốn 3 vòng debug trên board mới lộ (commit `9789b3a` trở đi). Chuỗi bug
-gốc: (1) FC06 tới thanh ghi RW bị từ chối do bảng dispatch đặt callback
-sai cột; (2) CRC tính trên byte RAM little-endian của struct — sai cả ý
-nghĩa (phụ thuộc chip) lẫn giá trị (`nmbs_crc_calc` trả CRC hoán byte);
-(3) `test_plc.py` cũ cũng tính CRC kiểu RAM, khớp firmware cũ nhưng sai
-spec. **Quy ước chốt theo spec 8.4:** CRC tính trên `rule_count x 32
-byte` wire — mỗi register high byte trước, mỗi trường 32-bit High Word
-rồi Low Word. Firmware: `rule_record_to_wire()` + `rule_table_wire_
-crc16()` trong `plc_modbus_cfg.c` (KHÔNG dùng `nmbs_crc_calc` cho việc
-này — nó trả CRC hoán byte, dùng cho RTU framing).
-
-### 4.3 Con số trong log là bằng chứng định danh phiên bản code, không phải để đoán
-
-Khi bế tắc, in cả các giả thuyết cạnh nhau thay vì suy diễn từ một con số
-duy nhất. Đã từng nghi nhầm "board chạy ELF cũ" trong khi thực ra 2 module
-(App/firmware) đang dùng 2 công thức CRC khác nhau.
-
-### 4.4 Mô phỏng đầu-cuối trên PC trước khi lên board
-
-Build 1 chương trình C `#include` thẳng file `.c` cần test (để thấy cả
-`static`), transport/flash giả qua RAM hoặc stdin/stdout, chạy chính
-script Python thật (không viết lại test) nói chuyện với chương trình đó.
-Bắt được lỗi mà test từng phía riêng lẻ bỏ sót. Lưu ý stub `logger.h`
-phải in ra `stderr`, không phải `stdout`, nếu protocol test đọc dữ liệu
-qua `stdout`.
-
-### 4.5 Log "không thấy" thường do bị trôi, không phải do không chạy
+### 3.5 Log "không thấy" thường do bị trôi, không phải do không chạy
 
 Vòng poll nhanh (10 lần/giây) sinh nhiều dòng DEBUG che mất dòng quan
-trọng. Trước khi kết luận "không log ra", thử lọc theo từ khóa hoặc rút
-ngắn thời gian chạy trước khi nghi ngờ code không chạy tới đó.
+trọng — lọc theo từ khóa trước khi nghi ngờ code không chạy tới đó.
 
-### 4.6 Quyết định kiến trúc: diễn giải lại bằng lời của mình để người dùng xác nhận
+### 3.6 Quyết định kiến trúc: diễn giải lại bằng lời trước khi code
 
 Khi người dùng mô tả 1 cơ chế phức tạp, diễn giải lại thành đoạn văn rõ
-ràng, đầy đủ từng bước và hỏi "đúng ý bạn không" trước khi code — rẻ hơn
-nhiều so với code sai rồi sửa lại.
+ràng và hỏi "đúng ý bạn không" trước khi code — rẻ hơn code sai rồi sửa.
+Đã áp dụng đúng cách này khi chốt quyết định #4 ở mục 2.1 (2 lần hỏi lại
+cho rõ trước khi ghi nhận).
 
-### 4.7 Khi debug bug xuyên 2 hệ thống (App + Firmware), đọc CẢ HAI repo thật
+### 3.7 Khi debug bug xuyên 2 hệ thống (App + Firmware), đọc CẢ HAI repo thật
 
-Bug ở mục 1b (chunk size) và 1d (guard_tag) đều nằm ở phía App, không
-phải firmware — nhiều vòng đoán mò dựa trên log firmware một mình đều
-sai hướng, chỉ giải quyết được khi đọc trực tiếp code App
-(`ngoxuanloc2309/paa`). Khi triệu chứng liên quan tới giao tiếp App↔MCU
-mà log firmware "trông đúng", luôn hỏi/đọc code phía App trước khi tiếp
-tục đoán ở phía firmware.
+2 repo liên quan: firmware (`ngoxuanloc2309/simple_plc`, branch
+`board_dev`) và App (`ngoxuanloc2309/paa`, .NET). Nhiều bug lớn ở V1.9
+nằm ở phía App, không phải firmware — log firmware "trông đúng" không
+có nghĩa bug không nằm ở đó. Đọc code App thật khi nghi ngờ, đừng chỉ
+đoán từ log firmware.
 
-### 4.8 Đừng code liều những hành động phá huỷ dữ liệu khi spec mơ hồ
+### 3.8 Đừng code liều hành động phá huỷ dữ liệu khi spec mơ hồ
 
-`FACTORY_RESET`/`CLEAR_RULES`/`CLEAR_RETAIN` (mục 3.2) bị hoãn lại có
-chủ đích, không phải quên: spec chỉ ghi mơ hồ, code sai phạm vi sẽ xoá
-nhầm hoặc thiếu dữ liệu thật trên board đã lắp đặt. So với `REBOOT` (chỉ
-1 cách hiểu, an toàn để code ngay), bất cứ lệnh nào Flash-erase dữ liệu
-NÊN hỏi xác nhận phạm vi cụ thể trước, không suy đoán "chắc ý họ là...".
+`FACTORY_RESET`/`CLEAR_RULES`/`CLEAR_RETAIN` từng bị hoãn ở V1.9 vì spec
+mơ hồ — đã hỏi xác nhận phạm vi cụ thể trước khi code (mục 2.1, quyết
+định #3/#4). Nguyên tắc chung: bất cứ lệnh nào Flash-erase dữ liệu nên
+hỏi xác nhận phạm vi cụ thể trước, không suy đoán "chắc ý họ là...".
 
-## 5. Quy trình làm việc với người dùng
+## 4. Quy trình làm việc với người dùng
 
 - Trao đổi **tiếng Việt**, code/comment **tiếng Anh**.
 - Người dùng tự push; Claude không có quyền push. Bắt đầu phiên hoặc khi
   người dùng báo "đã push": `git pull`, rồi **build/compile verify thật**
   (không chỉ đọc diff).
-- **2 repo liên quan:** firmware (`ngoxuanloc2309/simple_plc`, branch
-  `board_dev`) và App (`ngoxuanloc2309/paa`, .NET). Bug giao tiếp
-  App↔MCU có thể nằm ở BẤT KỲ phía nào — đọc cả 2 khi log firmware
-  "trông đúng" nhưng App vẫn lỗi (mục 4.7).
+- **2 repo liên quan:** firmware (branch `board_dev`) và App (.NET). Bug
+  giao tiếp App↔MCU có thể nằm ở BẤT KỲ phía nào (mục 3.7).
 - **Giao file:** người dùng muốn nhận **nguyên file** (present từng file
   để copy-paste cả file), KHÔNG muốn patch/zip/đoạn thay thế.
 - Quyết định kiến trúc lớn: hỏi bằng `ask_user_input_v0`, **tách từng
-  quyết định nhỏ**, không gộp nhiều câu vào một. Nếu cơ chế phức tạp,
-  diễn giải lại bằng lời trước khi code (mục 4.6).
+  quyết định nhỏ**, không gộp nhiều câu vào một. Diễn giải lại bằng lời
+  trước khi code nếu cơ chế phức tạp (mục 3.6).
 - **Không tự sửa file CubeMX tự sinh** (ghi "Auto-generated") — kể cả
   khi thấy bug thật. Chỉ báo người dùng.
 - Khi đề xuất nguyên nhân, nói rõ mức chắc chắn; kiểm chứng bằng dữ liệu
-  thật (log, test PC, đọc code thật) trước khi khẳng định — đừng dừng ở
-  giả thuyết đầu tiên nghe hợp lý (mục 4.7's bài học).
+  thật (log, test PC, đọc code thật) trước khi khẳng định (mục 3.7).
 - Trước khi thêm hằng số/mã lỗi/enum mới, đọc file định nghĩa gốc trước
-  (mục 4.1), ở cả 2 phía App/firmware nếu liên quan giao tiếp Modbus.
-- **Đừng implement hành động phá huỷ dữ liệu (Flash erase, factory
-  reset...) khi spec mơ hồ về phạm vi** — hỏi xác nhận cụ thể trước
-  (mục 4.8).
+  (mục 3.1), ở cả 2 phía App/firmware nếu liên quan giao tiếp Modbus.
+- **Đừng implement hành động phá huỷ dữ liệu khi spec mơ hồ** — hỏi xác
+  nhận cụ thể trước (mục 3.8).
 
-## 6. Lệnh verify nhanh (không cần toolchain ARM)
+## 5. Lệnh verify nhanh (không cần toolchain ARM)
 
 **Layer 2** (rule engine): compile `core/plc_tag/plc_tag.c`,
 `core/plc_rule/plc_rule.c`, `core/plc_internal_rule/*.c` bằng
@@ -462,7 +321,7 @@ lẫn vào luồng frame). Chạy `test_plc.py`/`test_rule.py` thật với 1
 `replay_app_style.py` (mô phỏng đúng cách App .NET gộp
 `RULE_COUNT_STAGED`+`EXPECTED_CRC16` vào 1 request, và ghi cả
 `STAGING_RULE_TABLE` trong 1 request lớn) — dùng để cô lập bug phía nào
-(App hay firmware) khi log firmware một mình không đủ (mục 4.7).
+(App hay firmware) khi log firmware một mình không đủ (mục 3.7).
 
 **Ranh giới layer:** `nm -u <file>.o` không được có symbol `sx_usb_*`
 với Layer 3 (`plc_modbus_cfg.c`), hay `sx_flash_*`/`sx_usb_*` với Layer 2
