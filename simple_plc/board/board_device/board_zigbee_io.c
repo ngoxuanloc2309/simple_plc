@@ -24,6 +24,7 @@
 #include "plc_device.h"
 #include "plc_rule.h"       /* MAX_RULES */
 #include "plc_modbus_cfg.h" /* g_device_descriptor / g_device_resource_info */
+#include "plc_rtc.h"        /* g_rtc_caps */
 #include "tim.h"
 #include "stm32h5xx_hal.h"
 
@@ -239,6 +240,14 @@ static void board_device_info_init(void)
     g_device_resource_info.vreg_count           = s_tag_layout.vreg_count;
     g_device_resource_info.vreg_retain_count    = s_tag_layout.vreg_retain_count;
     g_device_resource_info.counter_count        = s_tag_layout.counter_count;
+
+    /*
+     * Clock hardware of THIS board, reported to the Host in the RTC block's
+     * status_flags (0x0813). Zigbee-IO uses the STM32's internal RTC on
+     * LSI: no RTC IC, no 32.768 kHz crystal, no battery. A board with a
+     * real RTC chip/crystal sets hw_present = true.
+     */
+    g_rtc_caps.hw_present = false;
 }
 
 static void board_log_uart_init(void)

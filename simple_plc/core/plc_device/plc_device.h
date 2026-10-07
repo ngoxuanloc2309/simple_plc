@@ -37,6 +37,7 @@
  * See docs/architecture.md, section 2, "Layer 2 - PLC Core".
  */
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -203,6 +204,28 @@ typedef struct {
     uint16_t vreg_retain_count;  /* 0..32; >0 => Retentive Memory present */
     uint16_t counter_count;      /* 0..8 */
 } SPLC_DeviceResourceInfo; /* 20 bytes */
+
+/*
+ * Real-Time Clock block (V2.0, Structs doc section 3.4), 0x0810..0x0813:
+ *   epoch_utc_s (u32, High Word first), tz_offset_min (i16), status_flags.
+ * status_flags is READ-ONLY on the wire: the firmware computes it on every
+ * read (see services/plc_rtc/plc_rtc.h). A Host that still sends a 4th
+ * register has it ignored.
+ */
+typedef enum {
+    SPLC_RTC_FLAG_SYNCED      = 0x0001, /* a Host has set the time since the clock lost power */
+    SPLC_RTC_FLAG_HW_PRESENT  = 0x0002, /* dedicated RTC IC or 32.768 kHz crystal fitted */
+    SPLC_RTC_FLAG_BATTERY_LOW = 0x0004  /* RTC backup battery weak (no board reports it yet) */
+} SPLC_RtcFlags;
+
+/*
+ * Clock hardware of a given board, filled once at boot by board_<sku>.c
+ * (same pattern as g_device_resource_info). Zero-initialised = "internal
+ * RTC only, no crystal, no battery".
+ */
+typedef struct {
+    bool hw_present;
+} SPLC_RtcCaps;
 
 
 #ifdef __cplusplus

@@ -58,6 +58,9 @@ bool trigger_timing_ok(SPLC_TriggerType type,
 {
     switch (type) {
         case SPLC_TRG_TIME_WINDOW:
+            if (now_hhmm == RULE_HHMM_INVALID) {
+                return false;   /* no valid local time: never in the window */
+            }
             if (threshold_lo <= threshold_hi) {
                 return (int32_t)now_hhmm >= threshold_lo && (int32_t)now_hhmm <= threshold_hi;
             }

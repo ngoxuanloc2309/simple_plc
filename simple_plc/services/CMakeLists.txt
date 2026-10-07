@@ -13,6 +13,7 @@ set(SPLC_SERVICES_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_io/plc_io.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_retain/plc_retain.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_modbus_cfg/plc_modbus_cfg.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_rtc/plc_rtc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule_flash/plc_rule_flash.c
 )
 
@@ -27,7 +28,17 @@ target_include_directories(splc_services PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_io
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_retain
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_modbus_cfg
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_rtc
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule_flash
+)
+
+# plc_rtc.c includes splc_epoch.h (Layer U, utils/epoch/). Only the header
+# path is needed here: splc_epoch.c itself is compiled once into the final
+# executable (simple_plc/CMakeLists.txt), the same way cqueue.c is, and the
+# linker resolves splc_epoch_to_hhmm() from there. sx_rtc.h (Layer 1) comes
+# through splc_components.
+target_include_directories(splc_services PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../utils/epoch
 )
 
 # splc_core (Layer 2) supplies plc_tag.h, which both plc_io.c and

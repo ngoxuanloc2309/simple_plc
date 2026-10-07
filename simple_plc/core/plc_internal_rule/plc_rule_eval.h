@@ -71,7 +71,8 @@ bool check_trigger_edge(SPLC_TriggerType type,
  *
  * type:         Trigger type to evaluate (only TRG_TIME_WINDOW/TRG_INTERVAL)
  * now_ms:       Current system tick, in milliseconds (used by TRG_INTERVAL)
- * now_hhmm:     Current time-of-day as HHMM (used by TRG_TIME_WINDOW)
+ * now_hhmm:     Current time-of-day as HHMM (used by TRG_TIME_WINDOW);
+ *               RULE_HHMM_INVALID (no valid time) makes the result false
  * threshold_lo: TRG_TIME_WINDOW window start (HHMM); unused for TRG_INTERVAL
  * threshold_hi: TRG_TIME_WINDOW window end (HHMM); unused for TRG_INTERVAL
  * for_ms:       TRG_INTERVAL period in ms; unused for TRG_TIME_WINDOW

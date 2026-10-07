@@ -141,6 +141,14 @@ typedef enum {
 /* Sentinel meaning "dwell timer has not been armed yet". */
 #define DWELL_NOT_STARTED 0xFFFFFFFFu
 
+/*
+ * Value Layer 4 passes as now_hhmm when there is no valid local time of day
+ * (RTC not synced, or its timezone not yet written). SPLC_TRG_TIME_WINDOW
+ * rules never fire while now_hhmm == RULE_HHMM_INVALID. Valid HHMM values
+ * are 0..2359, so this can never collide with a real time.
+ */
+#define RULE_HHMM_INVALID 0xFFFFFFFFu
+
 typedef struct {
     RuleExecState state;         /* Current position in the rule state machine */
     int32_t  prev_value;         /* Value of trigger_tag observed last scan, for edge detection */
@@ -188,8 +196,21 @@ void rule_table_load_from_flash(void);
  *         the scan that DETECTED the edge, and completes on the first scan
  *         at or after its deadline -- up to one scan period late, never
  *         early.
+ *
+ * now_hhmm: local time of day as HHMM (0..2359, e.g. 08:30 -> 830) for
+ *         SPLC_TRG_TIME_WINDOW, supplied by Layer 4 for the same reason as
+ *         now_ms (Layer 2 has no RTC). Pass RULE_HHMM_INVALID when no valid
+ *         time exists; Time Window rules then do not fire. Semantics
+ *         (Structs doc V2.0 section 7), trigger_tag ignored, compare_op
+ *         only matters as EQ + lo == hi:
+ *           lo <= hi            window, true while lo <= hhmm <= hi
+ *           lo >  hi            window across midnight, hhmm >= lo || hhmm <= hi
+ *           compare_op == EQ and lo == hi   exact minute: fires ONCE on the
+ *                               scan where hhmm becomes that minute
+ *         Window rules fire on EVERY scan while the condition holds (level);
+ *         use the exact-minute form for a one-shot action.
  */
-void rule_scan(uint32_t now_ms);
+void rule_scan(uint32_t now_ms, uint32_t now_hhmm);
 
 /*
  * Reset every rule's runtime state (g_rule_runtime[]) to the same values a

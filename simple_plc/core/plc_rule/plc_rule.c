@@ -43,7 +43,7 @@ void rule_table_load_from_flash(void)
     g_rule_count.rule_count = 0;
 }
 
-void rule_scan(uint32_t now_ms)
+void rule_scan(uint32_t now_ms, uint32_t now_hhmm)
 {
     /*
      * now_ms is supplied by the caller (Layer 4) instead of being read
@@ -54,7 +54,7 @@ void rule_scan(uint32_t now_ms)
      * see the same "now".
      */
     for (uint16_t i = 0; i < g_rule_count.rule_count && i < MAX_RULES; i++) {
-        rule_state_machine_step(&g_rule_table[i], &g_rule_runtime[i], now_ms);
+        rule_state_machine_step(&g_rule_table[i], &g_rule_runtime[i], now_ms, now_hhmm);
     }
 }
 
@@ -109,7 +109,8 @@ bool rule_table_commit(const uint8_t *raw_data, uint16_t rule_count)
  * result (see the historical note in the DWELLING case below) -- otherwise
  * dwell would never complete for edge-type triggers.
  */
-bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt, uint32_t now_ms)
+bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt,
+                             uint32_t now_ms, uint32_t now_hhmm)
 {
     if (!rule->enabled) {
         rt->state = RULE_STATE_IDLE;
@@ -130,18 +131,32 @@ bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt, uint32
         bool trigger_met;
         if (is_edge_type) {
             trigger_met = check_trigger_edge(trigger_type, rt->prev_value, current);
+        } else if (trigger_type == SPLC_TRG_TIME_WINDOW) {
+            /*
+             * Structs doc V2.0 section 7. trigger_tag is ignored, so
+             * prev_value is NOT the tag value here: it remembers whether
+             * the window condition was true on the previous scan (0/1).
+             * Runtime reset (boot, commit, diag exit) clears it to 0.
+             * An invalid time makes in_window false, which also re-arms
+             * the exact-minute form for when the clock becomes valid.
+             */
+            bool in_window = trigger_timing_ok(trigger_type, now_ms, now_hhmm,
+                                                rule->threshold_lo, rule->threshold_hi,
+                                                rule->for_ms, rt->last_fire_tick);
+            bool exact_minute = (rule->compare_op == SPLC_OP_EQ) &&
+                                (rule->threshold_lo == rule->threshold_hi);
+            trigger_met = exact_minute ? (in_window && rt->prev_value == 0)
+                                       : in_window;
+            rt->prev_value = in_window ? 1 : 0;
         } else {
-            /* SPLC_TRG_TIME_WINDOW / SPLC_TRG_INTERVAL.
-             * TODO: now_hhmm is hardcoded to 0 until an RTC/calendar
-             * source is available (see docs/architecture.md section 10).
-             * This means SPLC_TRG_TIME_WINDOW cannot function correctly
-             * yet; SPLC_TRG_INTERVAL is unaffected since it only uses
-             * now_ms. */
-            trigger_met = trigger_timing_ok(trigger_type, now_ms, 0,
+            /* SPLC_TRG_INTERVAL: uses only now_ms / for_ms. */
+            trigger_met = trigger_timing_ok(trigger_type, now_ms, now_hhmm,
                                              rule->threshold_lo, rule->threshold_hi,
                                              rule->for_ms, rt->last_fire_tick);
         }
-        rt->prev_value = current;
+        if (trigger_type != SPLC_TRG_TIME_WINDOW) {
+            rt->prev_value = current;   /* Time Window keeps its own 0/1 here */
+        }
 
         if (!trigger_met) {
             rt->state = RULE_STATE_BLOCKED;
@@ -152,7 +167,10 @@ bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt, uint32
     /* FALLTHROUGH */
 
     case RULE_STATE_TRIGGERED: {
-        if (rule->compare_op != SPLC_OP_NONE &&
+        /* Time Window ignores trigger_tag, so there is no tag value to
+         * compare; its compare_op only selects the exact-minute form. */
+        if (trigger_type != SPLC_TRG_TIME_WINDOW &&
+            rule->compare_op != SPLC_OP_NONE &&
             !compare_ok((SPLC_CompareOp)rule->compare_op, current, rule->threshold_lo, rule->threshold_hi)) {
             rt->state = RULE_STATE_BLOCKED;
             return false;

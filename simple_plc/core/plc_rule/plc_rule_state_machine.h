@@ -43,11 +43,13 @@ extern "C" {
  * rt:     This rule's runtime state, persisted across calls in
  *         g_rule_runtime[]. Must not be NULL.
  * now_ms: Current system tick, in milliseconds.
+ * now_hhmm: Local time of day as HHMM, or RULE_HHMM_INVALID (see rule_scan()).
  *
  * returns: true if the rule fired (reached RULE_STATE_FIRE) this call,
  *          false otherwise (blocked, dwelling, or disabled).
  */
-bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt, uint32_t now_ms);
+bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt,
+                             uint32_t now_ms, uint32_t now_hhmm);
 
 #ifdef __cplusplus
 }

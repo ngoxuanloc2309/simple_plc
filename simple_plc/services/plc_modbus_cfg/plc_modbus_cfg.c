@@ -8,6 +8,7 @@
 #include "plc_rule.h"
 #include "plc_rule_flash.h" /* plc_rule_flash_save(), called from write_commit_command() */
 #include "plc_retain.h"     /* retain_snapshot_write(), called from CMD_COMMIT_RETAIN */
+#include "plc_rtc.h"        /* RTC block 0x0810..0x0813, see cb_write_multiple_registers() */
 #include "sx_time.h"
 #include "logger.h"
 
@@ -1097,6 +1098,7 @@ static const modbus_block_t s_blocks[] = {
     { 0x0020, 0x0029, true,  read_device_resource_info,   NULL },
     { 0x0100, 0x073F, false, read_active_rule_table,      NULL },
     { 0x0800, 0x0809, true,  read_device_health,          NULL },
+    { 0x0810, 0x0813, true,  plc_rtc_read,                NULL },   /* FC16 writes handled in cb_write_multiple_registers (needs distinct exceptions) */
     { 0x0900, 0x09FF, false, read_runtime_tag_values,     NULL },
     { 0x0A01, 0x0A02, true,  read_system_command_result,  NULL },
     { 0x0A20, 0x0A24, true,  read_diag_block,             NULL },   /* 0x0A20 writes handled in cb_write_*, not here */
@@ -1184,6 +1186,23 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
      */
     if (address >= 0x0900U && address <= 0x09FFU) {
         return write_runtime_tag_values(address, quantity, registers);
+    }
+
+    /*
+     * RTC block (Structs doc V2.0 section 3.4): the Host writes epoch +
+     * timezone; status_flags is read-only. plc_rtc_write() does the
+     * all-or-nothing validation; only the result -> Modbus exception
+     * mapping lives here. A request that starts below 0x0810 and runs into
+     * the block starts in an unmapped gap and is rejected by the generic
+     * table path below.
+     */
+    if (address >= PLC_RTC_ADDR_BASE && address < PLC_RTC_ADDR_BASE + PLC_RTC_REG_COUNT) {
+        switch (plc_rtc_write((uint16_t)(address - PLC_RTC_ADDR_BASE), quantity, registers)) {
+            case PLC_RTC_WRITE_OK:          return NMBS_ERROR_NONE;
+            case PLC_RTC_WRITE_BAD_ADDRESS: return NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+            case PLC_RTC_WRITE_BAD_VALUE:   return NMBS_EXCEPTION_ILLEGAL_DATA_VALUE;
+            default:                        return NMBS_EXCEPTION_SERVER_DEVICE_FAILURE;
+        }
     }
 
     if (address == SPLC_ADDR_DIAG_BLOCK) {
