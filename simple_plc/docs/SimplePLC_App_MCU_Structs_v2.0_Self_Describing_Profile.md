@@ -146,9 +146,10 @@ typedef struct SPLC_PACKED {
 } SPLC_RtcClock_t;
 ```
 * **Bitmask `status_flags`**:
-  * `0x0001` (`SPLC_RTC_FLAG_SYNCED`): `1` = Đã đồng bộ với Host PC; `0` = Chưa đồng bộ.
-  * `0x0002` (`SPLC_RTC_FLAG_HW_PRESENT`): `1` = Có IC phần cứng RTC hoặc thạch anh 32.768kHz.
-  * `0x0004` (`SPLC_RTC_FLAG_BATTERY_LOW`): `1` = Pin nuôi RTC bị yếu/hết pin.
+  * `0x0001` (`SPLC_RTC_FLAG_SYNCED`): `1` = Đã đồng bộ với Host PC; `0` = Chưa đồng bộ. (Host PC bật cờ này khi gửi giờ chuẩn).
+  * `0x0002` (`SPLC_RTC_FLAG_HW_PRESENT`): `1` = Có IC phần cứng RTC rời (DS3231, PCF8563...) hoặc thạch anh 32.768kHz (LSE); `0` = Đếm giờ bằng phần mềm SysTick. *(Do MCU tự xác định lúc boot, Host PC không được tự ý xóa).*
+  * `0x0004` (`SPLC_RTC_FLAG_BATTERY_LOW`): `1` = Pin nuôi RTC bị yếu/hết pin (< 2.0V) hoặc mất pin; `0` = Pin tốt (> 2.5V). *(Do MCU đo đạc / đọc từ thanh ghi cảnh báo của IC RTC để báo cáo cho Host PC).*
+* **Quy tắc Read-Before-Write**: Host PC **phải đọc FC03** tại `0x0810` trước khi kết nối để lấy thông tin phần cứng và cờ pin. Khi gửi lệnh FC16 đồng bộ, Host PC **bắt buộc phải bảo toàn** cờ `HW_PRESENT` và `BATTERY_LOW` từ MCU, chỉ cập nhật `SYNCED = 1`.
 
 ### 3.5. `SPLC_DiagBlock_t` (0x0A20, 5 thanh ghi = 10 Bytes)
 Khối chẩn đoán, cưỡng bức ngõ ra và kiểm soát Watchdog Lease.
@@ -268,8 +269,11 @@ Host (Studio)                                    MCU Firmware
      │  - Mở khóa phân hệ Chẩn đoán (0x0A20)          │
      │  - Mở khóa phân hệ Function Block (0x0B00)     │
      │                                                │
-     ├─ 3. FC16 Ghi 0x0810..0x0813 (4 regs) ─────────>│ Tự động đồng bộ giờ máy tính xuống MCU:
-     │     [EpochUtcSeconds, TzOffset, StatusFlags]   │ MCU cập nhật RTC nội bộ
+     ├─ 3a. FC03 Đọc 0x0810..0x0813 (4 regs) ────────>│ Đọc trạng thái RTC (Giờ hiện tại, HW_PRESENT, BATTERY_LOW, SYNCED)
+     │                                                │ Studio phân tích độ lệch giờ và cờ pin
+     │                                                │
+     ├─ 3b. [Có điều kiện] FC16 Ghi 0x0810..0x0813 ──>│ Đồng bộ giờ PC nếu lệch > 2s hoặc !IsSynced:
+     │     [EpochUtcSeconds, TzOffset, StatusFlags]   │ Studio BẢO TOÀN cờ HW_PRESENT & BATTERY_LOW, bật SYNCED=1
      │                                                │
      └─ 4. Bắt đầu chu kỳ quét viễn trắc (100ms) ────>│ MCU phản hồi Health (0x0800) & Tags (0x0900)
 ```
