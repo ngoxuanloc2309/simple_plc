@@ -127,11 +127,17 @@ mục 2.1 câu 1 về 1 mâu thuẫn đã gặp và cách xử lý):
 
 ### 2.3 Các bước implement (theo thứ tự, mỗi bước build/test độc lập trước khi sang bước sau)
 
-**Bước 1 — DeviceDescriptor & DeviceResourceInfo báo đúng V2.0**
-- Set `protocol_version = 2`, `wire_profile = 2` ở 2 block đã có sẵn
-  trong `plc_modbus_cfg.c`/`plc_device.h`. Việc nhỏ, làm trước để App có
-  thể nhận diện thiết bị V2.0 ngay cả khi các block mới chưa xong.
-- Verify: `test_plc.py read_info` đọc đúng 2 field.
+**Bước 1 — DeviceDescriptor & DeviceResourceInfo báo đúng V2.0: ĐÃ XONG**
+- Set `protocol_version = 2`, `rule_format_version = 7`,
+  `wire_profile = SPLC_WIRE_PROFILE_V2` (giá trị mới thêm vào enum).
+- File đã sửa: `core/plc_device/plc_device.h` (thêm
+  `SPLC_WIRE_PROFILE_V2` vào `SPLC_WireProfile` enum),
+  `board/board_device/board_zigbee_io.c` (set 3 giá trị thật trong
+  `board_device_info_init()`).
+- **Build ARM thật thành công, người dùng đã xác nhận.** Chưa có log/
+  test thật xác nhận App hoặc `test_plc.py read_info` đọc đúng giá trị
+  qua Modbus trên board — nên verify khi tiện, không bắt buộc trước khi
+  làm Bước 2.
 
 **Bước 2 — Diagnostic Control Block (`0x0A20`), KHÔNG kèm write runtime tag**
 - Thêm state machine `DIAG_STATE` (ENGINE_RUNNING/DIAG_CONTROL/
