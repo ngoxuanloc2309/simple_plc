@@ -118,6 +118,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Layer U - Utils (pure algorithms, no hardware dependency)
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/cqueue/cqueue.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/epoch/splc_epoch.c
     # NOTE: utils/logger/logger.c is built by board/CMakeLists.txt's
     # splc_board target instead -- board_<sku>.c is its only caller
     # today. See that file's comment.
@@ -130,4 +131,5 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Only Layer U (utils/cqueue/cqueue.c above) still has no
     # CMakeLists.txt of its own, hence the one include dir left here.
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/cqueue
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/epoch
 )

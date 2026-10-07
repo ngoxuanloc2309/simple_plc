@@ -51,6 +51,7 @@ set(SPLC_PLATFORM_STM32H5_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/uart/stm32h5_uart.c
     ${CMAKE_CURRENT_SOURCE_DIR}/time/stm32h5_time.c
     ${CMAKE_CURRENT_SOURCE_DIR}/system/stm32h5_system.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtc/stm32h5_rtc.c
 )
 
 add_library(splc_platform_stm32h5 STATIC ${SPLC_PLATFORM_STM32H5_SRC})
@@ -69,6 +70,16 @@ target_include_directories(splc_platform_stm32h5 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/flash_define
     ${CMAKE_CURRENT_SOURCE_DIR}/pwd
     ${CMAKE_CURRENT_SOURCE_DIR}/system
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtc
+)
+
+# stm32h5_rtc.c #includes "splc_epoch.h" (Layer U, utils/epoch/) for the
+# epoch <-> calendar conversion. The matching splc_epoch.c is compiled into
+# the top-level executable by simple_plc/CMakeLists.txt (same as cqueue.c),
+# so only the header path is needed here. PRIVATE: no consumer of this
+# library's headers needs it.
+target_include_directories(splc_platform_stm32h5 PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../utils/epoch
 )
 
 # TODO(wiring): sx_platform_config.h (the STM32H5_PLATFORM=1 / *_PLATFORM=0
