@@ -5,6 +5,7 @@
 
 #include "plc_modbus_cfg.h"
 #include "plc_system_cmd.h"
+#include "plc_system_clear.h"
 #include "plc_error.h"
 #include "sx_system.h"
 #include "sx_time.h"
@@ -68,24 +69,42 @@ void plc_system_cmd_service(void)
              * reboot has no "after" to report DONE in. */
             break;
 
-        case SPLC_SYSTEM_CMD_FACTORY_RESET:
         case SPLC_SYSTEM_CMD_CLEAR_RULES:
         case SPLC_SYSTEM_CMD_CLEAR_RETAIN:
+        case SPLC_SYSTEM_CMD_FACTORY_RESET:
+        {
             /*
-             * Accepted over Modbus (write_system_command() already set
-             * status=ACCEPTED) but deliberately NOT acted on here yet.
-             * Unlike REBOOT, these three destroy data (Flash-erase the
-             * rule table and/or the retain store) and "factory default"
-             * for this SKU has not been pinned down yet -- e.g. does
-             * FACTORY_RESET clear tag/network config too, or only rules +
-             * retain, and does it reboot afterwards? See docs/handoff.md
-             * for the open question. Implementing this with a guessed
-             * scope risks destroying more (or less) than the product
-             * actually wants "factory reset" to mean, which is worse
-             * than leaving it visibly unimplemented (ACCEPTED forever,
-             * never DONE) until answered.
+             * Scope (handoff 2.3 step 6, confirmed by the project owner):
+             * CLEAR_RULES = empty Active Rule Table, CLEAR_RETAIN = all
+             * retain tags to 0, FACTORY_RESET = both. Done by writing a new
+             * EMPTY record through the verified save paths, not by erasing
+             * sectors -- see plc_system_clear.h for why (power loss safe).
+             *
+             * Runs synchronously here (same as the rule COMMIT, which also
+             * saves to Flash inside one scan cycle). Does NOT reboot: RAM
+             * and Flash agree after the call, the App can send REBOOT
+             * itself if it wants one.
+             *
+             * write_system_command() already ran the Step 5 baseline reset
+             * (tags the Host wrote in diag go back to 0) before queueing
+             * this command.
              */
+            bool ok;
+            if (cmd == SPLC_SYSTEM_CMD_CLEAR_RULES) {
+                ok = plc_clear_rules();
+            } else if (cmd == SPLC_SYSTEM_CMD_CLEAR_RETAIN) {
+                ok = plc_clear_retain();
+            } else {
+                ok = plc_factory_reset();
+            }
+
+            if (ok) {
+                plc_modbus_cfg_set_system_command_result(SPLC_CMD_STATUS_DONE, SPLC_ERROR_NONE);
+            } else {
+                plc_modbus_cfg_set_system_command_result(SPLC_CMD_STATUS_ERROR, SPLC_ERROR_FLASH);
+            }
             break;
+        }
 
         default:
             /* write_system_command() already rejects any value outside

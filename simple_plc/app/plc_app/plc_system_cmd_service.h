@@ -12,10 +12,11 @@
  * belongs up here instead, per plc_system_cmd.h's (Layer 2) own comment
  * on where this execution boundary sits.
  *
- * Currently implements SPLC_SYSTEM_CMD_REBOOT end-to-end. See
- * plc_system_cmd_service.c's doc-comment for FACTORY_RESET/CLEAR_RULES/
- * CLEAR_RETAIN's status (accepted over Modbus, not yet acted on here --
- * open product-scope question, not a missing wiring step).
+ * Implements all four commands end-to-end: REBOOT here (staggered
+ * sx_system_reset()), and CLEAR_RULES / CLEAR_RETAIN / FACTORY_RESET by
+ * calling plc_system_clear.h (empty record written through the verified
+ * Flash save paths). SYSTEM_COMMAND_RESULT goes ACCEPTED -> DONE, or
+ * ERROR + SPLC_ERROR_FLASH if the Flash write could not be verified.
  */
 
 #ifdef __cplusplus

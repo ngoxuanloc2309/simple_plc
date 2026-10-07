@@ -18,6 +18,7 @@
 add_library(splc_app STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_app/plc_engine.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_app/plc_system_cmd_service.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_app/plc_system_clear.c
 )
 
 target_include_directories(splc_app PUBLIC
