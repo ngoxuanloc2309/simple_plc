@@ -192,6 +192,15 @@ void rule_table_load_from_flash(void);
 void rule_scan(uint32_t now_ms);
 
 /*
+ * Reset every rule's runtime state (g_rule_runtime[]) to the same values a
+ * freshly committed table has: RULE_STATE_IDLE, prev_value = 0, dwell not
+ * started, last_fire_tick = 0. g_rule_table[] and g_rule_count are NOT
+ * touched. Called by rule_table_commit(), and by Layer 4 when the Rule
+ * Engine resumes after a diagnostic session (docs/handoff.md section 2.1).
+ */
+void rule_runtime_reset(void);
+
+/*
  * Replace the active rule table with new data. Called from Layer 3
  * (plc_modbus_cfg.c) only after the incoming data has already passed its
  * own CRC-16/MODBUS check (see docs/architecture.md section 2.6.2 and the

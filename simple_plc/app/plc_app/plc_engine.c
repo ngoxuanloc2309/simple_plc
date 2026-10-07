@@ -80,13 +80,24 @@ static void scan_cycle(uint32_t now_ms)
      * Suspended while a Host holds DIAG_CONTROL (Wire Contract section 1,
      * invariant 2). input_scan()/output_scan() still run: DO pins keep
      * following their tags and DI/AI tags stay current for the Host to
-     * read. rule_scan()'s per-rule state is not touched while skipped, so
-     * on resume the first pass compares against stale previous values and
-     * can report an edge that happened during the diagnostic session.
+     * read.
+     *
+     * Decision (board_dev, agreed with the App team): when the Rule Engine
+     * resumes -- CMD_EXIT_DIAG or lease expiry, both end up here because
+     * diag_tick() ran above -- every rule's runtime state is reset, so the
+     * rules run again exactly as after a fresh load. Rule table unchanged.
+     * Consequence (same as a cold start): an input already HIGH at that
+     * moment counts as a rising edge for ON_RISE rules on the first pass.
      */
-    if (!plc_modbus_cfg_is_rule_engine_suspended()) {
+    static bool s_rule_engine_was_suspended = false;
+    bool suspended = plc_modbus_cfg_is_rule_engine_suspended();
+    if (!suspended) {
+        if (s_rule_engine_was_suspended) {
+            rule_runtime_reset();
+        }
         rule_scan(now_ms);
     }
+    s_rule_engine_was_suspended = suspended;
 
     output_scan();
     modbus_config_service();

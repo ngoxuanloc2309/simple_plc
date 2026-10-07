@@ -58,6 +58,16 @@ void rule_scan(uint32_t now_ms)
     }
 }
 
+void rule_runtime_reset(void)
+{
+    for (int i = 0; i < MAX_RULES; i++) {
+        g_rule_runtime[i].state             = RULE_STATE_IDLE;
+        g_rule_runtime[i].prev_value        = 0;
+        g_rule_runtime[i].dwell_start_tick  = DWELL_NOT_STARTED;
+        g_rule_runtime[i].last_fire_tick    = 0;
+    }
+}
+
 bool rule_table_commit(const uint8_t *raw_data, uint16_t rule_count)
 {
     /*
@@ -80,12 +90,7 @@ bool rule_table_commit(const uint8_t *raw_data, uint16_t rule_count)
                (size_t)(MAX_RULES - rule_count) * sizeof(SPLC_RuleRecord));
     }
 
-    for (int i = 0; i < MAX_RULES; i++) {
-        g_rule_runtime[i].state             = RULE_STATE_IDLE;
-        g_rule_runtime[i].prev_value        = 0;
-        g_rule_runtime[i].dwell_start_tick  = DWELL_NOT_STARTED;
-        g_rule_runtime[i].last_fire_tick    = 0;
-    }
+    rule_runtime_reset();
     g_rule_count.rule_count = rule_count;
     log_info(TAG, "rule table committed: %u rule(s) active, runtime state reset", rule_count);
     return true;
