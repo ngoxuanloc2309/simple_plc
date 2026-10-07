@@ -22,10 +22,12 @@ What this checks, in order (each line prints PASS/FAIL):
      heartbeat, the MCU falls back to ENGINE_RUNNING by itself and latches
      ERR_LEASE_EXPIRED, which survives a late HEARTBEAT.
 
-Manual check worth doing once with a rule loaded (e.g. test_plc.py's
-DI0 -> DO0): ENTER_DIAG, then toggle DI0 -- DO0 must NOT react while in
-DIAG_CONTROL (Rule Engine suspended). After EXIT_DIAG (or lease expiry) the
-rule must work again.
+Manual mode (python test_diag.py COM5 manual): checks that the Rule Engine
+is really suspended during DIAG_CONTROL. Needs a rule such as test_plc.py's
+"IF DI0 rises THEN DO0 = 1" already loaded. The script enters diag mode,
+keeps it alive with a heartbeat every second, and prints DI0..DIn / DO0
+whenever they change. While it says "DIAG_CONTROL", toggling DI0 must NOT
+change DO0. After it leaves diag mode, DI0 must drive DO0 again.
 """
 
 import argparse
@@ -43,6 +45,7 @@ FLAG_RETAIN_DIRTY, FLAG_LEASE_ACTIVE = 0x1, 0x2
 ERR_NONE, ERR_LEASE_EXPIRED, ERR_INVALID_COMMAND = 0, 2, 4
 
 _failures = 0
+SPLC_HEARTBEAT_S = 1.0
 
 
 def check(cond, msg):
@@ -165,10 +168,56 @@ def run(d, skip_expiry):
     check(d.wait_state(STATE_RUNNING), "left diag mode cleanly")
 
 
+REG_RESOURCE_DI_COUNT = 0x0020 + 3   # DEVICE_RESOURCE_INFO.di_count
+REG_RUNTIME_TAGS = 0x0900            # int32 per tag, high word first
+
+
+def read_tag(d, idx):
+    rr = d.c.read_holding_registers(address=REG_RUNTIME_TAGS + idx * 2, count=2, **d.kw)
+    if rr.isError():
+        raise RuntimeError(f"read tag {idx} failed: {rr}")
+    v = (rr.registers[0] << 16) | rr.registers[1]
+    return v - (1 << 32) if v & 0x80000000 else v
+
+
+def watch(d, seconds, di_count, tag_do0, label):
+    print(f"--- {label} ({seconds:.0f} s): toggle DI0 now ---")
+    t_end, last, next_hb = time.time() + seconds, None, 0.0
+    while time.time() < t_end:
+        if label.startswith("DIAG") and time.time() >= next_hb:
+            d.fc06(REG_DIAG_BASE, CMD_HEARTBEAT)
+            next_hb = time.time() + SPLC_HEARTBEAT_S
+        row = tuple(read_tag(d, i) for i in range(di_count)) + (read_tag(d, tag_do0),)
+        if row != last:
+            di = " ".join(f"DI{i}={v}" for i, v in enumerate(row[:-1]))
+            print(f"  [{label}] {di}  DO0={row[-1]}")
+            last = row
+        time.sleep(0.1)
+
+
+def run_manual(d, seconds):
+    (di_count,) = d.c.read_holding_registers(address=REG_RESOURCE_DI_COUNT, count=1,
+                                             **d.kw).registers
+    tag_do0 = di_count   # DO tags start right after DI, same as test_plc.py
+    print(f"di_count={di_count}, DO0 is tag {tag_do0}")
+    watch(d, seconds, di_count, tag_do0, "NORMAL: rule should drive DO0")
+    d.fc06(REG_DIAG_BASE, CMD_ENTER)
+    if not d.wait_state(STATE_CONTROL):
+        print("Could not enter DIAG_CONTROL"); return
+    watch(d, seconds, di_count, tag_do0, "DIAG_CONTROL: DO0 must NOT change")
+    d.fc06(REG_DIAG_BASE, CMD_EXIT)
+    d.wait_state(STATE_RUNNING)
+    watch(d, seconds, di_count, tag_do0, "NORMAL again: rule should drive DO0")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("port", help="Serial port, e.g. COM5 or /dev/ttyACM0")
+    p.add_argument("mode", nargs="?", default="auto", choices=["auto", "manual"],
+                   help="'auto' (default): protocol checks. 'manual': Rule Engine suspension test by hand")
+    p.add_argument("--seconds", type=float, default=10.0,
+                   help="manual mode: length of each of the 3 phases (default 10)")
     p.add_argument("--unit", type=int, default=1, help="Modbus unit id (default 1)")
     p.add_argument("--baudrate", type=int, default=115200)
     p.add_argument("--skip-expiry", action="store_true", help="Skip the ~4 s lease-expiry test")
@@ -180,7 +229,10 @@ def main():
         print(f"Failed to open {a.port}")
         sys.exit(1)
     try:
-        run(Diag(client, a.unit), a.skip_expiry)
+        if a.mode == "manual":
+            run_manual(Diag(client, a.unit), a.seconds)
+        else:
+            run(Diag(client, a.unit), a.skip_expiry)
     finally:
         try:  # never leave the board in DIAG_CONTROL (Rule Engine suspended)
             Diag(client, a.unit).fc06(REG_DIAG_BASE, CMD_EXIT)
@@ -188,8 +240,9 @@ def main():
             pass
         client.close()
 
-    print(f"\n{'ALL PASS' if _failures == 0 else str(_failures) + ' FAILED'}")
-    sys.exit(0 if _failures == 0 else 1)
+    if a.mode == "auto":
+        print(f"\n{'ALL PASS' if _failures == 0 else str(_failures) + ' FAILED'}")
+        sys.exit(0 if _failures == 0 else 1)
 
 
 if __name__ == "__main__":

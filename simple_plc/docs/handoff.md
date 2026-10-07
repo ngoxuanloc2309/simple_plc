@@ -15,7 +15,8 @@
 phần V2.0 nào.** Toàn bộ nền tảng V1.9 (Rule Engine, Flash persistence,
 REBOOT, multi-board) đã chạy ổn trên board thật + App thật, coi là xong,
 chi tiết nén ở mục 1. Việc cần làm tiếp theo: mục 2 (kế hoạch V2.0, chia
-bước nhỏ theo thứ tự).
+bước nhỏ theo thứ tự). **Bước 1 và Bước 2 đã xong và verify trên board;
+Bước 3 là bước kế tiếp.**
 
 Board hiện dùng: **Zigbee-IO SKU** (`board/board_device/board_zigbee_io.c`),
 4 DI / 4 DO / 0 AI, STM32H523CCU6. Branch **`board_dev`**.
@@ -134,12 +135,12 @@ mục 2.1 câu 1 về 1 mâu thuẫn đã gặp và cách xử lý):
   `SPLC_WIRE_PROFILE_V2` vào `SPLC_WireProfile` enum),
   `board/board_device/board_zigbee_io.c` (set 3 giá trị thật trong
   `board_device_info_init()`).
-- **Build ARM thật thành công, người dùng đã xác nhận.** Chưa có log/
-  test thật xác nhận App hoặc `test_plc.py read_info` đọc đúng giá trị
-  qua Modbus trên board — nên verify khi tiện, không bắt buộc trước khi
-  làm Bước 2.
+- **Build ARM thật thành công, người dùng đã xác nhận. ĐÃ VERIFY QUA
+  MODBUS trên board** (`test_plc.py`): `protocol_version=2`,
+  `rule_format_version=7`, `wire_profile=2`, `max_rules=100`,
+  `di_count=4 do_count=4`.
 
-**Bước 2 — Diagnostic Control Block (`0x0A20`), KHÔNG kèm write runtime tag — CODE XONG, CHỜ VERIFY TRÊN BOARD**
+**Bước 2 — Diagnostic Control Block (`0x0A20`), KHÔNG kèm write runtime tag — ĐÃ XONG, ĐÃ VERIFY TRÊN BOARD (còn 1 câu hỏi mở về edge giả, xem dưới)**
 
 *Đã làm (verify trên PC: compile -Wall -Wextra sạch phần code mới, 48 check callback + chạy `test_diag.py` đầu-cuối qua frame RTU thật với firmware PC, kể cả frame GV-009 khớp từng byte. `plc_engine.c` mới chỉ kiểm cú pháp, chưa chạy):*
 - `core/plc_diag/plc_diag.h` (Layer 2, chỉ type): enum command/state/flags/error + hằng số lease. `SPLC_DiagErrorCode` là enum RIÊNG, không dùng chung `SPLC_ErrorCode`.
@@ -154,7 +155,17 @@ mục 2.1 câu 1 về 1 mâu thuẫn đã gặp và cách xử lý):
 4. Đọc `0x0A20` trả lệnh cuối đã ghi (để khớp GV-005: `CMD=2`), dù Wire Contract ghi WO.
 5. Ghi giá trị `0` vào `0x0A20` = không làm gì, không báo lỗi; giá trị >5 → `ERR_INVALID_COMMAND`.
 
-*Còn để ngỏ cho Bước 4/5 (đã đánh dấu `STEP 4` trong code):* COMMIT/DISCARD hiện là no-op vì `RETAIN_DIRTY` luôn 0; lease hết hạn chưa huỷ RAM shadow retain; khi `rule_scan()` tiếp tục sau diag, `prev_value` của rule còn giá trị cũ nên có thể sinh 1 edge giả (chưa xử lý, xem comment trong `scan_cycle()`).
+*Kết quả verify trên board thật (COM14):*
+- `test_diag.py` (auto): **31/31 PASS** — ENTER/HEARTBEAT/EXIT, lease đếm lùi theo thời gian thật (đọc ra 2970/2990 thay vì đúng 3000 là bình thường: vài vòng scan trôi giữa lệnh và lần đọc), FC16 quantity>1 bị từ chối, ghi thanh ghi RO bị từ chối, lease hết hạn tự rơi về `ENGINE_RUNNING` + `ERR_LEASE_EXPIRED`.
+- `test_diag.py manual` (Rule Engine thật sự dừng): **PASS, bằng chứng đủ** ở lần chạy thứ 3. Board vừa reset, DO0=0. Trong `DIAG_CONTROL`, DI0 được kích lên 4 lần (4 sườn lên) nhưng DO0 giữ 0 và log MCU KHÔNG có dòng `PLC_RULE ... FIRED` nào giữa `diag: ENTER` và `diag: EXIT`. Sau `EXIT` rule chạy lại (`rule[0] FIRED`, DO0=1).
+- **Bài học test (đừng lặp lại):** rule thử chỉ SET DO0=1, không có gì kéo về 0. Hai lần chạy `manual` đầu KHÔNG kết luận được vì DO0 đã kẹt ở 1 từ trước (board chưa reset) — DO0 đã là 1 thì rule chạy hay dừng đều không nhìn thấy khác biệt. Trước khi chạy `manual`: reset board, xác nhận dòng đầu `NORMAL` là `DO0=0`. Sau Bước 3 (ghi được DO qua diag) test này sẽ không cần reset nữa.
+- Môi trường: `test_diag.py`/`test_plc.py` cần `pip install pyserial` đúng interpreter (dùng `python -m pip`, máy dev có nhiều Python do ESP-IDF).
+
+**CÂU HỎI MỞ — edge giả khi thoát diag (có bằng chứng, cần người dùng quyết):**
+Ở lần chạy `manual` thứ 3, DI0 đang ở mức cao (kích lần cuối trong diag, chưa nhả) lúc `EXIT`. Dòng đầu của giai đoạn `NORMAL again` đã là `DI0=1 DO0=1` và log chỉ có đúng 1 dòng `FIRED` ngay sau `EXIT`, trước khi người dùng kích thêm lần nào. Giải thích hợp lý nhất (chưa đo trực tiếp `prev_value`): `rule_scan()` bị bỏ qua suốt phiên diag nên `prev_value` của rule còn là 0 từ trước diag; vòng đầu sau khi thoát thấy DI0=1 so với `prev_value=0` → coi là sườn lên → fire. Tức là 1 input giữ cao SUỐT phiên diag (hoặc thay đổi trong diag) có thể kích rule `ON_RISE` ngay khi thoát, dù không có sườn thật nào xảy ra SAU khi thoát.
+- Hai hướng, CHƯA code (đợi người dùng chọn): (a) giữ nguyên — khớp Wire Contract 6.3 Case B ("chạy 1 vòng scan thật, Rule Engine tự tính output theo input vật lý + rule hiện hành") và quyết định #4 mục 2.1; (b) đồng bộ lại `prev_value` của mọi rule với giá trị tag hiện tại ở vòng đầu sau diag (không edge giả, nhưng rule `ON_RISE` sẽ bỏ lỡ sườn "đã xảy ra trong diag"). Hướng (b) cần hàm mới ở Layer 2 (`rule_resync_prev_values()` hoặc tương tự) — hỏi người dùng trước, đừng tự thêm.
+
+*Còn để ngỏ cho Bước 4/5 (đã đánh dấu `STEP 4` trong code):* COMMIT/DISCARD hiện là no-op vì `RETAIN_DIRTY` luôn 0; lease hết hạn chưa huỷ RAM shadow retain; edge giả khi thoát diag (xem CÂU HỎI MỞ ở trên, đã xác nhận trên board).
 
 *Kế hoạch gốc của bước này:*
 - Thêm state machine `DIAG_STATE` (ENGINE_RUNNING/DIAG_CONTROL/
