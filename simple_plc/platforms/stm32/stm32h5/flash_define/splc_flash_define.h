@@ -246,7 +246,8 @@ extern "C" {
  *
  *   struct {
  *       uint32_t seq_num;
- *       uint16_t rule_count;
+ *       uint16_t rule_count; // bit 15 = "FB section present" flag,
+ *                             // bits 0..14 = the real rule count
  *       uint16_t crc16;      // field-embedded CRC-16/MODBUS over the
  *                             // whole record (this field itself zeroed
  *                             // during calculation), NOT the same scope
@@ -254,13 +255,16 @@ extern "C" {
  *                             // see plc_rule_flash.h for why.
  *       // followed by: rule_count x 32-byte wire image, via
  *       // rule_record_to_wire() (plc_modbus_cfg.h)
+ *       // then, only if the FB flag is set: the 112-byte Function Block
+ *       // config image (plc_fb_export()), covered by the same crc16.
  *   };
  *
  * As with the Retain record layout above, this file intentionally does
  * not declare the actual struct -- only size constants -- to stay a pure
  * "where and how big" memory-map header. SPLC_RULE_FLASH_RECORD_MAX_SIZE
  * is the upper bound at MAX_RULES (100) rules; actual on-Flash records
- * are usually smaller (SPLC_RULE_FLASH_HEADER_SIZE + rule_count * 32) and
+ * are usually smaller (SPLC_RULE_FLASH_HEADER_SIZE + rule_count * 32
+ * [+ SPLC_RULE_FLASH_FB_SIZE if the FB flag is set]) and
  * services/plc_rule_flash/plc_rule_flash.c reads/writes exactly that
  * many bytes, not this fixed maximum.
  */
@@ -271,7 +275,10 @@ extern "C" {
  * should not need to pull in Layer 2 to read a Flash memory map) --
  * duplicated as a literal, cross-checked against MAX_RULES by a
  * compile-time static assertion in plc_rule_flash.c instead. */
-#define SPLC_RULE_FLASH_RECORD_MAX_SIZE   (SPLC_RULE_FLASH_HEADER_SIZE + 100U * SPLC_RULE_FLASH_RECORD_WIRE_SIZE) /* 3208 bytes max */
+#define SPLC_RULE_FLASH_FB_SIZE           112U  /* Function Block config image (plc_fb.h PLC_FB_FLASH_SIZE), cross-checked in plc_rule_flash.c */
+#define SPLC_RULE_FLASH_FB_FLAG           0x8000U /* bit 15 of the rule_count field: FB section present */
+#define SPLC_RULE_FLASH_COUNT_MASK        0x7FFFU /* bits 0..14 of the rule_count field: the real count */
+#define SPLC_RULE_FLASH_RECORD_MAX_SIZE   (SPLC_RULE_FLASH_HEADER_SIZE + 100U * SPLC_RULE_FLASH_RECORD_WIRE_SIZE + SPLC_RULE_FLASH_FB_SIZE) /* 3320 bytes max */
 
 #endif // STM32H5_PLATFORM
 

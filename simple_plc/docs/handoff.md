@@ -34,9 +34,8 @@
   `test_rtc.py --reboot` và test mất điện thật bằng tay. Chi tiết ở mục 3.
 - **Bước 8a (khối FB `0x0B00..0x0B7F`: nhận ghi cấu hình, đọc, Counter
   `CV`/`Q`): xong và verify trên board** (`test_fb.py COM14`: ALL PASS, kể cả
-  `--probe-64`). **Còn lại của Bước 8:** lưu cấu hình FB vào Flash (8b),
-  Counter retain + `CLEAR_RETAIN`/`FACTORY_RESET` + PVD (8c), Timer chạy thật
-  (8d, chờ App). Chi tiết ở mục 3.
+  `--probe-64`). **Còn lại của Bước 8:** Counter retain + `CLEAR_RETAIN`/`FACTORY_RESET` + PVD (8c), Timer chạy thật (8d, chờ App). Chi tiết ở mục 3.
+- **Bước 8b (lưu cấu hình FB vào Flash; bản nháp FB + COMMIT): code xong, verify trên PC, CHƯA build ARM và CHƯA chạy trên board.** Ghi FB giờ vào BẢN NHÁP; `0x0B00..` luôn đọc ra cấu hình đang chạy; COMMIT mới áp dụng và lưu Flash cùng Rule Table. Hành vi 8a đổi: `test_fb.py` đã viết lại cho khớp. Chi tiết mục 2 (#19, #21..#24) và mục 3. **Việc đầu tiên của phiên sau:** `git pull`, build ARM, rồi `python test_fb.py COM14 --reboot`.
 - **Đã sửa lỗi FC16 > 64 byte** (khung 73 byte không được trả lời) trong
   `components/usb_cdc/sx_usb_cdc.c` (`sx_usb_tiny_read()`), verify trên board
   bằng `test_fb.py --probe-64`. Xem mục 3.
@@ -69,6 +68,7 @@
 | 7a | RTC driver | `utils/epoch/`, `components/rtc/sx_rtc.h`, `platforms/stm32/stm32h5/rtc/` |
 | 7b | Khối RTC `0x0810`, Time Window, `status_flags` do firmware tự tính | `services/plc_rtc/`, `plc_modbus_cfg.c`, `plc_engine.c`, `plc_rule.c`, `plc_rule_eval.c`, `board_zigbee_io.c` (`g_rtc_caps`) |
 | 8a | Khối FB `0x0B00..0x0B7F`: ghi cấu hình (all-or-nothing, bỏ qua field firmware sở hữu), đọc, Counter `CV` = tag `COUNTER[i]`, `Q` tính ra. Cấu hình CHỈ trong RAM (chưa Flash) | `services/plc_fb/plc_fb.{h,c}`, `plc_modbus_cfg.c` (bảng block + `cb_write_multiple_registers`), `plc_engine.c` (`plc_fb_init()`), `services/CMakeLists.txt` |
+| 8b | Cấu hình FB lưu Flash: bản nháp + cờ khối, COMMIT áp dụng; đoạn FB 112 byte nằm TRONG bản ghi Rule Table (bit 15 của `rule_count` = có đoạn FB, một CRC phủ cả hai) | `services/plc_fb/plc_fb.{h,c}`, `services/plc_rule_flash/plc_rule_flash.{h,c}`, `platforms/stm32/stm32h5/flash_define/splc_flash_define.h`, `plc_modbus_cfg.c` (`write_commit_command()`), `app/plc_app/plc_system_clear.c` |
 | fix | FC16 > 64 byte được trả lời (đo thời gian thật + chuyển byte FIFO TinyUSB → `rxQueue` trong lúc chờ) | `components/usb_cdc/sx_usb_cdc.c` (`sx_usb_tiny_read()`) |
 
 **Cơ chế Bước 6:** không erase sector thô. Ghi một bản ghi RỖNG hợp lệ qua
@@ -173,15 +173,19 @@ V2.0 là **strict superset** của V1.9. Khi 2 tài liệu mâu thuẫn về HÀ
     Bước 8c):** sống sót qua reboot; `CLEAR_RETAIN` và `FACTORY_RESET` phải
     đưa các counter đó về 0. (Đảo mặc định cũ "không đụng `COUNTER`" của
     Bước 6, chỉ với counter có retain.)
-19. **Cấu hình FB lưu Flash cùng Rule Table** (người dùng chốt, CHƯA làm,
-    Bước 8b). Thứ tự deploy của App (`RuleTableWriter.cs`): ghi FB TRƯỚC,
-    rồi stage rule + COMMIT, nên firmware có thể giữ cấu hình FB ở dạng chờ
-    đến COMMIT rồi lưu cùng lúc. Phải trình bày thay đổi định dạng Flash cho
-    người dùng duyệt TRƯỚC khi sửa `plc_rule_flash.c`; bản Flash cũ không có
-    đoạn FB vẫn phải nạp được.
+19. **Cấu hình FB lưu Flash cùng Rule Table — ĐÃ LÀM (8b).** Đoạn FB (112 byte, big-endian, chỉ field do Host sở hữu: 8 Timer × {mode u16, pt_ms u32} + 8 Counter × {mode u16, preset i32, retain_tag_index u16}) nằm CUỐI chính bản ghi Rule Table; bit 15 của trường `rule_count` = "có đoạn FB" (bit 0..14 = số rule); MỘT `crc16` phủ header + rule + FB. Mất điện giữa chừng chỉ còn nguyên bản cũ hoặc nguyên bản mới, không bao giờ rule mới + FB cũ. Mọi lần save luôn ghi đoạn FB. Bản ghi cũ (trước 8b, không cờ) vẫn nạp được, FB = DISABLED. Chiều ngược lại: firmware CŨ đọc cờ như `rule_count > MAX_RULES` và coi bản ghi hỏng (hạ cấp firmware cần Deploy lại). Mọi code đọc trường này PHẢI tách cờ trước (`& 0x7FFF` / `& 0x8000`). Kích thước tối đa 3320 byte, vừa 1 sector 8 KB.
+
 20. **Timer: hoãn phần chạy** (người dùng chọn làm Counter trước). Hiện Timer
     chỉ lưu và đọc lại `mode`/`pt_ms`; `status`/`ET` đọc ra 0. Chờ App chốt
     cách nối `IN`/`RESET`/`Q` (mục 3, Bước 8d).
+
+21. **Bản nháp FB ("Cách 2", người dùng chốt):** `plc_fb_write()` ghi vào bản nháp, validate ngay lúc ghi (all-or-nothing, exception `0x02`/`0x03` như 8a). Mỗi khối Host ghi (bất kỳ thanh ghi nào của khối, kể cả field firmware sở hữu) được đánh cờ "đã ghi"; lần đầu chạm khối, bản nháp của nó khởi tạo từ cấu hình đang chạy (FC06 một thanh ghi giữ nguyên các field còn lại). Đọc `0x0B00..` luôn trả cấu hình ĐANG CHẠY (giống `ACTIVE_RULE_TABLE`): giữa lúc ghi FB và COMMIT đọc lại thấy giá trị cũ. Lý do: cả Deploy (rule + FB) có tính nguyên tử, và 8c/8d cần vùng đệm này. Tốn thêm khoảng 112 byte RAM nháp.
+
+22. **COMMIT thành công:** `plc_fb_commit_draft()` chạy NGAY SAU `rule_table_commit()` và TRƯỚC `plc_rule_flash_save()`: khối có cờ nhận nội dung nháp, khối KHÔNG có cờ về DISABLED (cấu hình thuộc về chương trình đang commit), rồi lưu Flash. Lưu Flash lỗi: RAM giữ bản mới, `CONFIG_ERROR_CODE = FLASH` (giống rule).
+
+23. **Bản nháp sống bao lâu:** xoá (cùng cờ) khi COMMIT xong dù thành công hay LỖI (CRC sai, `rule_table_commit` từ chối), khi `CLEAR_RULES`/`FACTORY_RESET`, và khi boot. Lý do: App ghi FB TRƯỚC khi nạp rule nên firmware không có "điểm bắt đầu Deploy"; nếu nháp sống qua COMMIT lỗi, khối ghi dở sẽ dính sang Deploy sau dù project đã bỏ nó. Hệ quả: mỗi Deploy App phải ghi lại FB từ đầu (App đã làm vậy). Ghi sai magic vào `0xA000` KHÔNG phải một lần COMMIT nên không xoá nháp. Quy tắc cũ "cờ còn qua COMMIT lỗi" bị thay bằng quy tắc này.
+
+24. **Kiểm tra trùng `retain_tag_index` chỉ so giữa các khối CÓ TRONG BẢN NHÁP**, không so với cấu hình đang chạy (khối không ghi sẽ DISABLED sau COMMIT). Ví dụ: đang chạy Counter 0 dùng tag 72; project mới bỏ Counter 0, Counter 1 dùng tag 72; App chỉ ghi Counter 1: phải được chấp nhận. `plc_fb_import()` (nạp từ Flash) coi mọi khối là có mặt. `CLEAR_RULES`/`FACTORY_RESET` đưa FB về DISABLED cùng lúc với rule (trước khi lưu, để bản ghi rỗng mang đoạn FB rỗng); lưu lỗi thì khôi phục cả rule lẫn FB trong RAM.
 
 **Lệch có chủ đích khác so với tài liệu (đội App cần biết):**
 - `DISCARD_RETAIN` bỏ bản nháp, KHÔNG reload từ Flash (Rule Engine dừng trong
@@ -204,11 +208,7 @@ V2.0 là **strict superset** của V1.9. Khi 2 tài liệu mâu thuẫn về HÀ
   timeout đủ rộng và poll `0x0A01` để thấy `DONE`.
 
 **Cần người dùng xác nhận lại (diễn giải của Claude, chưa được duyệt rõ ràng):**
-- Bước 8b: khối FB KHÔNG được ghi trong lần deploy (App chỉ ghi N khối đầu,
-  không ghi `mode 0` cho khối bị xoá, và không ghi gì nếu project không có
-  Timer/Counter) — đề xuất: coi là DISABLED khi COMMIT, nếu không board giữ
-  mãi cấu hình cũ. Rủi ro: client khác chỉ commit rule sẽ xoá cấu hình FB.
-  Chưa chốt.
+- ~~Bước 8b: khối FB không được ghi trong lần deploy~~ — ĐÃ CHỐT (#22): khối không ghi thì DISABLED khi COMMIT. Rủi ro còn lại cho đội App: client khác chỉ COMMIT rule (không ghi FB) sẽ xoá cấu hình FB; và nếu Studio đọc lại FB giữa lúc ghi và lúc COMMIT sẽ thấy giá trị CŨ. **Chưa kiểm tra code App có đọc lại FB trước COMMIT không** (`FunctionBlockGateway.cs`, `RuleTableWriter.cs`).
 - Đổi cấu hình counter (mode/PV) hiện KHÔNG đặt lại `CV` (0 cho CTU, PV cho
   CTD); `CV` do rule của App quản lý. Hỏi App nếu cần firmware khởi tạo.
 - Quyết định #4 với `VREG_RETAIN`: hiện bản nháp bị BỎ, không ghi 0 vào giá trị
@@ -319,11 +319,7 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
 - `RuleCompiler.cs` chỉ sinh macro rule khi `WireProfile < 2` (mục 2, #13).
 
 **Còn lại:**
-- **8b — lưu cấu hình FB vào Flash cùng Rule Table** (#19). Cấu hình hiện chỉ
-  trong RAM: REBOOT là mất, App phải deploy lại. Cần thiết kế định dạng bản
-  ghi (thêm đoạn cuối bản ghi rule; `seq_num`/`rule_count`/`crc16` hiện có),
-  tương thích ngược với Flash cũ, và duyệt với người dùng trước khi sửa
-  `plc_rule_flash.c`. Giải quyết cả câu hỏi "khối không được ghi" (mục 2).
+- **8b — XONG về code, VERIFY TRÊN PC; CHƯA build ARM, CHƯA chạy trên board** (#19, #21..#24). Verify trên PC (gcc host + ASan/UBSan, firmware thật Layer 2/3 + nanoMODBUS thật, Flash giả mô phỏng mất điện giữa chừng một lần ghi/xoá): (1) ghi FB là nháp, đọc vẫn thấy cũ, COMMIT mới thấy; (2) khối không ghi thành DISABLED; (3) trùng retain chỉ tính trong nháp; (4) COMMIT sai CRC xoá nháp, Deploy sau không dính khối cũ; sai magic không xoá nháp; (5) `CLEAR_RULES`/`FACTORY_RESET` xoá FB và nháp; (6) lưu/nạp Flash khứ hồi, bản ghi trước-8b vẫn nạp, hỏng đoạn FB bị CRC bắt rồi rơi về B; (7) quét mất điện tại MỌI đơn vị ghi/xoá của một lần save (41 đơn vị): sau khởi động lại luôn là đúng bản cũ hoặc đúng bản mới (25/19), KHÔNG lần nào lẫn. 75 kiểm tra PASS. `test_fb.py` bản mới chạy với firmware PC qua pty (REBOOT mô phỏng mất sạch RAM, giữ Flash), kèm `--reboot --probe-64`: ALL PASS. **Ý nghĩa đã đổi so với 8a:** `test_fb.py` cũ kiểm "ghi xong đọc ngay thấy giá trị mới" không còn đúng; script mới ghi → COMMIT → đọc. **Việc cần làm trên máy bạn:** build ARM (kiểm `.text+.data` so với `0x08036000`, xem mục "mất log"), nạp, `python test_fb.py COM14 --reboot`, và chạy lại `test_rtc.py`, `test_sysclear.py --reboot`, `test_tag.py` vì `plc_modbus_cfg.c`, `plc_rule_flash.c`, `plc_system_clear.c` bị sửa.
 - **8c — Counter retain** (#18): mỗi scan chép giá trị counter vào tag
   VREG_RETAIN đã liên kết (không đặt `RETAIN_DIRTY`, vì sẽ chặn `EXIT_DIAG`
   mãi), nạp lại khi boot sau `retain_store_restore()`, `plc_clear_retain()` /
@@ -369,6 +365,7 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
   Nếu đúng (2), cân nhắc đặt `LENGTH = 216K` (file `.ld` do CubeMX sinh —
   hỏi người dùng trước khi sửa); nếu đúng (1), các hàm load Flash cần chịu
   được dữ liệu rác (kiểm CRC, không fault).
+- **Phát hiện khi test 8b (có từ trước, CHƯA sửa, chờ bạn quyết):** `plc_rule_flash_save()` coi "đọc lại A thấy CRC hợp lệ" là thành công. Nếu Flash không nhận cả erase lẫn program (khoá/bảo vệ ghi), A giữ nguyên BẢN CŨ còn hợp lệ nên hàm trả `true` dù không lưu gì; mô phỏng: `plc_clear_rules()` với Flash "chết" báo thành công và không khôi phục RAM. Đề xuất: sau khi đọc lại, kiểm thêm `seq_num` == `new_seq_num`. Chưa có bằng chứng xảy ra trên chip (lỗi thật thường để dữ liệu rách, CRC bắt được).
 - Sai số LSI: nếu Time Window cần chính xác hơn, cân nhắc hiệu chuẩn hoặc thêm
   thạch anh LSE (đổi cấu hình CubeMX + prescaler về 127/255, code `sx_rtc` giữ
   nguyên).
@@ -429,6 +426,9 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
 16. **Script test phải bắt ngoại lệ của pymodbus** (`ModbusException`) ở các
     bước thăm dò mà board có thể không trả lời, và vẫn chạy bước dọn dẹp.
 
+17. **Việc chưa giao cho người dùng thì mất khi phiên kết thúc** (container không giữ): hai phiên 8b đầu hết token khi code còn trong container, phải làm lại. Sau mỗi mốc, present nguyên file ngay; đừng để dồn đến cuối.
+18. **Flash giả phải mô phỏng đúng "mất điện":** sau mất điện mọi erase/program tiếp theo phải bị BỎ QUA, chỉ lệnh đang chạy mới "rách". Harness đầu cho mỗi erase vẫn xoá nửa sector nên báo lỗi giả "mất cả A lẫn B". Kết quả lạ thì kiểm harness trước khi nghi firmware.
+
 ## 5. Quy trình làm việc với người dùng
 
 - Trao đổi **tiếng Việt**, code/comment **tiếng Anh**.
@@ -457,7 +457,7 @@ interpreter — dùng `python -m pip`, máy dev có nhiều Python do ESP-IDF):
 | `test_diag.py [manual \| manual-dwell --expire] COM14` | state machine diag, lease, Rule Engine thực sự dừng, reset runtime khi thoát diag |
 | `test_tag.py COM14 [--pins --commit --reboot]` | ghi tag trong diag, all-or-nothing, retain draft/COMMIT/DISCARD, baseline reset trước REBOOT |
 | `test_rtc.py COM14 [--reboot]` | Bước 7: khối `0x0810`, `status_flags` RO, từ chối ghi sai (`0x02`/`0x03`), tốc độ đồng hồ, Time Window (mốc phút, khung, qua nửa đêm), giờ sống sót qua REBOOT. **Ghi Flash, xoá rule, đặt giờ board.** Đã chạy trên board: ALL PASS (chưa chạy `--reboot`). |
-| `test_fb.py COM14 [--probe-64]` | Bước 8a: khối FB `0x0B00..0x0B7F` (ghi cả khối, đọc, từ chối, all-or-nothing, `CV` theo tag COUNTER, `Q`, rule `INC_COUNTER`, deploy 3,3,2). `--probe-64` gửi thêm FC16 4 khối (73 byte) để kiểm lỗi giới hạn 64 byte. Dùng lại `test_plc.py`, `test_sysclear.py`, `test_rtc.py`. **Ghi cấu hình FB (RAM), nạp rule (Flash), ép tag COUNTER, cuối cùng `CLEAR_RULES` + mọi khối FB về "không dùng".** Đã chạy trên board: ALL PASS. |
+| `test_fb.py COM14 [--reboot] [--probe-64]` | Bước 8a + 8b: khối FB `0x0B00..0x0B7F`. Ghi FB vào nháp rồi COMMIT mới đọc thấy; nháp vô hình trước COMMIT; khối không ghi thành unused; từ chối (`0x03`/`0x02`), all-or-nothing, trùng retain chỉ trong nháp; FC06 giữ field còn lại; deploy 3,3,2; COMMIT lỗi xoá nháp; `CLEAR_RULES`/`FACTORY_RESET` xoá FB; `CV` theo tag COUNTER, `Q`, rule `INC_COUNTER`. `--reboot`: FB sống sót qua REBOOT cùng rule, mất sau CLEAR_RULES + REBOOT. `--probe-64`: FC16 4 khối (73 byte). **Ghi Flash (rule + FB), ép tag COUNTER, cuối cùng `CLEAR_RULES`.** Đã chạy với firmware PC (pty): ALL PASS; **chưa chạy trên board**. |
 | `test_sysclear.py COM14 [--reboot]` | Bước 6: 3 lệnh xoá, persistence qua reboot, lệnh trong diag, lệnh sai. **Ghi Flash và xoá sạch rule + retain trên board.** |
 
 Trước `test_diag.py manual`: reset board, xác nhận `DO0=0`.

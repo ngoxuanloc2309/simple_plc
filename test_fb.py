@@ -1,65 +1,63 @@
 #!/usr/bin/env python3
 """
 test_fb.py - Verify the Function Block block (0x0B00..0x0B7F, Wire Profile
-V2.0, plan step 8a) over Modbus RTU / USB-CDC.
+V2.0, plan steps 8a + 8b) over Modbus RTU / USB-CDC.
 
 Requires: pip install pymodbus pyserial   (same as the other test scripts)
 Put this file next to test_plc.py, test_sysclear.py and test_rtc.py (it
-reuses their helpers).
+reuses their helpers). Board-agnostic: tag indices come from
+DeviceResourceInfo (0x0020), dense layout (DI, DO, AI, VFLAG, VREG,
+VREG_RETAIN, COUNTER) like plc_tag.c.
 
-Board-agnostic: tag indices come from DeviceResourceInfo (0x0020), dense
-layout (DI, DO, AI, VFLAG, VREG, VREG_RETAIN, COUNTER) like plc_tag.c.
+WARNING: this test uploads rules (WRITES Flash, replaces the rule table and,
+since step 8b, the FB config stored with it), forces COUNTER tags through
+DIAG, and finishes with CLEAR_RULES (FB config cleared too). Rules already on
+the board are lost. Do not run it on a board whose rules you want to keep.
 
-WARNING: this test WRITES the FB config (RAM only in step 8a, nothing goes to
-Flash yet), uploads rules (WRITES Flash, replaces the rule table), forces
-COUNTER tags through DIAG, and finishes with CLEAR_RULES and every FB block
-set back to "unused". Rules already on the board are lost. Do not run it on a
-board whose rules you want to keep.
-
-What step 8a does (see services/plc_fb/plc_fb.h):
-  Host writes   Timer  : mode (+1), pt_ms (+2..+3)
-                Counter: mode (+1), preset (+2..+3), retain_tag_index (+6)
-  Firmware owns status_bits (+0), ET / CV (+4..+5), reserved. Whole-block
-  writes (like the App's Deploy) are accepted and those fields are skipped.
-  Counter CV is the tag COUNTER[i] (one value, two addresses); Q is derived.
-  Timer status/ET read 0 (the timing runs in rules, not in firmware).
+Step 8b semantics (services/plc_fb/plc_fb.h, "Staging"):
+  * FC16/FC06 to 0x0B00..0x0B7F go to a DRAFT. Reads return the RUNNING
+    config, so right after a write the old values are still read back.
+  * Each block the Host writes (any register of it) is flagged. At a
+    successful rule COMMIT (0xA000 = 0xA5A5) flagged blocks take their draft,
+    every other block becomes unused, and the result is saved to Flash in the
+    same record as the rules.
+  * A COMMIT that fails (CRC mismatch) drops the draft. CLEAR_RULES /
+    FACTORY_RESET clear the FB config and the draft. A wrong magic written to
+    0xA000 is not a COMMIT and keeps the draft.
+  * Duplicate retain_tag_index is checked only between blocks in the draft.
+So every check of "the config I wrote" is: write FB, COMMIT (deploy), read.
 
 Checks, in order:
   1. Profile V2, resource counts, counter/retain tag bases.
-  2. Defaults: after "unused" is written every block reads mode 0, retain 0xFFFF.
-  3. Reading the block: 64 + 64 registers works. A single 128-register read is
-     reported (Modbus allows at most 125 per FC03, so it is expected to be
-     rejected; the App currently asks for 128 in one request).
-  4. Timer whole-block write: config read back, 32-bit PT High Word first,
-     junk in status/ET/reserved ignored (reads 0).
-  5. Counter whole-block write: config read back incl. negative PV, retain index.
-  6. CV follows the COUNTER tag written through DIAG; Q for CTU (CV >= PV) and
-     CTD (CV <= 0); negative CV.
-  7. A rule (INC_COUNTER on COUNTER[0]) makes CV climb on the FB block and Q
-     turns on at PV: the "dual generation" path the App relies on.
-  8. Rejections (exception 0x03 / 0x02) and all-or-nothing: bad mode, bad
-     retain index (not a VREG_RETAIN tag), duplicate retain index, a counter
-     the board does not have, a 2-block request whose 2nd block is bad (the
-     1st must NOT be applied), write past the end, write below 0x0B00.
-     FC06 to a single config register is accepted.
+  2. Defaults: after a Deploy with no FB written every block reads mode 0.
+  3. Read sizes (64 + 64 works; one 128-register read is reported).
+  4. Timer whole-block write: invisible before COMMIT, read back after,
+     32-bit PT High Word first, junk in firmware-owned fields ignored.
+  5. Counter whole-block write: same, incl. negative PV and retain index.
+  6. CV follows the COUNTER tag written through DIAG; Q for CTU and CTD.
+  7. A rule (INC_COUNTER on COUNTER[0]) makes CV climb on the FB block.
+  8. Rejections (0x03 / 0x02), all-or-nothing, FC06 keeps the other fields,
+     a block the Deploy did not write becomes unused, duplicate retain only
+     inside the draft.
   9. App-style deploy: 8 Timers + 8 Counters in 3-block chunks (3, 3, 2).
- 10. Cleanup: every block "unused", CLEAR_RULES, COUNTER tags back to 0.
+ 10. A failed COMMIT drops the draft: the next Deploy starts clean.
+ 11. CLEAR_RULES / FACTORY_RESET clear FB config and the draft.
+ 12. (--reboot) FB config survives REBOOT with the rules, and is gone after
+     CLEAR_RULES + REBOOT.
+ 13. Cleanup.
 
 Optional:
-  --probe-64  Also send a 4-block FC16 (73-byte frame) and report whether the
-              board answers. This is the known "FC16 longer than one 64-byte
-              USB CDC packet is not answered" issue; it is informational (no
-              PASS/FAIL) and runs last because an unanswered frame can leave
-              the link needing a moment to recover.
-
-NOT covered yet (later steps): Flash persistence of the FB config, counter
-retain across REBOOT, CLEAR_RETAIN / FACTORY_RESET on counters, PVD.
+  --reboot    persistence across a reset (the real proof the FB config left
+              Flash). The COM port drops during reboot; use --port-after if
+              Windows renumbers it.
+  --probe-64  also send a 4-block FC16 (73-byte frame) and report whether the
+              board answers (informational, runs last).
 
 Usage:
   python test_fb.py COM14
-  python test_fb.py COM14 --probe-64
+  python test_fb.py COM14 --reboot
+  python test_fb.py COM14 --reboot --probe-64
 """
-
 import argparse
 import sys
 import time
@@ -68,12 +66,14 @@ from pymodbus.client import ModbusSerialClient
 from pymodbus.exceptions import ModbusException
 
 import test_plc as tp        # rule encoding / CRC helpers
-import test_sysclear as ts   # Dev wrapper, check(), diag constants
+import test_sysclear as ts   # Dev wrapper, check(), diag constants, reboot
 import test_rtc as tr        # upload_rules(), time_rule(), set_time()
 
 REG_RESOURCE = 0x0020
 REG_TIMERS = 0x0B00
 REG_COUNTERS = 0x0B40
+REG_STATUS = 0x9000
+REG_COMMIT = 0xA000
 BLOCKS = 8
 BLOCK_REGS = 8
 RETAIN_NONE = 0xFFFF
@@ -109,8 +109,8 @@ UNUSED_COUNTER = counter_block(0, 0)
 
 def write_blocks(d, base, blocks):
     """Write whole records the way the App's Deploy does: at most 3 blocks per
-    FC16 (57-byte frame, under the 64-byte USB CDC packet). Returns the first
-    failing response, or None."""
+    FC16 (57-byte frame). Goes to the DRAFT. Returns the first failing
+    response, or None."""
     for i in range(0, len(blocks), 3):
         chunk = [r for blk in blocks[i:i + 3] for r in blk]
         resp = d.fc16(base + i * BLOCK_REGS, chunk)
@@ -127,10 +127,34 @@ def read_counter(d, i):
     return d.read(REG_COUNTERS + i * BLOCK_REGS, BLOCK_REGS)
 
 
-def reset_all_blocks(d):
-    r1 = write_blocks(d, REG_TIMERS, [UNUSED_TIMER] * BLOCKS)
-    r2 = write_blocks(d, REG_COUNTERS, [UNUSED_COUNTER] * BLOCKS)
-    return r1 is None and r2 is None
+class Ctx:
+    """Tag indices that depend on the board (set in run())."""
+    noop_tag = 0
+
+
+def noop_rule():
+    """A rule that does nothing visible (increments a VREG at exactly 00:00)."""
+    return tr.time_rule(1, 0, 0, Ctx.noop_tag)       # compare_op 1 = EQ, Lo == Hi: minute mark
+
+
+def commit(d, rules=None):
+    """Deploy step that makes the draft FB config live: upload rules + COMMIT."""
+    return tr.upload_rules(d, rules if rules is not None else [noop_rule()])
+
+
+def status(d):
+    return d.read(REG_STATUS, 1)[0]
+
+
+def deploy_fb(d, timers=None, counters=None, rules=None):
+    """Write FB blocks (draft) then COMMIT, like the App. Returns True if OK."""
+    if timers is not None:
+        if write_blocks(d, REG_TIMERS, timers) is not None:
+            return False
+    if counters is not None:
+        if write_blocks(d, REG_COUNTERS, counters) is not None:
+            return False
+    return commit(d, rules)
 
 
 def enter_diag(d):
@@ -145,13 +169,18 @@ def exit_diag(d):
 
 
 def diag_set_counter(d, tag, value):
-    """Force a COUNTER tag while in DIAG; keeps the lease alive first."""
     d.fc06(ts.REG_DIAG, ts.CMD_HEARTBEAT)
     return d.write_tag(tag, value)
 
 
+def all_unused(d):
+    return all(read_timer(d, i)[1] == 0 for i in range(BLOCKS)) and \
+           all(read_counter(d, i)[1] == 0 and read_counter(d, i)[6] == RETAIN_NONE
+               for i in range(BLOCKS))
+
+
 # -------------------------------------------------------------------- run
-def run(d, args):
+def run(d, holder, args):
     ts.ensure_running(d)
 
     # ---- 1. profile + resources -------------------------------------------
@@ -161,20 +190,19 @@ def run(d, args):
     print(f"  wire_profile={wire} DI={di} DO={do} AI={ai} VFLAG={vflag} VREG={vreg} "
           f"VREG_RETAIN={retain_n} COUNTER={cnt_n}")
     check(wire == 2, "wire_profile == 2 (FB block is a V2 feature)")
-    if wire != 2 or cnt_n < 1 or retain_n < 2:
-        print("need Wire Profile 2, >= 1 COUNTER and >= 2 VREG_RETAIN tags")
+    if wire != 2 or cnt_n < 2 or retain_n < 3 or vreg < 1:
+        print("need Wire Profile 2, >= 2 COUNTER, >= 3 VREG_RETAIN and >= 1 VREG tags")
         sys.exit(2)
-    retain0 = di + do + ai + vflag + vreg           # first VREG_RETAIN tag
-    cnt0 = retain0 + retain_n                       # first COUNTER tag
-    print(f"  VREG_RETAIN0 = tag {retain0}, COUNTER0 = tag {cnt0}")
+    vreg0 = di + do + ai + vflag
+    retain0 = vreg0 + vreg
+    cnt0 = retain0 + retain_n
+    Ctx.noop_tag = vreg0
+    print(f"  VREG0 = tag {vreg0}, VREG_RETAIN0 = tag {retain0}, COUNTER0 = tag {cnt0}")
 
     # ---- 2. defaults ------------------------------------------------------
-    print("\n[2] defaults after writing every block as 'unused'")
-    check(reset_all_blocks(d), "all 16 blocks written (3-block chunks)")
-    ok = all(read_timer(d, i)[1] == 0 for i in range(BLOCKS)) and \
-        all(read_counter(d, i)[1] == 0 and read_counter(d, i)[6] == RETAIN_NONE
-            for i in range(BLOCKS))
-    check(ok, "every block: mode 0, counters retain_tag_index = 0xFFFF")
+    print("\n[2] a Deploy that writes no FB leaves every block unused")
+    check(commit(d), "baseline Deploy (1 no-op rule, no FB written)")
+    check(all_unused(d), "every block: mode 0, counters retain_tag_index = 0xFFFF")
 
     # ---- 3. read sizes ----------------------------------------------------
     print("\n[3] read sizes")
@@ -185,72 +213,68 @@ def run(d, args):
         check(False, f"64-register read failed: {e}")
     try:
         got = d.read(REG_TIMERS, 128)
-        print(f"  INFO: 128 registers in ONE FC03 was answered ({len(got)} regs). "
-              "Modbus allows at most 125, so this is not guaranteed on other masters.")
+        print(f"  INFO: 128 registers in ONE FC03 answered ({len(got)} regs); Modbus allows at most 125.")
     except Exception as e:
         print(f"  INFO: 128 registers in ONE FC03 rejected as expected ({e}). "
-              "The App reads 0x0B00..0x0B7F in one request: it must split it "
-              "(e.g. 64 + 64).")
+              "The App must split it (e.g. 64 + 64).")
 
-    # ---- 4. timer whole-block write ----------------------------------------
-    print("\n[4] Timer whole-block write")
+    # ---- 4. timer whole-block: draft -> COMMIT -> read ---------------------
+    print("\n[4] Timer whole-block write (draft, then COMMIT)")
     resp = d.fc16(REG_TIMERS, timer_block(1, 70000, status=0x1234, et=0x00070008,
                                           reserved=(0x7777, 0x8888)))
     check(not resp.isError(), "FC16 whole Timer 0 block accepted (junk in status/ET/reserved)")
+    check(read_timer(d, 0)[1] == 0, "before COMMIT: Timer 0 still reads unused (draft is invisible)")
+    d.fc16(REG_TIMERS + BLOCK_REGS, timer_block(2, 5000))
+    d.fc16(REG_TIMERS + 2 * BLOCK_REGS, timer_block(3, 5000))
+    check(commit(d), "COMMIT")
     t = read_timer(d, 0)
     check(t[1] == 1, f"mode = TON (got {t[1]})")
     check(t[2:4] == [1, 0x1170], f"PT 70000 ms = 0x00011170, High Word first (got {t[2:4]})")
-    check(t[0] == 0 and t[4:6] == [0, 0] and t[6:8] == [0, 0],
-          "status / ET / reserved ignored, read 0")
-    for mode, name in ((2, "TOF"), (3, "TP")):
-        d.fc16(REG_TIMERS + 1 * BLOCK_REGS, timer_block(mode, 5000))
-        check(read_timer(d, 1)[1] == mode, f"Timer 1 mode {name} stored")
+    check(t[0] == 0 and t[4:6] == [0, 0] and t[6:8] == [0, 0], "status / ET / reserved ignored, read 0")
+    check(read_timer(d, 1)[1] == 2 and read_timer(d, 2)[1] == 3, "Timer 1 TOF, Timer 2 TP stored")
+    check(read_timer(d, 3)[1] == 0, "Timer 3 (not written) is unused")
 
-    # ---- 5. counter whole-block write --------------------------------------
-    print("\n[5] Counter whole-block write")
-    resp = d.fc16(REG_COUNTERS, counter_block(1, 10, retain0, status=0x00FF, cv=999, reserved=5))
-    check(not resp.isError(), "FC16 whole Counter 0 block accepted (junk in status/CV/reserved)")
+    # ---- 5. counter whole-block -------------------------------------------
+    print("\n[5] Counter whole-block write (draft, then COMMIT)")
+    d.fc16(REG_COUNTERS, counter_block(1, 10, retain0, status=0x00FF, cv=999, reserved=5))
+    d.fc16(REG_COUNTERS + BLOCK_REGS, counter_block(2, -3, retain0 + 1))
+    check(read_counter(d, 0)[1] == 0, "before COMMIT: Counter 0 still reads unused")
+    check(commit(d), "COMMIT")
+    check(read_timer(d, 0)[1] == 0, "Timer 0 (not written in this Deploy) is now unused")
     c = read_counter(d, 0)
     check(c[1] == 1 and c[2:4] == [0, 10], f"CTU, PV=10 (got mode={c[1]} pv={c[2:4]})")
     check(c[6] == retain0, f"retain_tag_index = {retain0} (got {c[6]})")
     check(c[7] == 0, "reserved reads 0")
     check(s32(c[4], c[5]) != 999, "CV is NOT taken from the write (it is the COUNTER tag)")
-    if cnt_n >= 2:
-        d.fc16(REG_COUNTERS + BLOCK_REGS, counter_block(2, -3, retain0 + 1))
-        c1 = read_counter(d, 1)
-        check(c1[1] == 2 and s32(c1[2], c1[3]) == -3, f"CTD, PV=-3 read back (got {s32(c1[2], c1[3])})")
+    c1 = read_counter(d, 1)
+    check(c1[1] == 2 and s32(c1[2], c1[3]) == -3, f"CTD, PV=-3 read back (got {s32(c1[2], c1[3])})")
 
-    # ---- 6. CV <-> COUNTER tag, Q ------------------------------------------
+    # ---- 6. CV <-> COUNTER tag, Q -----------------------------------------
     print("\n[6] CV follows the COUNTER tag (DIAG), Q for CTU / CTD")
     if not check(enter_diag(d), "ENTER_DIAG -> DIAG_CONTROL"):
         return
     diag_set_counter(d, cnt0, 4)
     c = read_counter(d, 0)
-    check(s32(c[4], c[5]) == 4 and not c[0] & Q_BIT, f"CTU PV=10, tag=4 -> CV=4, Q=0 (got CV={s32(c[4], c[5])} status=0x{c[0]:04X})")
+    check(s32(c[4], c[5]) == 4 and not c[0] & Q_BIT, f"CTU PV=10, tag=4 -> CV=4, Q=0 (status=0x{c[0]:04X})")
     diag_set_counter(d, cnt0, 10)
     c = read_counter(d, 0)
     check(s32(c[4], c[5]) == 10 and c[0] & Q_BIT, "tag=10 -> CV=10, Q=1 (CV >= PV)")
     diag_set_counter(d, cnt0, -7)
     c = read_counter(d, 0)
     check(s32(c[4], c[5]) == -7 and not c[0] & Q_BIT, "tag=-7 -> CV=-7 (negative), Q=0")
-    if cnt_n >= 2:
-        diag_set_counter(d, cnt0 + 1, 2)
-        c1 = read_counter(d, 1)
-        check(not c1[0] & Q_BIT, "CTD: tag=2 -> Q=0")
-        diag_set_counter(d, cnt0 + 1, 0)
-        c1 = read_counter(d, 1)
-        check(c1[0] & Q_BIT, "CTD: tag=0 -> Q=1 (CV <= 0)")
-        diag_set_counter(d, cnt0 + 1, 0)
+    diag_set_counter(d, cnt0 + 1, 2)
+    check(not read_counter(d, 1)[0] & Q_BIT, "CTD: tag=2 -> Q=0")
+    diag_set_counter(d, cnt0 + 1, 0)
+    check(read_counter(d, 1)[0] & Q_BIT, "CTD: tag=0 -> Q=1 (CV <= 0)")
     diag_set_counter(d, cnt0, 0)
     exit_diag(d)
 
-    # ---- 7. rule drives the counter ----------------------------------------
+    # ---- 7. rule drives the counter ---------------------------------------
     print("\n[7] rule INC_COUNTER on COUNTER[0] -> CV climbs on the FB block")
     d.fc16(REG_COUNTERS, counter_block(1, 50, RETAIN_NONE))
-    # All-day Time Window rule (level): +1 every scan once the clock is set.
     tr.set_time(d, tr.local_epoch(2026, 1, 15, 12, 0, 0, tr.TZ_VN))
-    rule = tr.time_rule(0, 0, 2359, cnt0)
-    check(tr.upload_rules(d, [rule]), "INC_COUNTER rule committed")
+    rule = tr.time_rule(0, 0, 2359, cnt0)       # all-day window: +1 every scan
+    check(commit(d, [rule]), "Counter 0 (PV 50) + INC_COUNTER rule committed in one Deploy")
     time.sleep(0.3)
     c = read_counter(d, 0)
     cv_a = s32(c[4], c[5])
@@ -272,62 +296,131 @@ def run(d, args):
     time.sleep(0.4)
     b = s32(*read_counter(d, 0)[4:6])
     check(a == b, "CV stops after CLEAR_RULES")
+    check(all_unused(d), "CLEAR_RULES also set every FB block to unused")
+    if enter_diag(d):
+        diag_set_counter(d, cnt0, 0)
+        exit_diag(d)
 
-    # ---- 8. rejections -------------------------------------------------------
-    print("\n[8] rejections and all-or-nothing")
-    d.fc16(REG_COUNTERS, counter_block(1, 10, retain0))
+    # ---- 8. rejections ----------------------------------------------------
+    print("\n[8] rejections and all-or-nothing (against the draft)")
+    check(deploy_fb(d, [timer_block(1, 1000)], [counter_block(1, 10, retain0)]), "baseline deployed")
+    base_t, base_c = read_timer(d, 0), read_counter(d, 0)
+    # Re-write the baseline into the draft so Timer 0 / Counter 0 are flagged.
     d.fc16(REG_TIMERS, timer_block(1, 1000))
-    base_t = read_timer(d, 0)
-    base_c = read_counter(d, 0)
-
+    d.fc16(REG_COUNTERS, counter_block(1, 10, retain0))
     check(exc_code(d.fc16(REG_TIMERS, timer_block(9, 1000))) == EXC_VALUE, "Timer mode 9 -> 0x03")
-    check(read_timer(d, 0) == base_t, "  Timer 0 unchanged")
     check(exc_code(d.fc16(REG_COUNTERS, counter_block(3, 10))) == EXC_VALUE, "Counter mode 3 -> 0x03")
     check(exc_code(d.fc16(REG_COUNTERS, counter_block(1, 10, 0))) == EXC_VALUE,
           "retain index 0 (a DI, not a VREG_RETAIN tag) -> 0x03")
     check(exc_code(d.fc16(REG_COUNTERS, counter_block(1, 10, 0x0100))) == EXC_VALUE,
           "retain index out of tag range -> 0x03")
-    check(read_counter(d, 0) == base_c, "  Counter 0 unchanged after the rejections")
-    if cnt_n >= 2:
-        check(exc_code(d.fc16(REG_COUNTERS + BLOCK_REGS, counter_block(1, 10, retain0))) == EXC_VALUE,
-              "retain index already used by Counter 0 -> 0x03")
+    check(exc_code(d.fc16(REG_COUNTERS + BLOCK_REGS, counter_block(1, 10, retain0))) == EXC_VALUE,
+          "retain index already used by Counter 0 IN THE DRAFT -> 0x03")
     if cnt_n < BLOCKS:
         check(exc_code(d.fc16(REG_COUNTERS + cnt_n * BLOCK_REGS, counter_block(1, 10))) == EXC_VALUE,
               f"Counter {cnt_n} (board has only {cnt_n}) with mode 1 -> 0x03")
         check(not d.fc16(REG_COUNTERS + cnt_n * BLOCK_REGS, UNUSED_COUNTER).isError(),
               f"Counter {cnt_n} with mode 0 is accepted")
-
-    # 2 blocks in one request, the 2nd bad: the 1st must not be applied.
     two = timer_block(2, 4242) + timer_block(9, 1)
     check(exc_code(d.fc16(REG_TIMERS, two)) == EXC_VALUE, "2-block write, 2nd bad -> 0x03")
-    check(read_timer(d, 0) == base_t, "  Timer 0 NOT applied (all-or-nothing)")
-
-    check(exc_code(d.fc16(REG_COUNTERS + 7 * BLOCK_REGS + 7, [0, 0])) == EXC_ADDR,
-          "write past 0x0B7F -> 0x02")
-    check(exc_code(d.fc16(REG_TIMERS - 1, [0, 0])) == EXC_ADDR,
-          "write starting below 0x0B00 -> 0x02")
-    check(not d.fc06(REG_TIMERS + 1, 2).isError() and read_timer(d, 0)[1] == 2,
-          "FC06 to Timer 0 mode accepted (single config register)")
+    check(exc_code(d.fc16(REG_COUNTERS + 7 * BLOCK_REGS + 7, [0, 0])) == EXC_ADDR, "write past 0x0B7F -> 0x02")
+    check(exc_code(d.fc16(REG_TIMERS - 1, [0, 0])) == EXC_ADDR, "write starting below 0x0B00 -> 0x02")
+    check(commit(d), "COMMIT after the rejected writes")
+    check(read_timer(d, 0) == base_t, "Timer 0 == baseline (2-block write NOT applied: all-or-nothing)")
+    check(read_counter(d, 0) == base_c, "Counter 0 == baseline (rejected writes changed nothing)")
+    check(read_timer(d, 1)[1] == 0, "Timer 1 unused (the rejected 2-block write did not flag it)")
+    # FC06 to a single register: the other fields come from the running config.
+    check(not d.fc06(REG_TIMERS + 1, 2).isError(), "FC06 to Timer 0 mode accepted (single config register)")
     check(exc_code(d.fc06(REG_TIMERS + 1, 9)) == EXC_VALUE, "FC06 mode 9 -> 0x03")
+    check(commit(d), "COMMIT")
+    t = read_timer(d, 0)
+    check(t[1] == 2 and t[2:4] == [0, 1000], f"mode changed to 2, PT kept from the running config (got {t[1]}, {t[2:4]})")
+    check(read_counter(d, 0)[1] == 0, "Counter 0 (not written in that Deploy) is now unused")
+    # Duplicate retain is checked only inside the draft, not against the running config.
+    check(deploy_fb(d, None, [counter_block(1, 10, retain0)]), "Counter 0 running with retain0")
+    d.fc16(REG_COUNTERS, UNUSED_COUNTER)    # leave the draft empty of Counter 0 ...
+    resp = d.fc16(REG_COUNTERS + BLOCK_REGS, counter_block(1, 5, retain0))
+    check(not resp.isError(), "Counter 1 may take retain0 (only the RUNNING Counter 0 uses it, and it will be unused)")
+    check(commit(d), "COMMIT")
+    check(read_counter(d, 0)[1] == 0 and read_counter(d, 1)[1] == 1 and read_counter(d, 1)[6] == retain0,
+          "Counter 0 unused, Counter 1 now holds retain0")
 
-    # ---- 9. App-style deploy ------------------------------------------------
+    # ---- 9. App-style deploy ----------------------------------------------
     print("\n[9] App-style deploy: 8 Timers + 8 Counters, 3-block chunks (3, 3, 2)")
     timers = [timer_block(1 + i % 3, 1000 * (i + 1)) for i in range(BLOCKS)]
     counters = []
     for i in range(BLOCKS):
-        if i < cnt_n:
-            counters.append(counter_block(1 + i % 2, 5 + i, retain0 + i if i < retain_n else RETAIN_NONE))
+        if i < cnt_n and i < retain_n:
+            counters.append(counter_block(1 + i % 2, 5 + i, retain0 + i))
+        elif i < cnt_n:
+            counters.append(counter_block(1 + i % 2, 5 + i))
         else:
             counters.append(UNUSED_COUNTER)
     check(write_blocks(d, REG_TIMERS, timers) is None, "8 Timers written in 3 FC16 frames")
     check(write_blocks(d, REG_COUNTERS, counters) is None, "8 Counters written in 3 FC16 frames")
-    ok_t = all(read_timer(d, i)[1:4] == timers[i][1:4] for i in range(BLOCKS))
-    ok_c = all(read_counter(d, i)[1:4] == counters[i][1:4] and read_counter(d, i)[6] == counters[i][6]
-               for i in range(BLOCKS))
-    check(ok_t, "all 8 Timers read back (mode, PT)")
-    check(ok_c, "all 8 Counters read back (mode, PV, retain)")
+    check(commit(d), "COMMIT")
+    check(all(read_timer(d, i)[1:4] == timers[i][1:4] for i in range(BLOCKS)), "all 8 Timers read back (mode, PT)")
+    check(all(read_counter(d, i)[1:4] == counters[i][1:4] and read_counter(d, i)[6] == counters[i][6]
+              for i in range(BLOCKS)), "all 8 Counters read back (mode, PV, retain)")
 
-    # ---- optional: 4-block frame ---------------------------------------------
+    # ---- 10. failed COMMIT drops the draft --------------------------------
+    print("\n[10] a failed COMMIT drops the draft; the next Deploy starts clean")
+    check(deploy_fb(d, [UNUSED_TIMER] * BLOCKS, [counter_block(1, 10, retain0)] + [UNUSED_COUNTER] * 7),
+          "Counter 0 running")
+    d.fc16(REG_COUNTERS + BLOCK_REGS, counter_block(2, 99, retain0 + 1))      # draft for the doomed Deploy
+    rule = noop_rule()
+    d.fc06(tr.REG_RULE_COUNT_STAGED, 1)
+    d.fc16(tr.REG_STAGING, rule)
+    d.fc06(tr.REG_EXPECTED_CRC, 0x1234)                                       # wrong CRC on purpose
+    d.fc06(tr.REG_COMMIT, tr.COMMIT_MAGIC)
+    time.sleep(0.3)
+    check(status(d) == 4, f"COMMIT with a wrong CRC -> CONFIG_STATUS = ERROR (got {status(d)})")
+    check(read_counter(d, 0)[1] == 1 and read_counter(d, 1)[1] == 0, "running FB config untouched by the failed COMMIT")
+    check(deploy_fb(d, None, [counter_block(1, 11, retain0)]), "Deploy #2 (Counter 0 only)")
+    check(read_counter(d, 1)[1] == 0, "Counter 1 from the failed attempt did NOT leak into Deploy #2")
+    check(read_counter(d, 0)[3] == 11, "Counter 0 has the new PV")
+
+    # ---- 11. CLEAR_RULES / FACTORY_RESET ----------------------------------
+    print("\n[11] CLEAR_RULES / FACTORY_RESET clear the FB config and the draft")
+    check(deploy_fb(d, [timer_block(1, 3000)], [counter_block(1, 4, retain0)]), "FB + 1 rule deployed")
+    d.fc16(REG_COUNTERS + 3 * BLOCK_REGS, counter_block(1, 8, retain0 + 2))   # a pending draft
+    st, err, _ = d.run_syscmd(ts.SYS_CLEAR_RULES)
+    check(st == ts.ST_DONE and err == ts.ERR_NONE, f"CLEAR_RULES done (st={st} err={err})")
+    check(all_unused(d) and d.rule_count() == 0, "running FB config cleared, no rules")
+    check(commit(d), "COMMIT (no FB written since CLEAR_RULES)")
+    check(read_counter(d, 3)[1] == 0, "the draft pending before CLEAR_RULES did not come back")
+    check(deploy_fb(d, [timer_block(1, 3000)], [counter_block(1, 4, retain0)]), "FB + 1 rule deployed again")
+    st, err, _ = d.run_syscmd(ts.SYS_FACTORY)
+    check(st == ts.ST_DONE and err == ts.ERR_NONE, f"FACTORY_RESET done (st={st} err={err})")
+    check(all_unused(d) and d.rule_count() == 0, "FACTORY_RESET: FB unused, no rules")
+
+    # ---- 12. reboot --------------------------------------------------------
+    if args.reboot:
+        print("\n[12] FB config survives REBOOT (saved to Flash with the rule table)")
+        timers = [timer_block(1, 2500), timer_block(3, 90000)] + [UNUSED_TIMER] * 6
+        counters = [counter_block(1, -4, retain0), counter_block(2, 7, RETAIN_NONE)] + [UNUSED_COUNTER] * 6
+        check(deploy_fb(d, timers, counters), "FB + 1 rule deployed")
+        before = ([read_timer(d, i) for i in range(BLOCKS)], [read_counter(d, i) for i in range(BLOCKS)])
+        nd = ts.reboot_and_reconnect(d, holder, args)
+        if not check(nd is not None, "board came back after REBOOT"):
+            return
+        d = nd
+        check(d.rule_count() == 1, "precondition: the rule survived REBOOT (Flash works)")
+        after_t = [read_timer(d, i) for i in range(BLOCKS)]
+        after_c = [read_counter(d, i) for i in range(BLOCKS)]
+        check(after_t[0] == before[0][0] and after_t[1] == before[0][1], "Timer 0/1 config identical after REBOOT")
+        check(all(after_c[i][1:4] == before[1][i][1:4] and after_c[i][6] == before[1][i][6]
+                  for i in range(BLOCKS)), "all 8 Counter configs identical after REBOOT")
+        check(all(after_t[i][1] == 0 for i in range(2, BLOCKS)), "unwritten Timers still unused")
+        st, err, _ = d.run_syscmd(ts.SYS_CLEAR_RULES)
+        check(st == ts.ST_DONE and err == ts.ERR_NONE, "CLEAR_RULES")
+        nd = ts.reboot_and_reconnect(d, holder, args)
+        if not check(nd is not None, "board came back after the 2nd REBOOT"):
+            return
+        d = nd
+        check(d.rule_count() == 0 and all_unused(d), "rules AND FB config still gone after REBOOT (cleared in Flash)")
+
+    # ---- optional: 4-block frame ------------------------------------------
     if args.probe_64:
         print("\n[P] probe: 4 blocks in one FC16 (73-byte frame)")
         answered = False
@@ -335,27 +428,22 @@ def run(d, args):
             resp = d.fc16(REG_TIMERS, [r for blk in timers[:4] for r in blk])
             answered = not resp.isError()
         except ModbusException as e:
-            # pymodbus raises (after its retries) when nothing comes back.
             print(f"  no response: {e}")
-        if answered:
-            print("  INFO: answered. The frame limit no longer bites at 4 blocks.")
-        else:
-            print("  INFO: NOT answered / error. Known FC16 > 64-byte issue; "
-                  "the App stays at 3 blocks per request.")
-            time.sleep(1.0)
-            try:
-                d.read(REG_RESOURCE, 1)
-                recovered = True
-            except Exception:
-                recovered = False
-            check(recovered, "link still answers normal requests after the unanswered frame")
+        print("  INFO: answered." if answered else "  INFO: NOT answered / error (known FC16 > 64-byte issue).")
+        time.sleep(1.0)
+        try:
+            d.read(REG_RESOURCE, 1)
+            recovered = True
+        except Exception:
+            recovered = False
+        check(recovered, "link still answers normal requests after the probe")
 
-    # ---- 10. cleanup ---------------------------------------------------------
-    print("\n[10] cleanup")
+    # ---- 13. cleanup ------------------------------------------------------
+    print("\n[13] cleanup")
     try:
-        check(reset_all_blocks(d), "every FB block back to 'unused'")
         st, err, _ = d.run_syscmd(ts.SYS_CLEAR_RULES)
         check(st == ts.ST_DONE and err == ts.ERR_NONE, f"CLEAR_RULES done (st={st} err={err})")
+        check(all_unused(d), "every FB block unused")
         if enter_diag(d):
             for i in range(cnt_n):
                 diag_set_counter(d, cnt0 + i, 0)
@@ -372,6 +460,10 @@ def main():
     p.add_argument("port")
     p.add_argument("--unit", type=int, default=1)
     p.add_argument("--baudrate", type=int, default=115200)
+    p.add_argument("--reboot", action="store_true",
+                   help="also verify the FB config survives a REBOOT")
+    p.add_argument("--port-after", default=None,
+                   help="COM port to use after a reboot if Windows renumbers it")
     p.add_argument("--probe-64", action="store_true",
                    help="also send a 4-block FC16 and report whether it is answered")
     args = p.parse_args()
@@ -381,11 +473,12 @@ def main():
     if not client.connect():
         print(f"Cannot open {args.port}")
         sys.exit(2)
+    holder = [client]
     try:
-        run(ts.Dev(client, args.unit), args)
+        run(ts.Dev(client, args.unit), holder, args)
     finally:
         try:
-            client.close()
+            holder[0].close()
         except Exception:
             pass
     fails = ts._failures

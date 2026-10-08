@@ -20,6 +20,21 @@
  * firmware-owned fields), so a write that covers those fields is accepted
  * and the fields are simply skipped.
  *
+ * Staging (Step 8b, mirrors the Rule Table's staging buffer):
+ *   Host writes do NOT touch the running config. They go to a DRAFT, and
+ *   each block the Host writes (any register of it, firmware-owned ones
+ *   included) is flagged as "written". The running config -- what FC03
+ *   reads return and what is saved to Flash -- only changes at COMMIT:
+ *     - plc_fb_commit_draft(): flagged blocks take their draft content,
+ *       every other block becomes DISABLED (the config belongs to the
+ *       program being committed, so a block the Deploy did not write is
+ *       not part of it).
+ *     - plc_fb_discard_draft(): throw the draft away (failed COMMIT).
+ *   The draft is also dropped by plc_fb_init() (boot) and
+ *   plc_fb_clear_all() (CLEAR_RULES / FACTORY_RESET). A block's draft
+ *   starts as a copy of its running config the first time it is written,
+ *   so a single-register write keeps the block's other fields.
+ *
  * Scope of this module today:
  *   - Timer: config is stored and read back. The timing itself still runs
  *     in the Rule Engine (the App emits macro rules, "dual generation"),
@@ -29,12 +44,16 @@
  *     tag_counter_base_index() + i, one piece of data seen from two
  *     addresses). Q (status bit 3) is derived from it and preset_value.
  *     CU / CD / RESET (bits 0..2) read as 0 for the same reason as Timer.
- *   - Not here yet: Flash persistence of the config, counter retain.
+ *   - Flash persistence: plc_fb_export()/plc_fb_import() give the 112-byte
+ *     image plc_rule_flash.c stores inside the Rule Table record. This
+ *     module itself never touches Flash.
+ *   - Not here yet: counter retain.
  *
  * This file is transport-agnostic: it does not include nanomodbus.h.
  * plc_modbus_cfg.c maps plc_fb_write()'s result onto Modbus exceptions.
  */
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -50,6 +69,15 @@ extern "C" {
 
 #define PLC_FB_RETAIN_NONE      0xFFFFU /* counter retain_tag_index: not retained */
 
+/*
+ * Flash image of the running config (big-endian, host-owned fields only):
+ *   8 x Timer   { mode u16, pt_ms u32 }                         = 8 x 6
+ *   8 x Counter { mode u16, preset i32, retain_tag_index u16 }  = 8 x 8
+ * = 112 bytes. Cross-checked against SPLC_RULE_FLASH_FB_SIZE in
+ * plc_rule_flash.c.
+ */
+#define PLC_FB_FLASH_SIZE       112U
+
 /* SPLC_TimerMode_t / SPLC_CounterMode_t. 0 = block unused. */
 #define PLC_FB_MODE_NONE        0U
 #define PLC_FB_TIMER_TON        1U
@@ -62,8 +90,8 @@ extern "C" {
 #define PLC_FB_CNT_STATUS_Q     0x0008U
 
 /*
- * Reset every block to "unused" (mode 0, preset 0, retain NONE). Call once
- * at boot, after tag_table_load_from_flash().
+ * Reset every block to "unused" (mode 0, preset 0, retain NONE) and drop
+ * any draft. Call once at boot, after tag_table_load_from_flash().
  */
 void plc_fb_init(void);
 
@@ -84,19 +112,51 @@ typedef enum {
  * FC16 write (FC06 arrives as quantity 1). Any start offset and quantity
  * inside the block is accepted, so one request may carry a single field or
  * several whole records. Firmware-owned fields inside the span are skipped.
+ * The write goes to the DRAFT (see "Staging" above); the running config is
+ * unchanged until plc_fb_commit_draft().
  *
- * All-or-nothing: the config of every record the request touches is
- * validated first; one invalid field leaves ALL records unchanged and
- * returns BAD_VALUE.
+ * All-or-nothing: the draft config of every block flagged as written
+ * (including the ones this request touches) is validated first; one
+ * invalid field leaves the draft unchanged and returns BAD_VALUE.
  *   - mode must be 0 (unused) or a valid mode for that block kind.
  *   - A Counter record whose COUNTER[i] tag does not exist on this board
  *     (the board has fewer counters) must have mode 0.
  *   - retain_tag_index must be PLC_FB_RETAIN_NONE or the index of a
- *     TAG_VREG_RETAIN tag, and no two counters may share one.
+ *     TAG_VREG_RETAIN tag, and no two counters may share one. The
+ *     duplicate check compares only blocks present in the draft: blocks the
+ *     Deploy does not write become DISABLED at COMMIT, so the running
+ *     config of those blocks must not cause a rejection.
  * A request that runs past the end of the block returns BAD_ADDRESS.
  */
 plc_fb_write_result_t plc_fb_write(uint16_t offset, uint16_t quantity,
                                    const uint16_t *registers);
+
+/*
+ * Promote the draft to the running config (call after the Rule Table
+ * commit succeeded, before saving to Flash): blocks flagged as written take
+ * their draft content, all other blocks become DISABLED. The draft and its
+ * flags are cleared.
+ */
+void plc_fb_commit_draft(void);
+
+/* Drop the draft and its flags; the running config is untouched. */
+void plc_fb_discard_draft(void);
+
+/* Every block of the running config -> DISABLED, draft dropped.
+ * Used by CLEAR_RULES / FACTORY_RESET. */
+void plc_fb_clear_all(void);
+
+/* Serialize the RUNNING config into PLC_FB_FLASH_SIZE bytes (see above). */
+void plc_fb_export(uint8_t out[PLC_FB_FLASH_SIZE]);
+
+/*
+ * Load a PLC_FB_FLASH_SIZE-byte image as the running config (boot, or a
+ * rollback). Validated like a Host write with every block counted as
+ * present. Returns false -- running config unchanged -- if invalid (e.g. a
+ * retain tag that no longer exists because the tag layout changed). The
+ * draft is dropped either way.
+ */
+bool plc_fb_import(const uint8_t in[PLC_FB_FLASH_SIZE]);
 
 #ifdef __cplusplus
 }

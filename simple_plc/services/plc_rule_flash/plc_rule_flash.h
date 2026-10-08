@@ -37,12 +37,28 @@
  * --- On-Flash record format (one copy, written identically to A and B) -
  *
  *   offset 0..3   uint32_t seq_num   (see below)
- *   offset 4..5   uint16_t rule_count
+ *   offset 4..5   uint16_t rule_count  bit 15 = FB section present,
+ *                                      bits 0..14 = the real rule count
  *   offset 6..7   uint16_t crc16
  *   offset 8..    rule_count x 32-byte WIRE image, via rule_record_to_wire()
  *                 (plc_modbus_cfg.c) -- the exact same per-record byte
  *                 layout ACTIVE_RULE_TABLE/STAGING_RULE_TABLE use over
  *                 Modbus, NOT the in-RAM SPLC_RuleRecord struct layout.
+ *   then, only when the FB flag is set:
+ *                 112-byte Function Block config image (plc_fb_export()).
+ *
+ * The FB section lives INSIDE the one record on purpose (Step 8b): one
+ * crc16 covers rules and FB together, so after a power loss during a save
+ * the device holds either the whole old record or the whole new one --
+ * never new rules with old FB config. Every save writes the FB section
+ * (flag set). A record without the flag (written by firmware older than
+ * 8b) still loads; its FB config is DISABLED. The flip side: firmware
+ * older than 8b reads the flag as rule_count > MAX_RULES and treats the
+ * record as corrupt (downgrading needs a fresh Deploy).
+ *
+ * All code reading the field MUST split it first: field & 0x7FFF is the
+ * count, field & 0x8000 the flag. Comparing the raw field against
+ * MAX_RULES would reject every record that carries FB data.
  *
  * crc16 is a field-embedded CRC-16/MODBUS computed over the WHOLE record
  * above -- seq_num + rule_count + the rule_count x 32 wire bytes -- with

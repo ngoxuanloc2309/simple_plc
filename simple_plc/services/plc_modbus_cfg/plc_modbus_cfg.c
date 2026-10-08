@@ -991,6 +991,9 @@ static void write_commit_command(uint16_t value)
                  actual_crc16, s_expected_crc16);
         s_config_status     = CONFIG_STATUS_ERROR;
         s_config_error_code = SPLC_ERROR_CRC_MISMATCH;
+        /* A COMMIT attempt is over, so the FB draft that went with it is
+         * dropped: the next Deploy writes its FB config again from scratch. */
+        plc_fb_discard_draft();
         return;
     }
 
@@ -1001,8 +1004,18 @@ static void write_commit_command(uint16_t value)
                  "(rule_count_staged=%u)", s_rule_count_staged);
         s_config_status     = CONFIG_STATUS_ERROR;
         s_config_error_code = SPLC_ERROR_INVALID_PARAMETER; /* e.g. rule_count_staged > MAX_RULES */
+        plc_fb_discard_draft();   /* same reason as the CRC-mismatch path above */
         return;
     }
+
+    /*
+     * The rules are now running. The Function Block config written for this
+     * Deploy goes live with them: blocks the Host wrote take their draft,
+     * every other block becomes DISABLED (the config belongs to the program
+     * being committed). Done BEFORE the Flash save so the same record
+     * carries rules and FB config together.
+     */
+    plc_fb_commit_draft();
 
     /*
      * Flash save happens HERE, synchronously, as part of this same
