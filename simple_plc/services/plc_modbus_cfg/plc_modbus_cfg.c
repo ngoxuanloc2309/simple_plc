@@ -9,6 +9,7 @@
 #include "plc_rule_flash.h" /* plc_rule_flash_save(), called from write_commit_command() */
 #include "plc_retain.h"     /* retain_snapshot_write(), called from CMD_COMMIT_RETAIN */
 #include "plc_rtc.h"        /* RTC block 0x0810..0x0813, see cb_write_multiple_registers() */
+#include "plc_fb.h"         /* FB block 0x0B00..0x0B7F, see cb_write_multiple_registers() */
 #include "sx_time.h"
 #include "logger.h"
 
@@ -1102,6 +1103,7 @@ static const modbus_block_t s_blocks[] = {
     { 0x0900, 0x09FF, false, read_runtime_tag_values,     NULL },
     { 0x0A01, 0x0A02, true,  read_system_command_result,  NULL },
     { 0x0A20, 0x0A24, true,  read_diag_block,             NULL },   /* 0x0A20 writes handled in cb_write_*, not here */
+    { 0x0B00, 0x0B7F, true,  plc_fb_read,                 NULL },   /* FC16 writes handled in cb_write_multiple_registers (needs distinct exceptions) */
 
     { 0x9000, 0x9000, true,  read_config_status,          NULL },
     { 0x9001, 0x9001, true,  read_config_error_code,      NULL },
@@ -1202,6 +1204,23 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
             case PLC_RTC_WRITE_BAD_ADDRESS: return NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
             case PLC_RTC_WRITE_BAD_VALUE:   return NMBS_EXCEPTION_ILLEGAL_DATA_VALUE;
             default:                        return NMBS_EXCEPTION_SERVER_DEVICE_FAILURE;
+        }
+    }
+
+    /*
+     * Function Block block (Structs doc V2.0 sections 3.6 / 3.7): the Host
+     * writes only the config fields; the firmware-owned ones inside a
+     * whole-record write are skipped by plc_fb_write(), which validates
+     * everything before changing anything. A request that starts below
+     * 0x0B00 and runs into the block starts in an unmapped gap and is
+     * rejected by the generic table path below.
+     */
+    if (address >= PLC_FB_ADDR_BASE && address < PLC_FB_ADDR_BASE + PLC_FB_REG_COUNT) {
+        switch (plc_fb_write((uint16_t)(address - PLC_FB_ADDR_BASE), quantity, registers)) {
+            case PLC_FB_WRITE_OK:          return NMBS_ERROR_NONE;
+            case PLC_FB_WRITE_BAD_ADDRESS: return NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+            case PLC_FB_WRITE_BAD_VALUE:   return NMBS_EXCEPTION_ILLEGAL_DATA_VALUE;
+            default:                       return NMBS_EXCEPTION_SERVER_DEVICE_FAILURE;
         }
     }
 

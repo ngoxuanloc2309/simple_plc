@@ -7,6 +7,7 @@
 #include "plc_retain.h"
 #include "plc_modbus_cfg.h"
 #include "plc_rtc.h"
+#include "plc_fb.h"
 #include "plc_system_cmd_service.h"
 #include "board.h"
 #include "sx_time.h"
@@ -46,6 +47,7 @@ void plc_engine_init(void)
      */
     SPLC_TagLayout tag_layout = board_get_tag_layout();
     tag_table_load_from_flash(&tag_layout);
+    plc_fb_init();
 
     rule_table_load_from_flash();
     plc_rule_flash_load();
