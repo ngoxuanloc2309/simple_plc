@@ -33,7 +33,7 @@
   thời gian thật, Time Window mốc phút/khung/qua nửa đêm). **Còn chưa chạy:**
   `test_rtc.py --reboot` và test mất điện thật bằng tay. Chi tiết ở mục 3.
 - **Bước 8a (khối FB `0x0B00..0x0B7F`: nhận ghi cấu hình, đọc, Counter
-  `CV`/`Q`): xong và verify trên board (CV/Q đã ĐỔI cách tính ở phiên 2026-10-08, xem #15 và mục "Sửa CV tag" bên dưới; phần đó chưa build ARM/chưa chạy trên board)** (`test_fb.py COM14`: ALL PASS, kể cả
+  `CV`/`Q`): xong và verify trên board (CV/Q đã ĐỔI cách tính ở phiên 2026-10-08, xem #15; bản mới đã build ARM và verify trên board: `test_fb.py COM14`, `--reboot`, `--probe-64` đều ALL PASS)** (`test_fb.py COM14`: ALL PASS, kể cả
   `--probe-64`). **Còn lại của Bước 8:** PVD ghi retain khẩn cấp (8c, chỉ còn việc này; Counter retain thực ra không cần code, xem mục 3), Timer chạy thật (8d, chờ App). Chi tiết ở mục 3.
 - **Bước 8b (lưu cấu hình FB vào Flash; bản nháp FB + COMMIT): xong và verify trên board** (`test_fb.py COM14 --reboot`: ALL PASS; `test_rtc.py`, `test_tag.py`, `test_sysclear.py` cả bản thường lẫn `--reboot`: ALL PASS, không hồi quy). Ghi FB vào BẢN NHÁP; `0x0B00..` luôn đọc ra cấu hình đang chạy; COMMIT mới áp dụng và lưu Flash cùng Rule Table; cấu hình FB sống sót qua REBOOT. Hành vi 8a đổi: `test_fb.py` đã viết lại cho khớp. Chi tiết mục 2 (#19, #21..#24) và mục 3. **Còn chưa chạy:** `test_fb.py --probe-64` bản mới trên board, mất điện thật giữa lúc lưu (chỉ test thủ công được), build ARM chưa kiểm `.text+.data` so với `0x08036000`.
 - **Đã sửa lỗi FC16 > 64 byte** (khung 73 byte không được trả lời) trong
@@ -178,13 +178,40 @@ V2.0 là **strict superset** của V1.9. Khi 2 tài liệu mâu thuẫn về HÀ
     AI, Modbus tag bị từ chối), không hai counter trùng tag. Counter không cần
     tag `COUNTER[i]` tồn tại (bỏ ràng buộc "counter không có trên board chỉ được
     mode 0"). Sai → exception `0x03`, ghi vượt `0x0B7F` hoặc bắt đầu dưới
-    `0x0B00` → `0x02`. **Việc phía App (CHƯA làm, App là repo `paa`):**
-    `RuleCompiler.cs` (dòng ~260) hiện chỉ gửi `CvTagIndex` khi nó nằm trong dải
-    VREG_RETAIN, ngược lại gửi `0xFFFF`; phải gửi `CvTagIndex` cho MỌI loại tag
-    CV hợp lệ thì firmware mới biết CV của Counter dùng VREG/VFLAG. Chưa sửa
-    thì hành vi vẫn đúng với VREG_RETAIN, còn VREG thì CV/Q đọc 0 (không hỏng
-    gì khác). Ghi chú: `SimplePLC.Studio/Services/RuleCompiler.cs` có một bộ
-    biên dịch cũ riêng (mặc định tag 84), chưa xem có còn dùng không.
+    `0x0B00` → `0x02`.
+
+    **Nguồn gốc (để không đổ lỗi nhầm):** Structs v2.0 mục 3.7 và Wire Contract 9.3
+    chỉ mô tả `retain_tag_index` là "TagIndex VREG_RETAIN hoặc `0xFFFF`", KHÔNG có
+    trường nào nói "tag chứa CV" nói chung. App làm đúng spec (chỉ gửi index khi CV
+    là VREG_RETAIN). Lỗi thật là phía firmware phiên trước: tự giả định CV = tag
+    `COUNTER[i]` mà không có căn cứ trong spec và không đối chiếu code App. Việc
+    firmware giờ hiểu trường `+6` rộng hơn spec là MỞ RỘNG có chủ đích, tương thích
+    ngược (index VREG_RETAIN cũ vẫn hợp lệ).
+
+    **Việc phía App (CHƯA làm, KHÔNG gấp; App là repo `paa`, commit đã đọc
+    `31029fe`):**
+    - `src/SimplePLC.Application/Logic/Compilation/RuleCompiler.cs` dòng ~260:
+      `retainTagIndex` chỉ lấy `CvTagIndex` khi nằm trong dải VREG_RETAIN, ngược lại
+      `0xFFFF`. Sửa để gửi `CvTagIndex` cho mọi tag CV hợp lệ (VFLAG/VREG/VREG_RETAIN/
+      COUNTER). Chỉ cần sửa ĐÚNG MỘT CHỖ này.
+    - `SimplePLC.Studio/Services/RuleCompiler.cs` KHÔNG phải bộ biên dịch cũ độc lập:
+      nó chuyển view-model thành đồ thị rồi gọi `_coreCompiler.Compile()` của
+      Application (dòng ~270). Con số 84 ở dòng 138 chỉ là giá trị dự phòng khi người
+      dùng chưa chọn tag CV; 84 SAI trên board Zigbee-IO (VREG_RETAIN bắt đầu ở tag 72,
+      84 là VREG_RETAIN số 12 chỉ đúng với bảng cố định Structs mục 4). Nên đổi thành
+      tag VREG_RETAIN đầu tiên lấy từ `TagCatalog`/`DeviceResourceInfo` (nguyên tắc
+      "App không hard-code"). Hai interface cùng tên `IRuleCompiler` (Application và
+      Studio) dễ gây nhầm khi đọc code.
+    - Chưa sửa thì KHÔNG hỏng gì: rule đếm dùng `CvTagIndex` nên số đếm đúng; VREG_RETAIN
+      vẫn lưu/xoá đúng. Hậu quả duy nhất: với CV là VREG/VFLAG thì `current_value` và
+      `Q` trên khối FB (`0x0B40+`) đọc ra 0. Trong code App mình không thấy chỗ nào
+      hiển thị CV từ khối FB (`RuntimeStateStore` chỉ lưu `Counters`; mình chỉ grep, chưa
+      đọc kỹ giao diện), nên hiện chưa ảnh hưởng thứ người dùng nhìn thấy.
+    - **Spec cần sửa cho khớp (CHƯA làm):** Structs v2.0 mục 3.7 và Wire Contract mục
+      9.3: đổi mô tả `retain_tag_index` thành "TagIndex của tag chứa CV (VFLAG/VREG/
+      VREG_RETAIN/COUNTER) hoặc `0xFFFF`", ghi rõ CV/Q đọc từ tag đó. Khi sửa App thì
+      sửa spec cùng lúc, báo team App.
+
 18. **Counter retain: KHÔNG cần code firmware (SỬA 2026-10-08).** Tag CV kind
     `VREG_RETAIN` được `plc_retain.c` lưu/nạp như mọi tag retain (giá trị live,
     `retain_snapshot_write()` đọc `tag_read`, 5 phút một lần khi có đổi), và
@@ -344,8 +371,12 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
 **Còn lại:**
 - **8b — XONG, VERIFY TRÊN PC VÀ TRÊN BOARD (`test_fb.py COM14 --reboot` ALL PASS: nháp/COMMIT, DISABLED, từ chối, trùng retain trong nháp, COMMIT lỗi xoá nháp, CLEAR_RULES/FACTORY_RESET, FB sống sót REBOOT rồi mất sau CLEAR_RULES + REBOOT)** (#19, #21..#24). Verify trên PC (gcc host + ASan/UBSan, firmware thật Layer 2/3 + nanoMODBUS thật, Flash giả mô phỏng mất điện giữa chừng một lần ghi/xoá): (1) ghi FB là nháp, đọc vẫn thấy cũ, COMMIT mới thấy; (2) khối không ghi thành DISABLED; (3) trùng retain chỉ tính trong nháp; (4) COMMIT sai CRC xoá nháp, Deploy sau không dính khối cũ; sai magic không xoá nháp; (5) `CLEAR_RULES`/`FACTORY_RESET` xoá FB và nháp; (6) lưu/nạp Flash khứ hồi, bản ghi trước-8b vẫn nạp, hỏng đoạn FB bị CRC bắt rồi rơi về B; (7) quét mất điện tại MỌI đơn vị ghi/xoá của một lần save (41 đơn vị): sau khởi động lại luôn là đúng bản cũ hoặc đúng bản mới (25/19), KHÔNG lần nào lẫn. 75 kiểm tra PASS. `test_fb.py` bản mới chạy với firmware PC qua pty (REBOOT mô phỏng mất sạch RAM, giữ Flash), kèm `--reboot --probe-64`: ALL PASS. **Ý nghĩa đã đổi so với 8a:** `test_fb.py` cũ kiểm "ghi xong đọc ngay thấy giá trị mới" không còn đúng; script mới ghi → COMMIT → đọc. **Còn lại:** `--probe-64` trên board, mất điện thật giữa lúc lưu, kiểm `.text+.data` ARM.
 - **8c — Counter retain (SỬA 2026-10-08): hết việc firmware cho Counter, chỉ còn
-  PVD.** Xem #15, #17, #18. Phần đã làm trong phiên này (CHƯA build ARM, chưa
-  chạy `test_fb.py` mới trên board): `plc_fb.c/.h` đọc CV/Q từ tag CV do App chọn,
+  PVD.** Xem #15, #17, #18. Phần đã làm trong phiên này (ĐÃ build ARM và verify trên board:
+  `test_fb.py COM14`, `--reboot`, `--probe-64` đều ALL PASS; bước 7 trên board: CV tăng
+  33 → 84 trong 0,5 s, Q bật ở CV=85 với PV=50, `CLEAR_RETAIN` đưa CV về 0; bước 12:
+  cấu hình FB sống sót REBOOT, mất sau CLEAR_RULES + REBOOT; probe: khung 73 byte được
+  trả lời, bản `--probe-64` này chỉ xác nhận "có trả lời" và link còn sống, không đọc lại
+  nội dung 4 khối. Chưa verify: số đếm của tag VREG_RETAIN sống sót REBOOT thật): `plc_fb.c/.h` đọc CV/Q từ tag CV do App chọn,
   bỏ `counter_exists()`, validate theo kind tag; `test_fb.py` viết lại các bước
   5, 6, 7, 8, 9 theo hợp đồng mới (CLEAR_RETAIN đưa CV retain về 0 ở bước 7).
   Verify trên PC: harness gcc host + ASan/UBSan với `plc_tag.c` và `plc_fb.c` thật,
@@ -374,6 +405,12 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
 
 ### Việc tồn đọng, giải quyết tiện thể khi đụng tới file liên quan
 
+- **App + spec cho CV tag (không gấp):** xem #17 (RuleCompiler.cs dòng ~260, giá trị dự
+  phòng 84 ở Studio, Structs 3.7 / Wire Contract 9.3).
+- **Test số đếm VREG_RETAIN sống sót REBOOT thật** (đếm trên VREG_RETAIN, `COMMIT_RETAIN`
+  trong DIAG, REBOOT, đọc lại CV): `test_fb.py --reboot` hiện chỉ kiểm cấu hình FB qua
+  reboot, chưa kiểm giá trị đếm. `--probe-64` bản hiện tại chỉ kiểm "có trả lời", không
+  đọc lại nội dung 4 khối.
 - Validate `guard_tag` / `trigger_tag` / `action_tag` nằm trong `0..MAX_TAGS-1`
   (hoặc `GUARD_TAG_NONE`) khi nạp rule — hiện index sai không crash nhưng rule
   bị vô hiệu hoá âm thầm.
