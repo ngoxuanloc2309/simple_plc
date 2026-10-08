@@ -65,6 +65,7 @@ import sys
 import time
 
 from pymodbus.client import ModbusSerialClient
+from pymodbus.exceptions import ModbusException
 
 import test_plc as tp        # rule encoding / CRC helpers
 import test_sysclear as ts   # Dev wrapper, check(), diag constants
@@ -329,13 +330,25 @@ def run(d, args):
     # ---- optional: 4-block frame ---------------------------------------------
     if args.probe_64:
         print("\n[P] probe: 4 blocks in one FC16 (73-byte frame)")
-        resp = d.fc16(REG_TIMERS, [r for blk in timers[:4] for r in blk])
-        if resp.isError():
-            print(f"  INFO: NOT answered / error ({resp}). Known FC16 > 64-byte issue; "
+        answered = False
+        try:
+            resp = d.fc16(REG_TIMERS, [r for blk in timers[:4] for r in blk])
+            answered = not resp.isError()
+        except ModbusException as e:
+            # pymodbus raises (after its retries) when nothing comes back.
+            print(f"  no response: {e}")
+        if answered:
+            print("  INFO: answered. The frame limit no longer bites at 4 blocks.")
+        else:
+            print("  INFO: NOT answered / error. Known FC16 > 64-byte issue; "
                   "the App stays at 3 blocks per request.")
             time.sleep(1.0)
-        else:
-            print("  INFO: answered. The frame limit no longer bites at 4 blocks.")
+            try:
+                d.read(REG_RESOURCE, 1)
+                recovered = True
+            except Exception:
+                recovered = False
+            check(recovered, "link still answers normal requests after the unanswered frame")
 
     # ---- 10. cleanup ---------------------------------------------------------
     print("\n[10] cleanup")

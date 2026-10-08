@@ -13,6 +13,14 @@
 > **Lưu ý:** `docs/architecture.md` mô tả Wire Profile V1.9 và có vài chỗ đã
 > lỗi thời (vd. "Layer 3/4 hoàn toàn rỗng"). Với V2.0, nguồn đúng là 2 tài
 > liệu ở mục 2.
+>
+> **Repo App** (`ngoxuanloc2309/paa`, .NET, public) cũng cần đọc khi làm việc
+> xuyên App + firmware: `src/SimplePLC.Application/Logic/Compilation/RuleCompiler.cs`
+> (biên dịch rule), `src/SimplePLC.Infrastructure/Devices/RuleTableWriter.cs`
+> (thứ tự deploy), `src/SimplePLC.Infrastructure/Gateways/FunctionBlockGateway.cs`
+> (đọc/ghi khối FB), `docs/firmware/MCU_CONFORMANCE_SPECIFICATION_V2_0.md`.
+> Khi App trả lời bằng chữ, đối chiếu với code: đã có lần câu trả lời không
+> khớp code (mục 4, bài học 12).
 
 ## 0. Trạng thái hiện tại
 
@@ -24,7 +32,14 @@
   — khối `0x0810`, `status_flags` RO, từ chối ghi sai, đồng hồ -0.1 % so với
   thời gian thật, Time Window mốc phút/khung/qua nửa đêm). **Còn chưa chạy:**
   `test_rtc.py --reboot` và test mất điện thật bằng tay. Chi tiết ở mục 3.
-- **Sau đó: Bước 8 (FB Timer/Counter).** Chưa có dòng code nào.
+- **Bước 8a (khối FB `0x0B00..0x0B7F`: nhận ghi cấu hình, đọc, Counter
+  `CV`/`Q`): xong và verify trên board** (`test_fb.py COM14`: ALL PASS, kể cả
+  `--probe-64`). **Còn lại của Bước 8:** lưu cấu hình FB vào Flash (8b),
+  Counter retain + `CLEAR_RETAIN`/`FACTORY_RESET` + PVD (8c), Timer chạy thật
+  (8d, chờ App). Chi tiết ở mục 3.
+- **Đã sửa lỗi FC16 > 64 byte** (khung 73 byte không được trả lời) trong
+  `components/usb_cdc/sx_usb_cdc.c` (`sx_usb_tiny_read()`), verify trên board
+  bằng `test_fb.py --probe-64`. Xem mục 3.
 - **Chưa verify (không chặn việc tiếp theo):**
   - Rút nguồn thật khi retain = giá trị đã commit, bật lại, đọc lại. Đã
     verify qua `REBOOT` (dữ liệu sống sót qua reset), chưa verify qua mất điện.
@@ -53,6 +68,8 @@
 | 6 | `CLEAR_RULES` / `CLEAR_RETAIN` / `FACTORY_RESET` thật | `app/plc_app/plc_system_clear.{c,h}`, `plc_system_cmd_service.c` |
 | 7a | RTC driver | `utils/epoch/`, `components/rtc/sx_rtc.h`, `platforms/stm32/stm32h5/rtc/` |
 | 7b | Khối RTC `0x0810`, Time Window, `status_flags` do firmware tự tính | `services/plc_rtc/`, `plc_modbus_cfg.c`, `plc_engine.c`, `plc_rule.c`, `plc_rule_eval.c`, `board_zigbee_io.c` (`g_rtc_caps`) |
+| 8a | Khối FB `0x0B00..0x0B7F`: ghi cấu hình (all-or-nothing, bỏ qua field firmware sở hữu), đọc, Counter `CV` = tag `COUNTER[i]`, `Q` tính ra. Cấu hình CHỈ trong RAM (chưa Flash) | `services/plc_fb/plc_fb.{h,c}`, `plc_modbus_cfg.c` (bảng block + `cb_write_multiple_registers`), `plc_engine.c` (`plc_fb_init()`), `services/CMakeLists.txt` |
+| fix | FC16 > 64 byte được trả lời (đo thời gian thật + chuyển byte FIFO TinyUSB → `rxQueue` trong lúc chờ) | `components/usb_cdc/sx_usb_cdc.c` (`sx_usb_tiny_read()`) |
 
 **Cơ chế Bước 6:** không erase sector thô. Ghi một bản ghi RỖNG hợp lệ qua
 đường lưu đã verify (`plc_rule_flash_save()` / `retain_snapshot_write()`, tự
@@ -125,6 +142,47 @@ V2.0 là **strict superset** của V1.9. Khi 2 tài liệu mâu thuẫn về HÀ
     không đổi gì; ghi bắt đầu ở `0x0812`/`0x0813` → `0x02`; FC06 hoặc qty
     khác 3/4 → `0x03`.
 
+13. **Bước 8 theo hướng A ("dual generation"), đã thống nhất với team App:**
+    với `WireProfile >= 2`, App VẪN sinh macro rule (Timer/Counter chạy bằng
+    Rule Engine, `INC_COUNTER`, dwell) VÀ ghi thêm bảng cấu hình FB. Firmware
+    chưa có engine Timer/Counter riêng. Bảng FB chỉ để lưu cấu hình và hiển
+    thị. Lý do: struct FB 16 byte không có field "tag nguồn" nên firmware
+    không biết `IN`/`CU`/`CD`/`RESET` nối tag nào. (Lúc kiểm tra code App,
+    `RuleCompiler.cs` chỉ sinh macro rule khi `WireProfile < 2`; App đã đồng
+    ý sửa, **chưa kiểm tra lại code App sau khi sửa**.)
+14. **Quyền vùng FB (người dùng chấp nhận theo trả lời của team App):**
+    `0x0B00..0x0B7F` là R/W. Host ghi cấu hình khi Deploy bằng FC16 —
+    Timer: `mode` (+1), `pt_ms` (+2..+3); Counter: `mode` (+1),
+    `preset_value` (+2..+3), `retain_tag_index` (+6). Firmware sở hữu
+    `status_bits`, `et_ms`/`current_value`, `reserved`: nếu Host ghi kèm (App
+    ghi CẢ khối 8 reg, các field đó = 0) thì firmware nhận lệnh và BỎ QUA
+    các field đó. **Lệch Structs v2.0 mục 3.6/3.7 (ghi RO) — Structs cần sửa
+    cho khớp.**
+15. **Counter `i` ↔ tag `COUNTER[i]`** (index `tag_counter_base_index()+i`,
+    104+i trên board này): `current_value` và tag là MỘT dữ liệu hai địa chỉ,
+    ghi tag trong DIAG thì `CV` đổi theo. `Q` (status bit 3): CTU `CV >= PV`,
+    CTD `CV <= 0`, mode 0 thì `CV` đọc ra 0. `CU`/`CD`/`RESET` (bit 0..2) đọc ra 0.
+16. **Mode:** Timer 1=TON, 2=TOF, 3=TP; Counter 1=CTU, 2=CTD; 0 = khối không
+    dùng. CTUD và HSC bỏ (App xác nhận không cần).
+17. **`retain_tag_index` = index toàn cục thật** (72..103 trên board này, layout
+    DENSE), App tính từ `DeviceResourceInfo` (App xác nhận bỏ hằng 84).
+    Firmware validate: `0xFFFF` hoặc tag kind `VREG_RETAIN`, không hai counter
+    trùng, counter không có trên board chỉ được `mode 0`. Sai → exception `0x03`,
+    ghi vượt `0x0B7F` hoặc bắt đầu dưới `0x0B00` → `0x02`.
+18. **Yêu cầu App cho Counter có `retain_tag_index != 0xFFFF` (CHƯA làm,
+    Bước 8c):** sống sót qua reboot; `CLEAR_RETAIN` và `FACTORY_RESET` phải
+    đưa các counter đó về 0. (Đảo mặc định cũ "không đụng `COUNTER`" của
+    Bước 6, chỉ với counter có retain.)
+19. **Cấu hình FB lưu Flash cùng Rule Table** (người dùng chốt, CHƯA làm,
+    Bước 8b). Thứ tự deploy của App (`RuleTableWriter.cs`): ghi FB TRƯỚC,
+    rồi stage rule + COMMIT, nên firmware có thể giữ cấu hình FB ở dạng chờ
+    đến COMMIT rồi lưu cùng lúc. Phải trình bày thay đổi định dạng Flash cho
+    người dùng duyệt TRƯỚC khi sửa `plc_rule_flash.c`; bản Flash cũ không có
+    đoạn FB vẫn phải nạp được.
+20. **Timer: hoãn phần chạy** (người dùng chọn làm Counter trước). Hiện Timer
+    chỉ lưu và đọc lại `mode`/`pt_ms`; `status`/`ET` đọc ra 0. Chờ App chốt
+    cách nối `IN`/`RESET`/`Q` (mục 3, Bước 8d).
+
 **Lệch có chủ đích khác so với tài liệu (đội App cần biết):**
 - `DISCARD_RETAIN` bỏ bản nháp, KHÔNG reload từ Flash (Rule Engine dừng trong
   diag nên giá trị live = lúc ENTER; reload sẽ lùi tới 5 phút thay đổi thật).
@@ -146,6 +204,13 @@ V2.0 là **strict superset** của V1.9. Khi 2 tài liệu mâu thuẫn về HÀ
   timeout đủ rộng và poll `0x0A01` để thấy `DONE`.
 
 **Cần người dùng xác nhận lại (diễn giải của Claude, chưa được duyệt rõ ràng):**
+- Bước 8b: khối FB KHÔNG được ghi trong lần deploy (App chỉ ghi N khối đầu,
+  không ghi `mode 0` cho khối bị xoá, và không ghi gì nếu project không có
+  Timer/Counter) — đề xuất: coi là DISABLED khi COMMIT, nếu không board giữ
+  mãi cấu hình cũ. Rủi ro: client khác chỉ commit rule sẽ xoá cấu hình FB.
+  Chưa chốt.
+- Đổi cấu hình counter (mode/PV) hiện KHÔNG đặt lại `CV` (0 cho CTU, PV cho
+  CTD); `CV` do rule của App quản lý. Hỏi App nếu cần firmware khởi tạo.
 - Quyết định #4 với `VREG_RETAIN`: hiện bản nháp bị BỎ, không ghi 0 vào giá trị
   live (ghi 0 sẽ phá dữ liệu đã commit). Xoá retain thật là việc của
   `CLEAR_RETAIN` / `FACTORY_RESET`.
@@ -199,27 +264,78 @@ REBOOT, tz về 0, Time Window im lặng đến khi Host ghi lại giờ); test 
 thật bằng tay (xem docstring `test_rtc.py`: `flags` phải về 0); báo đội App sinh
 rule "đúng giờ" dạng `EQ, Lo=Hi` (quyết định #11).
 
-**Phát hiện phụ (chưa điều tra):** một FC16 dài hơn 64 byte (vd. 2 rule = 32
-thanh ghi, khung 73 byte) vào `0x9010` KHÔNG được firmware trả lời trên board
-(pymodbus: "No response received after 3 retries"); mỗi rule một FC16 thì ổn.
-`test_rtc.py` đã đổi sang mỗi rule một lệnh. Nghi liên quan FIFO RX CDC 64 byte
-(`CFG_TUD_CDC_RX_BUFSIZE`) + `MODBUS_BYTE_TIMEOUT_MS = 5`; nếu App
-(`ModbusChunkPlanner`, tới 64 thanh ghi/chunk) nạp nhiều rule một lệnh thì có thể
-gặp lại. Cần xác nhận phía App và điều tra nếu đúng.
+**Phát hiện phụ — ĐÃ SỬA ở Bước 8:** FC16 dài hơn 64 byte (vd. 2 rule = 73
+byte vào `0x9010`) từng KHÔNG được trả lời (pymodbus: "No response received
+after 3 retries"). Nguyên nhân (đọc từ code, rồi verify bằng `test_fb.py
+--probe-64` sau khi sửa): khung 73 byte đến qua 2 gói USB (64 + 9).
+`sx_usb_tiny_read()` (1) đếm timeout bằng số vòng lặp chứ không phải ms thật
+(5 ms thực chất ~5 vòng, cỡ micro giây), và (2) trong lúc chờ chỉ gọi
+`tud_task()`; byte chỉ được chuyển từ FIFO TinyUSB sang `rxQueue` trong
+`sx_usb_tiny_process()` (10 ms/lần). nanoMODBUS thấy thiếu byte, huỷ 64 byte
+đầu, phần đuôi bị đọc nhầm thành yêu cầu mới. Sửa: đo bằng `HAL_GetTick()` và gọi
+`usb_rx_task()` sau mỗi `tud_task()` trong vòng chờ; timeout 0 (kiểm tra byte
+đầu mỗi chu kỳ) giữ nguyên "không chờ". Worst case khi khung bị cắt giữa chừng:
+trễ ~5 ms một lần. App vẫn đang chia tối đa 3 khối FB mỗi lệnh FC16 (57 byte);
+giờ có thể bỏ giới hạn này. `test_rtc.py` vẫn mỗi rule một lệnh (chưa đổi lại).
 
 ### Bước 8 — FB Timer / Counter (`0x0B00` / `0x0B40`)
 
-Khối lớn nhất, chạy độc lập song song Rule Engine, theo Wire Contract mục 9
-(pseudocode TON ở 9.5, cần thêm TOF/TP, CTD/CTUD/HSC).
-- 8 Timer (TON/TOF/TP) mỗi khối 8 reg: status, mode, `pt_ms`, `et_ms`.
-- 8 Counter (CTU/CTD/CTUD/HSC) mỗi khối 8 reg: status, mode, `pv`, `cv`,
-  `retain_tag_index` (link tới `VREG_RETAIN`, `0xFFFF` = không retain).
-- Cần quyết định trước khi code: nguồn cấu hình FB (ai ghi `mode`/`pt_ms`/`pv`?
-  hiện bảng chỉ mô tả vùng đọc RO), counter retain dùng cơ chế retain nào, và
-  **`CLEAR_RETAIN` / `FACTORY_RESET` có xoá counter có `retain_tag_index` không**
-  (hiện không đụng `COUNTER`).
-- Xác nhận lại thứ tự ưu tiên (câu hỏi treo cũ: Diagnostic Control đã làm
-  trước, nên Bước 8 là phần V2.0 cuối cùng).
+**8a — XONG, ĐÃ VERIFY TRÊN BOARD** (`test_fb.py COM14` và `--probe-64`: ALL
+PASS). Quyết định #13..#20 ở mục 2. Layout (Structs 3.6/3.7), mỗi record 8 reg,
+Timer `i` tại `0x0B00 + 8i`, Counter `i` tại `0x0B40 + 8i`:
+
+| Offset | Timer | Counter | Chủ sở hữu |
+|---|---|---|---|
+| +0 | `status_bits` | `status_bits` (bit 3 = Q) | firmware |
+| +1 | `mode` | `mode` | Host |
+| +2..+3 | `pt_ms` | `preset_value` (int32) | Host |
+| +4..+5 | `et_ms` | `current_value` = tag `COUNTER[i]` | firmware |
+| +6 | reserved | `retain_tag_index` | Host (Counter) |
+| +7 | reserved | reserved | — |
+
+Module: `services/plc_fb/plc_fb.{h,c}` (Layer 3, không include nanomodbus).
+`plc_fb_init()` gọi một lần trong `plc_engine_init()` sau
+`tag_table_load_from_flash()`. `plc_fb_write()` làm việc trên bản sao, validate
+hết rồi mới áp dụng (all-or-nothing); `plc_modbus_cfg.c` ánh xạ kết quả →
+exception `0x02`/`0x03` giống khối RTC. Đã verify trên PC (gcc host với
+`plc_tag.c` thật) rồi trên board.
+
+**Đã verify trên board (`test_fb.py`):** ghi cả khối Timer/Counter như App
+(rác trong field firmware sở hữu bị bỏ qua), High Word trước, PV âm,
+`retain_tag_index`; `CV` theo tag COUNTER qua DIAG, `Q` CTU/CTD, `CV` âm; rule
+`INC_COUNTER` làm `CV` tăng trên khối FB và `Q` bật tại PV; các từ chối
+(`0x03` mode sai / retain không phải VREG_RETAIN / ngoài dải / trùng, `0x02`
+vượt hết khối / dưới `0x0B00`), all-or-nothing trên yêu cầu 2 khối; FC06 vào
+một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 khối
+(73 byte) được trả lời. **Chưa verify:** nội dung khung 4 khối có được áp dụng
+đúng không (bản `test_fb.py` đã chạy chưa có bước đọc lại này; bản mới có
+`check` "the 4-block frame was applied" — chạy lại `--probe-64`).
+
+**Phát hiện khi test (cho team App):**
+- Đọc `0x0B00..0x0B7F` bằng MỘT FC03 128 thanh ghi bị từ chối (Modbus tối đa
+  125 mỗi lệnh; nanoMODBUS kiểm `quantity > 125`). `FunctionBlockGateway.cs`
+  đang đọc 128 trong một lệnh và nuốt lỗi → màn hình FB trống. App phải
+  tách (vd. 64 + 64; board trả lời 64 reg ổn). **Chưa xác nhận App đã sửa.**
+- `RuleCompiler.cs` chỉ sinh macro rule khi `WireProfile < 2` (mục 2, #13).
+
+**Còn lại:**
+- **8b — lưu cấu hình FB vào Flash cùng Rule Table** (#19). Cấu hình hiện chỉ
+  trong RAM: REBOOT là mất, App phải deploy lại. Cần thiết kế định dạng bản
+  ghi (thêm đoạn cuối bản ghi rule; `seq_num`/`rule_count`/`crc16` hiện có),
+  tương thích ngược với Flash cũ, và duyệt với người dùng trước khi sửa
+  `plc_rule_flash.c`. Giải quyết cả câu hỏi "khối không được ghi" (mục 2).
+- **8c — Counter retain** (#18): mỗi scan chép giá trị counter vào tag
+  VREG_RETAIN đã liên kết (không đặt `RETAIN_DIRTY`, vì sẽ chặn `EXIT_DIAG`
+  mãi), nạp lại khi boot sau `retain_store_restore()`, `plc_clear_retain()` /
+  `plc_factory_reset()` đưa counter có retain về 0. `retain_service()` hiện lưu
+  Flash mỗi 5 phút; mất điện đột ngột mất tối đa ~5 phút số đếm nếu chưa nối
+  PVD (mục tồn đọng). Cần quyết định cơ chế lưu khi làm.
+- **8d — Timer chạy thật** (#20): cần App chốt cách nối `IN`/`RESET`/`Q`.
+  Hai phương án đã nêu: (a) quy ước cố định VFLAG (Timer `i`: `IN`=VFLAG[i],
+  `RESET`=VFLAG[8+i], `Q`=VFLAG[16+i]) và RuleCompiler sinh rule sao chép;
+  (b) dùng 2 thanh ghi `reserved` của Timer để App ghi tag nguồn (mở rộng
+  wire, cần sửa spec cả hai phía). Counter không cần vì đếm qua `INC_COUNTER`.
+  Nếu App muốn `ET`/`IN`/`RUNNING` thật trên màn hình, đây là chỗ bắt buộc.
 
 ### Việc tồn đọng, giải quyết tiện thể khi đụng tới file liên quan
 
@@ -236,6 +352,23 @@ Khối lớn nhất, chạy độc lập song song Rule Engine, theo Wire Contra
   `plc_rule_flash_save()` (copy A→B) đã huỷ bản cũ trước khi biết lỗi. Có từ
   trước V2.0, áp dụng cho cả COMMIT rule thường và `CLEAR_RULES`.
 - `docs/architecture.md` cần được soát lại cho khớp V2.0 và code hiện tại.
+  Structs v2.0 mục 3.6/3.7 còn ghi khối FB là chỉ đọc (App đã sửa tài liệu
+  của họ thành R/W); `Wire_Contract` ghi `MODE/PT/PV/CV/RETAIN_TAG_INDEX` R/W.
+- **Chưa điều tra — mất log sau khi nạp firmware mới:** lần nạp bản Bước 8a
+  KHÔNG có dòng log nào (không thấy cả "Zigbee-IO board init start"); erase
+  full chip rồi nạp lại thì log xuất hiện. Diff của bản đó không đụng Flash
+  hay log. Giả thuyết (chưa kiểm chứng): (1) trong `plc_engine_init()` ba
+  lệnh đọc Flash (`rule_table_load_from_flash`, `plc_rule_flash_load`,
+  `retain_store_restore`) chạy TRƯỚC `board_init()` (nơi `logger_init`), nên
+  treo/fault ở đó thì không có log nào; dữ liệu cũ trong Flash có thể kích
+  hoạt; (2) firmware lớn lấn vào vùng dữ liệu `0x08036000..0x0803FFFF`
+  (retain 3 sector + Rule Table A/B): chip STM32H523CC chỉ có 256 KB nhưng
+  `STM32H523xx_FLASH.ld` khai báo `FLASH LENGTH = 512K` nên linker không bắt.
+  Cách xác định: `arm-none-eabi-size` / file `.map` (kết thúc `.text+.data`
+  phải < `0x08036000`); tái hiện: nạp KHÔNG erase rồi xoá riêng sector 27..31.
+  Nếu đúng (2), cân nhắc đặt `LENGTH = 216K` (file `.ld` do CubeMX sinh —
+  hỏi người dùng trước khi sửa); nếu đúng (1), các hàm load Flash cần chịu
+  được dữ liệu rác (kiểm CRC, không fault).
 - Sai số LSI: nếu Time Window cần chính xác hơn, cân nhắc hiệu chuẩn hoặc thêm
   thạch anh LSE (đổi cấu hình CubeMX + prescaler về 127/255, code `sx_rtc` giữ
   nguyên).
@@ -279,6 +412,23 @@ Khối lớn nhất, chạy độc lập song song Rule Engine, theo Wire Contra
     qua; chỉ lỗi/cảnh báo từ file của mình mới quan trọng. Stub HAL tự viết phải
     có include guard, nếu không sinh lỗi giả.
 
+12. **Đối chiếu câu trả lời của team App với code App.** Trả lời "App/Rule
+    Engine sẽ lo" cho cách nối `IN`/`Q` hoá ra không khớp: `RuleCompiler.cs`
+    không sinh rule nào cho Timer/Counter khi `WireProfile >= 2`. Đọc repo
+    `paa` trước khi thiết kế phần dựa vào hành vi của App.
+13. **Timeout đếm theo vòng lặp không phải timeout.** Vòng chờ không có độ
+    trễ mà `time++` mỗi lượt thì "5 ms" chỉ là 5 vòng. Khi chờ dữ liệu, đo
+    bằng tick thật và nhớ chuyển dữ liệu từ buffer của stack (TinyUSB) sang
+    queue của mình ngay trong vòng chờ.
+14. **Giới hạn Modbus:** FC03 tối đa 125 thanh ghi, FC16 tối đa 123; cả hai
+    chưa tính giới hạn gói USB 64 byte. Thiết kế đọc/ghi một khối lớn phải
+    chia nhỏ.
+15. **Lỗi trước `logger_init` không có log.** Mọi thứ chạy trước `board_init()`
+    (đọc Flash trong `plc_engine_init()`) treo thì màn hình log trống; đừng
+    kết luận "code không chạy" mà chưa kiểm tra những bước này.
+16. **Script test phải bắt ngoại lệ của pymodbus** (`ModbusException`) ở các
+    bước thăm dò mà board có thể không trả lời, và vẫn chạy bước dọn dẹp.
+
 ## 5. Quy trình làm việc với người dùng
 
 - Trao đổi **tiếng Việt**, code/comment **tiếng Anh**.
@@ -306,7 +456,8 @@ interpreter — dùng `python -m pip`, máy dev có nhiều Python do ESP-IDF):
 | `test_plc.py` | descriptor, nạp rule, commit, live watch |
 | `test_diag.py [manual \| manual-dwell --expire] COM14` | state machine diag, lease, Rule Engine thực sự dừng, reset runtime khi thoát diag |
 | `test_tag.py COM14 [--pins --commit --reboot]` | ghi tag trong diag, all-or-nothing, retain draft/COMMIT/DISCARD, baseline reset trước REBOOT |
-| `test_rtc.py COM14 [--reboot]` | Bước 7: khối `0x0810`, `status_flags` RO, từ chối ghi sai (`0x02`/`0x03`), tốc độ đồng hồ, Time Window (mốc phút, khung, qua nửa đêm), giờ sống sót qua REBOOT. **Ghi Flash, xoá rule, đặt giờ board.** Mới viết, CHƯA chạy trên board. |
+| `test_rtc.py COM14 [--reboot]` | Bước 7: khối `0x0810`, `status_flags` RO, từ chối ghi sai (`0x02`/`0x03`), tốc độ đồng hồ, Time Window (mốc phút, khung, qua nửa đêm), giờ sống sót qua REBOOT. **Ghi Flash, xoá rule, đặt giờ board.** Đã chạy trên board: ALL PASS (chưa chạy `--reboot`). |
+| `test_fb.py COM14 [--probe-64]` | Bước 8a: khối FB `0x0B00..0x0B7F` (ghi cả khối, đọc, từ chối, all-or-nothing, `CV` theo tag COUNTER, `Q`, rule `INC_COUNTER`, deploy 3,3,2). `--probe-64` gửi thêm FC16 4 khối (73 byte) để kiểm lỗi giới hạn 64 byte. Dùng lại `test_plc.py`, `test_sysclear.py`, `test_rtc.py`. **Ghi cấu hình FB (RAM), nạp rule (Flash), ép tag COUNTER, cuối cùng `CLEAR_RULES` + mọi khối FB về "không dùng".** Đã chạy trên board: ALL PASS. |
 | `test_sysclear.py COM14 [--reboot]` | Bước 6: 3 lệnh xoá, persistence qua reboot, lệnh trong diag, lệnh sai. **Ghi Flash và xoá sạch rule + retain trên board.** |
 
 Trước `test_diag.py manual`: reset board, xác nhận `DO0=0`.

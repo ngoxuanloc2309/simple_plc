@@ -135,8 +135,11 @@ void sx_usb_tiny_write(sx_usb_tiny_t *_usb, const uint8_t *_data, uint32_t _len)
 int sx_usb_tiny_read(sx_usb_tiny_t *_usb, uint8_t *_data,
                      uint32_t _len, uint32_t _timeoutMS)
 {
-    uint32_t len  = 0;
-    uint32_t time = 0;
+    uint32_t len = 0;
+
+#if STM32H5_PLATFORM
+    uint32_t start_ms = HAL_GetTick();
+#endif
 
     /*
      * Bytes ALREADY sitting in rxQueue are always returned, regardless of
@@ -146,13 +149,27 @@ int sx_usb_tiny_read(sx_usb_tiny_t *_usb, uint8_t *_data,
      * The previous loop was `while (len < _len && time < _timeoutMS)`, so
      * with _timeoutMS == 0 the body never ran and this returned 0 even when
      * rxQueue held a complete frame. plc_modbus_cfg sets nanoMODBUS's read
-     * and byte timeouts to 0 (non-blocking poll), so every recv() got 0
-     * bytes back -> NMBS_ERROR_TIMEOUT -> nmbs_server_poll() returned
-     * having consumed nothing, and the request sat in the FIFO forever
-     * (symptom: log "available=8" repeating, App sees "No response").
+     * timeout to 0 (non-blocking poll), so every recv() got 0 bytes back ->
+     * NMBS_ERROR_TIMEOUT, and the request sat in the FIFO forever (symptom:
+     * log "available=8" repeating, App sees "No response").
      *
      * nanoMODBUS's platform.read contract: timeout 0 = "return whatever is
      * available right now, do not wait".
+     *
+     * While WAITING (timeout > 0) two things must both happen, or a frame
+     * longer than one 64-byte USB packet is lost (FC16 > 64 bytes, e.g. 4
+     * Function Block records = 73 bytes, never answered):
+     *   1. The wait is measured in real milliseconds. The old counter was
+     *      incremented once per loop pass with no delay, so a 5 ms byte
+     *      timeout lasted only 5 passes (microseconds): the second USB
+     *      packet, which arrives about 1 ms after the first, was never
+     *      waited for.
+     *   2. Bytes that arrive during the wait must be moved from TinyUSB's
+     *      own FIFO into rxQueue. Only sx_usb_tiny_process() used to do
+     *      that (once per 10 ms scan cycle), and this loop called only
+     *      tud_task(), so the rest of the frame stayed in TinyUSB's FIFO
+     *      while recv() gave up, and nanoMODBUS then discarded the first
+     *      64 bytes and parsed the tail as a new request.
      */
     while (len < _len) {
         if (cqueue_receive(&_usb->rxQueue, _data + len)) {
@@ -160,16 +177,18 @@ int sx_usb_tiny_read(sx_usb_tiny_t *_usb, uint8_t *_data,
             continue;
         }
 
+#if STM32H5_PLATFORM
         /* Queue is empty. Give up if the caller does not want to wait, or
-         * the wait budget is used up. */
-        if (time >= _timeoutMS) {
+         * the wait budget (real milliseconds) is used up. */
+        if ((uint32_t)(HAL_GetTick() - start_ms) >= _timeoutMS) {
             break;
         }
 
-#if STM32H5_PLATFORM
         tud_task();
+        usb_rx_task(_usb);
+#else
+        break;
 #endif
-        time++;
     }
     return (int)len;
 }
