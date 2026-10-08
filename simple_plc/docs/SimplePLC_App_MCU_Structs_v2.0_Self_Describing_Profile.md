@@ -73,8 +73,8 @@ Tài liệu này xác lập đặc tả cấu trúc dữ liệu nhị phân cấ
 | `0x0A00` | **System Command** | W | FC06/FC16 | 1 reg (2 B) | Lệnh bảo dưỡng: REBOOT (1), FACTORY_RESET (2), CLEAR_RULES (3), CLEAR_RETAIN (4). |
 | `0x0A01..0x0A02` | **System Command Result** | R | FC03 | 2 regs (4 B) | Kết quả lệnh bảo dưỡng: `[0]=CommandStatus`, `[1]=ErrorCode`. |
 | `0x0A20..0x0A24` | **Diagnostic Control Block**| R/W | FC03/FC06/FC16| 5 regs (10 B) | Phân hệ chẩn đoán: `Command` (0x0A20), `State` (0x0A21), `Flags` (0x0A22), `LeaseMs` (0x0A23), `ErrorCode` (0x0A24). |
-| `0x0B00..0x0B3F` | **FB Timers (TON/TOF/TP)**| R | FC03 | 64 regs (128 B) | 8 Timers IEC 61131-3, mỗi khối 8 thanh ghi (Status, Mode, PT_ms, ET_ms). |
-| `0x0B40..0x0B7F` | **FB Counters (CTU/CTD)** | R | FC03 | 64 regs (128 B) | 8 Counters IEC 61131-3, mỗi khối 8 thanh ghi (Status, Mode, PV, CV, RetainTagIndex). |
+| `0x0B00..0x0B3F` | **FB Timers (TON/TOF/TP)**| R/W | FC03/FC16 | 64 regs (128 B) | 8 Timers IEC 61131-3, mỗi khối 8 thanh ghi. Ghi cấu hình (Mode, PT) qua FC16; đọc viễn trắc (Status, ET) qua FC03. |
+| `0x0B40..0x0B7F` | **FB Counters (CTU/CTD)** | R/W | FC03/FC16 | 64 regs (128 B) | 8 Counters IEC 61131-3, mỗi khối 8 thanh ghi. Ghi cấu hình (Mode, PV, RetainTag) qua FC16; đọc viễn trắc (Status, CV) qua FC03. |
 | `0x9000..0x9005` | **Staging Handshake** | R/W | FC03/FC16 | 6 regs (12 B) | Trạng thái bắt tay nạp Rule: Status, ErrorCode, StagedCount, ExpectedCRC, ActiveCount, ActiveCRC. |
 | `0x9010..0x964F` | **Staging Rule Buffer** | W | FC16 | Max 1600 regs | RAM đệm nạp Rule mới (nạp theo từng block tối đa 120 thanh ghi). |
 | `0xA000` | **Commit Command** | W | FC06/FC16 | 1 reg (2 B) | Ghi `0xA5A5` (`SPLC_COMMIT_MAGIC`) để MCU kiểm tra CRC và hoán đổi con trỏ bảng Rule. |

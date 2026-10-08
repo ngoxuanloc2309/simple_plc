@@ -34,7 +34,7 @@
   `test_rtc.py --reboot` và test mất điện thật bằng tay. Chi tiết ở mục 3.
 - **Bước 8a (khối FB `0x0B00..0x0B7F`: nhận ghi cấu hình, đọc, Counter
   `CV`/`Q`): xong và verify trên board** (`test_fb.py COM14`: ALL PASS, kể cả
-  `--probe-64`). **Còn lại của Bước 8:** Counter retain + `CLEAR_RETAIN`/`FACTORY_RESET` + PVD (8c), Timer chạy thật (8d, chờ App). Chi tiết ở mục 3.
+  `--probe-64`). **Còn lại của Bước 8:** Counter retain + `CLEAR_RETAIN`/`FACTORY_RESET` + PVD (8c, đang thiết kế, đã chốt cơ chế lưu Flash, còn 3 điểm chưa chốt, chưa code, xem mục 3), Timer chạy thật (8d, chờ App). Chi tiết ở mục 3.
 - **Bước 8b (lưu cấu hình FB vào Flash; bản nháp FB + COMMIT): xong và verify trên board** (`test_fb.py COM14 --reboot`: ALL PASS; `test_rtc.py`, `test_tag.py`, `test_sysclear.py` cả bản thường lẫn `--reboot`: ALL PASS, không hồi quy). Ghi FB vào BẢN NHÁP; `0x0B00..` luôn đọc ra cấu hình đang chạy; COMMIT mới áp dụng và lưu Flash cùng Rule Table; cấu hình FB sống sót qua REBOOT. Hành vi 8a đổi: `test_fb.py` đã viết lại cho khớp. Chi tiết mục 2 (#19, #21..#24) và mục 3. **Còn chưa chạy:** `test_fb.py --probe-64` bản mới trên board, mất điện thật giữa lúc lưu (chỉ test thủ công được), build ARM chưa kiểm `.text+.data` so với `0x08036000`.
 - **Đã sửa lỗi FC16 > 64 byte** (khung 73 byte không được trả lời) trong
   `components/usb_cdc/sx_usb_cdc.c` (`sx_usb_tiny_read()`), verify trên board
@@ -326,6 +326,48 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
   `plc_factory_reset()` đưa counter có retain về 0. `retain_service()` hiện lưu
   Flash mỗi 5 phút; mất điện đột ngột mất tối đa ~5 phút số đếm nếu chưa nối
   PVD (mục tồn đọng). Cần quyết định cơ chế lưu khi làm.
+  **Tiến độ thiết kế (phiên 2026-10-08, CHƯA có dòng code nào):**
+  - **ĐÃ CHỐT (người dùng đồng ý) — cơ chế lưu Flash:** PVD là cơ chế chính
+    khi mất điện; chu kỳ 5 phút giữ làm lưới an toàn nhưng CHỈ ghi khi dữ liệu
+    có đổi so với lần ghi trước; ghi snapshot ngay trước `REBOOT`. Không rút
+    ngắn chu kỳ, không ghi theo thay đổi (hao Flash: vòng 117 record, ~10.000
+    chu kỳ erase mỗi sector, ước lượng: 5 phút ≈ 11 năm, 1 phút ≈ 2,2 năm,
+    10 giây ≈ 135 ngày). Yêu cầu cho nhánh PVD (phải an toàn trong ISR):
+    (1) không erase trong ISR: erase trước sector kế tiếp ngay sau khi ghi
+    record cuối của sector hiện tại (lúc đó nó là sector cũ nhất, record mới
+    nhất vẫn còn ở sector vừa ghi); (2) cờ chống chồng thao tác Flash: ISR nổ
+    lúc vòng chính đang ghi/erase thì chỉ đặt cờ, vòng chính ghi lại ngay khi
+    xong; (3) không log trong ISR (`sx_flash_write` có `log_error`);
+    (4) handler ở Layer 4 chép Counter → tag retain TRƯỚC rồi mới gọi
+    `retain_snapshot_write()` (Layer 3 không gọi lẫn nhau, việc đăng ký
+    callback là của Layer 4). **Chưa đo:** thời gian ghi/erase thật và thời
+    gian giữ điện từ lúc PVD nổ tới lúc điện sụt (cần oscilloscope trên board).
+  - **CHƯA CHỐT (đừng coi là đã quyết):**
+    (a) App ghi thẳng vào tag retain đang gắn Counter (sẽ bị CV chép đè ở
+    scan sau). Đề xuất của Claude là **A**: từ chối bằng exception `0x03`, chỉ
+    sửa qua tag COUNTER (khớp #15). B: cho ghi và `COMMIT_RETAIN` đẩy giá trị
+    vào CV. C: cho ghi, CV đè (mất dữ liệu âm thầm, không khuyên). Người dùng
+    đã nhờ giải thích nhiều lần và chưa chọn.
+    (b) `CLEAR_RETAIN`/`FACTORY_RESET` đưa Counter có retain về 0: theo #18
+    (yêu cầu cũ từ team App), người dùng chưa xác nhận lại.
+    (c) Cách lưu Counter: hướng mặc định theo spec là chép `CV` → tag retain
+    (Wire Contract 9.1). Đã thảo luận hai hướng khác: bản ghi Flash theo vị
+    trí có thêm 8 ô Counter, và bản ghi co giãn chỉ lưu giá trị khác 0. Người
+    dùng chưa chọn; cả hai lệch spec đã thống nhất với App và đổi định dạng
+    Flash (firmware mới không đọc được bản ghi cũ), nên nếu chọn phải báo App.
+  - **Phát hiện về tài liệu:** Structs v2.0 mục 3.7 chỉ nói `retain_tag_index`
+    là TagIndex của VREG_RETAIN hoặc `0xFFFF`, KHÔNG quy định `CV` có retain
+    hay đồng bộ thế nào. Wire Contract mục 9.1 (ý 2): `CV` chạy trong RAM;
+    `RETAIN_TAG_INDEX != 0xFFFF` thì đồng bộ `CV` với tag retain, `0xFFFF` thì
+    không tốn Flash. Mã mẫu Wire Contract mục 9.5 chép `CV` vào
+    `s_vreg_retain_shadow[]` và bật `RETAIN_DIRTY` mỗi scan: **KHÔNG làm
+    theo**, vì trong firmware `s_retain_shadow[]` là bản nháp của Host (chỉ vào
+    Flash khi `COMMIT_RETAIN`) và `RETAIN_DIRTY` làm `EXIT_DIAG` bị từ chối
+    (suy luận từ đọc code, chưa chạy thử). Bản chép phải vào giá trị live
+    (`g_tag_value[]`), không chạm bản nháp, không đặt `RETAIN_DIRTY`.
+  - Firmware cần biết Counter nào bật retain (`retain_tag_index != 0xFFFF`)
+    để chỉ lưu/nạp/xoá các Counter đó; Counter không bật retain luôn về 0
+    sau reboot.
 - **8d — Timer chạy thật** (#20): cần App chốt cách nối `IN`/`RESET`/`Q`.
   Hai phương án đã nêu: (a) quy ước cố định VFLAG (Timer `i`: `IN`=VFLAG[i],
   `RESET`=VFLAG[8+i], `Q`=VFLAG[16+i]) và RuleCompiler sinh rule sao chép;
@@ -340,6 +382,8 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
   bị vô hiệu hoá âm thầm.
 - PVD → ghi Retain khẩn cấp chưa nối
   (`sx_power_register_low_voltage_callback(retain_snapshot_write)` chưa ai gọi).
+  Thiết kế đã chốt (ISR-safe, erase trước, cờ chống chồng thao tác, không log,
+  đồng bộ Counter trước khi ghi): xem Bước 8c ở trên.
 - `modbus_usb_write()` bỏ qua `timeout_ms`, có thể vượt ngân sách scan 10 ms
   dưới tải nặng (đo được 83 ms với 100 rule).
 - `ACT_WRITE_REMOTE` / `ACT_LOG_EVENT` / `ACT_SEND_ALARM` chưa implement,
