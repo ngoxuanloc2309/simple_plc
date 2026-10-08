@@ -33,8 +33,8 @@
   thời gian thật, Time Window mốc phút/khung/qua nửa đêm). **Còn chưa chạy:**
   `test_rtc.py --reboot` và test mất điện thật bằng tay. Chi tiết ở mục 3.
 - **Bước 8a (khối FB `0x0B00..0x0B7F`: nhận ghi cấu hình, đọc, Counter
-  `CV`/`Q`): xong và verify trên board** (`test_fb.py COM14`: ALL PASS, kể cả
-  `--probe-64`). **Còn lại của Bước 8:** Counter retain + `CLEAR_RETAIN`/`FACTORY_RESET` + PVD (8c, đang thiết kế, đã chốt cơ chế lưu Flash, còn 3 điểm chưa chốt, chưa code, xem mục 3), Timer chạy thật (8d, chờ App). Chi tiết ở mục 3.
+  `CV`/`Q`): xong và verify trên board (CV/Q đã ĐỔI cách tính ở phiên 2026-10-08, xem #15 và mục "Sửa CV tag" bên dưới; phần đó chưa build ARM/chưa chạy trên board)** (`test_fb.py COM14`: ALL PASS, kể cả
+  `--probe-64`). **Còn lại của Bước 8:** PVD ghi retain khẩn cấp (8c, chỉ còn việc này; Counter retain thực ra không cần code, xem mục 3), Timer chạy thật (8d, chờ App). Chi tiết ở mục 3.
 - **Bước 8b (lưu cấu hình FB vào Flash; bản nháp FB + COMMIT): xong và verify trên board** (`test_fb.py COM14 --reboot`: ALL PASS; `test_rtc.py`, `test_tag.py`, `test_sysclear.py` cả bản thường lẫn `--reboot`: ALL PASS, không hồi quy). Ghi FB vào BẢN NHÁP; `0x0B00..` luôn đọc ra cấu hình đang chạy; COMMIT mới áp dụng và lưu Flash cùng Rule Table; cấu hình FB sống sót qua REBOOT. Hành vi 8a đổi: `test_fb.py` đã viết lại cho khớp. Chi tiết mục 2 (#19, #21..#24) và mục 3. **Còn chưa chạy:** `test_fb.py --probe-64` bản mới trên board, mất điện thật giữa lúc lưu (chỉ test thủ công được), build ARM chưa kiểm `.text+.data` so với `0x08036000`.
 - **Đã sửa lỗi FC16 > 64 byte** (khung 73 byte không được trả lời) trong
   `components/usb_cdc/sx_usb_cdc.c` (`sx_usb_tiny_read()`), verify trên board
@@ -67,7 +67,7 @@
 | 6 | `CLEAR_RULES` / `CLEAR_RETAIN` / `FACTORY_RESET` thật | `app/plc_app/plc_system_clear.{c,h}`, `plc_system_cmd_service.c` |
 | 7a | RTC driver | `utils/epoch/`, `components/rtc/sx_rtc.h`, `platforms/stm32/stm32h5/rtc/` |
 | 7b | Khối RTC `0x0810`, Time Window, `status_flags` do firmware tự tính | `services/plc_rtc/`, `plc_modbus_cfg.c`, `plc_engine.c`, `plc_rule.c`, `plc_rule_eval.c`, `board_zigbee_io.c` (`g_rtc_caps`) |
-| 8a | Khối FB `0x0B00..0x0B7F`: ghi cấu hình (all-or-nothing, bỏ qua field firmware sở hữu), đọc, Counter `CV` = tag `COUNTER[i]`, `Q` tính ra. Cấu hình CHỈ trong RAM (chưa Flash) | `services/plc_fb/plc_fb.{h,c}`, `plc_modbus_cfg.c` (bảng block + `cb_write_multiple_registers`), `plc_engine.c` (`plc_fb_init()`), `services/CMakeLists.txt` |
+| 8a | Khối FB `0x0B00..0x0B7F`: ghi cấu hình (all-or-nothing, bỏ qua field firmware sở hữu), đọc, Counter `CV`/`Q` đọc từ tag CV do App chọn (lúc viết 8a là `COUNTER[i]`, đã sửa, xem #15), `Q` tính ra. Cấu hình CHỈ trong RAM (chưa Flash) | `services/plc_fb/plc_fb.{h,c}`, `plc_modbus_cfg.c` (bảng block + `cb_write_multiple_registers`), `plc_engine.c` (`plc_fb_init()`), `services/CMakeLists.txt` |
 | 8b | Cấu hình FB lưu Flash: bản nháp + cờ khối, COMMIT áp dụng; đoạn FB 112 byte nằm TRONG bản ghi Rule Table (bit 15 của `rule_count` = có đoạn FB, một CRC phủ cả hai) | `services/plc_fb/plc_fb.{h,c}`, `services/plc_rule_flash/plc_rule_flash.{h,c}`, `platforms/stm32/stm32h5/flash_define/splc_flash_define.h`, `plc_modbus_cfg.c` (`write_commit_command()`), `app/plc_app/plc_system_clear.c` |
 | fix | FC16 > 64 byte được trả lời (đo thời gian thật + chuyển byte FIFO TinyUSB → `rxQueue` trong lúc chờ) | `components/usb_cdc/sx_usb_cdc.c` (`sx_usb_tiny_read()`) |
 
@@ -158,21 +158,44 @@ V2.0 là **strict superset** của V1.9. Khi 2 tài liệu mâu thuẫn về HÀ
     ghi CẢ khối 8 reg, các field đó = 0) thì firmware nhận lệnh và BỎ QUA
     các field đó. **Lệch Structs v2.0 mục 3.6/3.7 (ghi RO) — Structs cần sửa
     cho khớp.**
-15. **Counter `i` ↔ tag `COUNTER[i]`** (index `tag_counter_base_index()+i`,
-    104+i trên board này): `current_value` và tag là MỘT dữ liệu hai địa chỉ,
-    ghi tag trong DIAG thì `CV` đổi theo. `Q` (status bit 3): CTU `CV >= PV`,
-    CTD `CV <= 0`, mode 0 thì `CV` đọc ra 0. `CU`/`CD`/`RESET` (bit 0..2) đọc ra 0.
+15. **CV của Counter nằm ở tag do App chọn (SỬA 2026-10-08, thay cho quy ước cũ
+    "Counter `i` ↔ tag `COUNTER[i]`" vốn dựa trên giả định sai).** Trong App
+    ("Storage Register (CV)"), người dùng chọn tag chứa CV: `VREG_RETAIN`
+    (mặc định), `VREG`, và về nguyên tắc cả `VFLAG`/`COUNTER`. Rule `INC_COUNTER`
+    do App sinh ra cộng thẳng vào tag đó (INC_COUNTER chạy trên mọi tag, không
+    giới hạn kind). Firmware chỉ ĐỌC tag đó để hiển thị: `current_value` = giá
+    trị tag CV; `Q` (status bit 3): CTU `CV >= PV`, CTD `CV <= 0`. Không có tag
+    CV (`0xFFFF`) thì `CV` và `Q` đều đọc 0 (CTD không được báo "xong" oan).
+    `CU`/`CD`/`RESET` (bit 0..2) đọc ra 0. Counter `i` KHÔNG gắn với tag
+    `COUNTER[i]`; hai thứ không liên quan. Mode 0 thì `CV` đọc ra 0.
 16. **Mode:** Timer 1=TON, 2=TOF, 3=TP; Counter 1=CTU, 2=CTD; 0 = khối không
     dùng. CTUD và HSC bỏ (App xác nhận không cần).
-17. **`retain_tag_index` = index toàn cục thật** (72..103 trên board này, layout
-    DENSE), App tính từ `DeviceResourceInfo` (App xác nhận bỏ hằng 84).
-    Firmware validate: `0xFFFF` hoặc tag kind `VREG_RETAIN`, không hai counter
-    trùng, counter không có trên board chỉ được `mode 0`. Sai → exception `0x03`,
-    ghi vượt `0x0B7F` hoặc bắt đầu dưới `0x0B00` → `0x02`.
-18. **Yêu cầu App cho Counter có `retain_tag_index != 0xFFFF` (CHƯA làm,
-    Bước 8c):** sống sót qua reboot; `CLEAR_RETAIN` và `FACTORY_RESET` phải
-    đưa các counter đó về 0. (Đảo mặc định cũ "không đụng `COUNTER`" của
-    Bước 6, chỉ với counter có retain.)
+17. **Thanh ghi `+6` của khối Counter = index toàn cục thật của tag chứa CV**
+    (tên trên wire/Structs vẫn là `retain_tag_index`; trong firmware là
+    `cv_tag`). Layout DENSE: 72..103 là VREG_RETAIN trên board này, nhưng tag CV
+    có thể là VFLAG / VREG / VREG_RETAIN / COUNTER bất kỳ. Firmware validate:
+    `0xFFFF` hoặc index tồn tại với kind VFLAG/VREG/VREG_RETAIN/COUNTER (DI, DO,
+    AI, Modbus tag bị từ chối), không hai counter trùng tag. Counter không cần
+    tag `COUNTER[i]` tồn tại (bỏ ràng buộc "counter không có trên board chỉ được
+    mode 0"). Sai → exception `0x03`, ghi vượt `0x0B7F` hoặc bắt đầu dưới
+    `0x0B00` → `0x02`. **Việc phía App (CHƯA làm, App là repo `paa`):**
+    `RuleCompiler.cs` (dòng ~260) hiện chỉ gửi `CvTagIndex` khi nó nằm trong dải
+    VREG_RETAIN, ngược lại gửi `0xFFFF`; phải gửi `CvTagIndex` cho MỌI loại tag
+    CV hợp lệ thì firmware mới biết CV của Counter dùng VREG/VFLAG. Chưa sửa
+    thì hành vi vẫn đúng với VREG_RETAIN, còn VREG thì CV/Q đọc 0 (không hỏng
+    gì khác). Ghi chú: `SimplePLC.Studio/Services/RuleCompiler.cs` có một bộ
+    biên dịch cũ riêng (mặc định tag 84), chưa xem có còn dùng không.
+18. **Counter retain: KHÔNG cần code firmware (SỬA 2026-10-08).** Tag CV kind
+    `VREG_RETAIN` được `plc_retain.c` lưu/nạp như mọi tag retain (giá trị live,
+    `retain_snapshot_write()` đọc `tag_read`, 5 phút một lần khi có đổi), và
+    `CLEAR_RETAIN`/`FACTORY_RESET` đã đưa các tag retain về 0 nên số đếm cũng về 0.
+    Người dùng chọn VREG/VFLAG thì số đếm mất khi reboot, đúng ý. Không chép
+    `CV` → tag retain (cơ chế đó chỉ cần nếu CV nằm ở tag khác), không đặt
+    `RETAIN_DIRTY`. Bỏ các điểm chưa chốt (a) từ chối ghi tag retain gắn Counter,
+    (b) `CLEAR_RETAIN` đưa Counter về 0, (c) cách lưu Counter: không còn tồn tại.
+    Mã mẫu Wire Contract 9.5 (chép `CV` vào `s_vreg_retain_shadow[]` + bật
+    `RETAIN_DIRTY`) vẫn KHÔNG làm theo.
+
 19. **Cấu hình FB lưu Flash cùng Rule Table — ĐÃ LÀM (8b).** Đoạn FB (112 byte, big-endian, chỉ field do Host sở hữu: 8 Timer × {mode u16, pt_ms u32} + 8 Counter × {mode u16, preset i32, retain_tag_index u16}) nằm CUỐI chính bản ghi Rule Table; bit 15 của trường `rule_count` = "có đoạn FB" (bit 0..14 = số rule); MỘT `crc16` phủ header + rule + FB. Mất điện giữa chừng chỉ còn nguyên bản cũ hoặc nguyên bản mới, không bao giờ rule mới + FB cũ. Mọi lần save luôn ghi đoạn FB. Bản ghi cũ (trước 8b, không cờ) vẫn nạp được, FB = DISABLED. Chiều ngược lại: firmware CŨ đọc cờ như `rule_count > MAX_RULES` và coi bản ghi hỏng (hạ cấp firmware cần Deploy lại). Mọi code đọc trường này PHẢI tách cờ trước (`& 0x7FFF` / `& 0x8000`). Kích thước tối đa 3320 byte, vừa 1 sector 8 KB.
 
 20. **Timer: hoãn phần chạy** (người dùng chọn làm Counter trước). Hiện Timer
@@ -289,8 +312,8 @@ Timer `i` tại `0x0B00 + 8i`, Counter `i` tại `0x0B40 + 8i`:
 | +0 | `status_bits` | `status_bits` (bit 3 = Q) | firmware |
 | +1 | `mode` | `mode` | Host |
 | +2..+3 | `pt_ms` | `preset_value` (int32) | Host |
-| +4..+5 | `et_ms` | `current_value` = tag `COUNTER[i]` | firmware |
-| +6 | reserved | `retain_tag_index` | Host (Counter) |
+| +4..+5 | `et_ms` | `current_value` = giá trị tag CV (SỬA, xem #15) | firmware |
+| +6 | reserved | `retain_tag_index` = tag chứa CV (#17) | Host (Counter) |
 | +7 | reserved | reserved | — |
 
 Module: `services/plc_fb/plc_fb.{h,c}` (Layer 3, không include nanomodbus).
@@ -320,54 +343,28 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
 
 **Còn lại:**
 - **8b — XONG, VERIFY TRÊN PC VÀ TRÊN BOARD (`test_fb.py COM14 --reboot` ALL PASS: nháp/COMMIT, DISABLED, từ chối, trùng retain trong nháp, COMMIT lỗi xoá nháp, CLEAR_RULES/FACTORY_RESET, FB sống sót REBOOT rồi mất sau CLEAR_RULES + REBOOT)** (#19, #21..#24). Verify trên PC (gcc host + ASan/UBSan, firmware thật Layer 2/3 + nanoMODBUS thật, Flash giả mô phỏng mất điện giữa chừng một lần ghi/xoá): (1) ghi FB là nháp, đọc vẫn thấy cũ, COMMIT mới thấy; (2) khối không ghi thành DISABLED; (3) trùng retain chỉ tính trong nháp; (4) COMMIT sai CRC xoá nháp, Deploy sau không dính khối cũ; sai magic không xoá nháp; (5) `CLEAR_RULES`/`FACTORY_RESET` xoá FB và nháp; (6) lưu/nạp Flash khứ hồi, bản ghi trước-8b vẫn nạp, hỏng đoạn FB bị CRC bắt rồi rơi về B; (7) quét mất điện tại MỌI đơn vị ghi/xoá của một lần save (41 đơn vị): sau khởi động lại luôn là đúng bản cũ hoặc đúng bản mới (25/19), KHÔNG lần nào lẫn. 75 kiểm tra PASS. `test_fb.py` bản mới chạy với firmware PC qua pty (REBOOT mô phỏng mất sạch RAM, giữ Flash), kèm `--reboot --probe-64`: ALL PASS. **Ý nghĩa đã đổi so với 8a:** `test_fb.py` cũ kiểm "ghi xong đọc ngay thấy giá trị mới" không còn đúng; script mới ghi → COMMIT → đọc. **Còn lại:** `--probe-64` trên board, mất điện thật giữa lúc lưu, kiểm `.text+.data` ARM.
-- **8c — Counter retain** (#18): mỗi scan chép giá trị counter vào tag
-  VREG_RETAIN đã liên kết (không đặt `RETAIN_DIRTY`, vì sẽ chặn `EXIT_DIAG`
-  mãi), nạp lại khi boot sau `retain_store_restore()`, `plc_clear_retain()` /
-  `plc_factory_reset()` đưa counter có retain về 0. `retain_service()` hiện lưu
-  Flash mỗi 5 phút; mất điện đột ngột mất tối đa ~5 phút số đếm nếu chưa nối
-  PVD (mục tồn đọng). Cần quyết định cơ chế lưu khi làm.
-  **Tiến độ thiết kế (phiên 2026-10-08, CHƯA có dòng code nào):**
-  - **ĐÃ CHỐT (người dùng đồng ý) — cơ chế lưu Flash:** PVD là cơ chế chính
-    khi mất điện; chu kỳ 5 phút giữ làm lưới an toàn nhưng CHỈ ghi khi dữ liệu
-    có đổi so với lần ghi trước; ghi snapshot ngay trước `REBOOT`. Không rút
-    ngắn chu kỳ, không ghi theo thay đổi (hao Flash: vòng 117 record, ~10.000
-    chu kỳ erase mỗi sector, ước lượng: 5 phút ≈ 11 năm, 1 phút ≈ 2,2 năm,
-    10 giây ≈ 135 ngày). Yêu cầu cho nhánh PVD (phải an toàn trong ISR):
-    (1) không erase trong ISR: erase trước sector kế tiếp ngay sau khi ghi
-    record cuối của sector hiện tại (lúc đó nó là sector cũ nhất, record mới
-    nhất vẫn còn ở sector vừa ghi); (2) cờ chống chồng thao tác Flash: ISR nổ
-    lúc vòng chính đang ghi/erase thì chỉ đặt cờ, vòng chính ghi lại ngay khi
-    xong; (3) không log trong ISR (`sx_flash_write` có `log_error`);
-    (4) handler ở Layer 4 chép Counter → tag retain TRƯỚC rồi mới gọi
-    `retain_snapshot_write()` (Layer 3 không gọi lẫn nhau, việc đăng ký
-    callback là của Layer 4). **Chưa đo:** thời gian ghi/erase thật và thời
-    gian giữ điện từ lúc PVD nổ tới lúc điện sụt (cần oscilloscope trên board).
-  - **CHƯA CHỐT (đừng coi là đã quyết):**
-    (a) App ghi thẳng vào tag retain đang gắn Counter (sẽ bị CV chép đè ở
-    scan sau). Đề xuất của Claude là **A**: từ chối bằng exception `0x03`, chỉ
-    sửa qua tag COUNTER (khớp #15). B: cho ghi và `COMMIT_RETAIN` đẩy giá trị
-    vào CV. C: cho ghi, CV đè (mất dữ liệu âm thầm, không khuyên). Người dùng
-    đã nhờ giải thích nhiều lần và chưa chọn.
-    (b) `CLEAR_RETAIN`/`FACTORY_RESET` đưa Counter có retain về 0: theo #18
-    (yêu cầu cũ từ team App), người dùng chưa xác nhận lại.
-    (c) Cách lưu Counter: hướng mặc định theo spec là chép `CV` → tag retain
-    (Wire Contract 9.1). Đã thảo luận hai hướng khác: bản ghi Flash theo vị
-    trí có thêm 8 ô Counter, và bản ghi co giãn chỉ lưu giá trị khác 0. Người
-    dùng chưa chọn; cả hai lệch spec đã thống nhất với App và đổi định dạng
-    Flash (firmware mới không đọc được bản ghi cũ), nên nếu chọn phải báo App.
-  - **Phát hiện về tài liệu:** Structs v2.0 mục 3.7 chỉ nói `retain_tag_index`
-    là TagIndex của VREG_RETAIN hoặc `0xFFFF`, KHÔNG quy định `CV` có retain
-    hay đồng bộ thế nào. Wire Contract mục 9.1 (ý 2): `CV` chạy trong RAM;
-    `RETAIN_TAG_INDEX != 0xFFFF` thì đồng bộ `CV` với tag retain, `0xFFFF` thì
-    không tốn Flash. Mã mẫu Wire Contract mục 9.5 chép `CV` vào
-    `s_vreg_retain_shadow[]` và bật `RETAIN_DIRTY` mỗi scan: **KHÔNG làm
-    theo**, vì trong firmware `s_retain_shadow[]` là bản nháp của Host (chỉ vào
-    Flash khi `COMMIT_RETAIN`) và `RETAIN_DIRTY` làm `EXIT_DIAG` bị từ chối
-    (suy luận từ đọc code, chưa chạy thử). Bản chép phải vào giá trị live
-    (`g_tag_value[]`), không chạm bản nháp, không đặt `RETAIN_DIRTY`.
-  - Firmware cần biết Counter nào bật retain (`retain_tag_index != 0xFFFF`)
-    để chỉ lưu/nạp/xoá các Counter đó; Counter không bật retain luôn về 0
-    sau reboot.
+- **8c — Counter retain (SỬA 2026-10-08): hết việc firmware cho Counter, chỉ còn
+  PVD.** Xem #15, #17, #18. Phần đã làm trong phiên này (CHƯA build ARM, chưa
+  chạy `test_fb.py` mới trên board): `plc_fb.c/.h` đọc CV/Q từ tag CV do App chọn,
+  bỏ `counter_exists()`, validate theo kind tag; `test_fb.py` viết lại các bước
+  5, 6, 7, 8, 9 theo hợp đồng mới (CLEAR_RETAIN đưa CV retain về 0 ở bước 7).
+  Verify trên PC: harness gcc host + ASan/UBSan với `plc_tag.c` và `plc_fb.c` thật,
+  30/30 kiểm tra PASS (mọi kind tag CV, Q CTU/CTD, không có tag CV, từ chối
+  DI/DO/ngoài dải, trùng tag trong nháp, board ít COUNTER, khứ hồi Flash image,
+  bản ghi cũ trước đổi vẫn nạp được vì layout 112 byte không đổi).
+  **Còn lại cho 8c: PVD ghi khẩn cấp** (cơ chế đã ghi ở mục "Việc tồn đọng"):
+  PVD là cơ chế chính khi mất điện; chu kỳ 5 phút giữ làm lưới an toàn CHỈ ghi khi
+  dữ liệu có đổi; ghi snapshot ngay trước `REBOOT`; không rút ngắn chu kỳ, không
+  ghi theo thay đổi (hao Flash: vòng 117 record, ~10.000 chu kỳ erase mỗi sector;
+  5 phút ≈ 11 năm, 1 phút ≈ 2,2 năm, 10 giây ≈ 135 ngày). Yêu cầu cho nhánh PVD
+  (an toàn trong ISR): (1) không erase trong ISR: erase trước sector kế tiếp ngay
+  sau khi ghi record cuối của sector hiện tại; (2) cờ chống chồng thao tác Flash:
+  ISR nổ lúc vòng chính đang ghi/erase thì chỉ đặt cờ, vòng chính ghi lại khi
+  xong; (3) không log trong ISR (`sx_flash_write` có `log_error`); (4) việc đăng
+  ký callback là của Layer 4. **Chưa đo:** thời gian ghi/erase thật và thời gian
+  giữ điện từ lúc PVD nổ tới lúc điện sụt (cần oscilloscope). Chưa có dòng code
+  nào cho PVD. Cơ chế lưu Flash này người dùng từng đồng ý, nhưng nên xác nhận
+  lại trước khi code.
 - **8d — Timer chạy thật** (#20): cần App chốt cách nối `IN`/`RESET`/`Q`.
   Hai phương án đã nêu: (a) quy ước cố định VFLAG (Timer `i`: `IN`=VFLAG[i],
   `RESET`=VFLAG[8+i], `Q`=VFLAG[16+i]) và RuleCompiler sinh rule sao chép;
@@ -382,8 +379,9 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
   bị vô hiệu hoá âm thầm.
 - PVD → ghi Retain khẩn cấp chưa nối
   (`sx_power_register_low_voltage_callback(retain_snapshot_write)` chưa ai gọi).
-  Thiết kế đã chốt (ISR-safe, erase trước, cờ chống chồng thao tác, không log,
-  đồng bộ Counter trước khi ghi): xem Bước 8c ở trên.
+  Thiết kế (ISR-safe, erase trước, cờ chống chồng thao tác, không log): xem Bước 8c
+  ở trên. Không còn bước "đồng bộ Counter trước khi ghi" (Counter retain là tag
+  retain thường).
 - `modbus_usb_write()` bỏ qua `timeout_ms`, có thể vượt ngân sách scan 10 ms
   dưới tải nặng (đo được 83 ms với 100 rule).
 - `ACT_WRITE_REMOTE` / `ACT_LOG_EVENT` / `ACT_SEND_ALARM` chưa implement,
@@ -470,6 +468,8 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
 16. **Script test phải bắt ngoại lệ của pymodbus** (`ModbusException`) ở các
     bước thăm dò mà board có thể không trả lời, và vẫn chạy bước dọn dẹp.
 
+19. **Đừng suy ra ngữ nghĩa field từ tên field hay từ một phía.** "Counter `i` = tag `COUNTER[i]`" được phiên trước giả định mà không xem UI/`RuleCompiler.cs` của App; thực tế người dùng chọn tag CV bất kỳ (VREG_RETAIN mặc định). Trước khi thiết kế phần dựa vào hành vi App, đọc UI và compiler của App (bài học 4, 12), và hỏi người dùng.
+
 17. **Việc chưa giao cho người dùng thì mất khi phiên kết thúc** (container không giữ): hai phiên 8b đầu hết token khi code còn trong container, phải làm lại. Sau mỗi mốc, present nguyên file ngay; đừng để dồn đến cuối.
 18. **Flash giả phải mô phỏng đúng "mất điện":** sau mất điện mọi erase/program tiếp theo phải bị BỎ QUA, chỉ lệnh đang chạy mới "rách". Harness đầu cho mỗi erase vẫn xoá nửa sector nên báo lỗi giả "mất cả A lẫn B". Kết quả lạ thì kiểm harness trước khi nghi firmware.
 
@@ -501,7 +501,7 @@ interpreter — dùng `python -m pip`, máy dev có nhiều Python do ESP-IDF):
 | `test_diag.py [manual \| manual-dwell --expire] COM14` | state machine diag, lease, Rule Engine thực sự dừng, reset runtime khi thoát diag |
 | `test_tag.py COM14 [--pins --commit --reboot]` | ghi tag trong diag, all-or-nothing, retain draft/COMMIT/DISCARD, baseline reset trước REBOOT |
 | `test_rtc.py COM14 [--reboot]` | Bước 7: khối `0x0810`, `status_flags` RO, từ chối ghi sai (`0x02`/`0x03`), tốc độ đồng hồ, Time Window (mốc phút, khung, qua nửa đêm), giờ sống sót qua REBOOT. **Ghi Flash, xoá rule, đặt giờ board.** Đã chạy trên board: ALL PASS (chưa chạy `--reboot`). |
-| `test_fb.py COM14 [--reboot] [--probe-64]` | Bước 8a + 8b: khối FB `0x0B00..0x0B7F`. Ghi FB vào nháp rồi COMMIT mới đọc thấy; nháp vô hình trước COMMIT; khối không ghi thành unused; từ chối (`0x03`/`0x02`), all-or-nothing, trùng retain chỉ trong nháp; FC06 giữ field còn lại; deploy 3,3,2; COMMIT lỗi xoá nháp; `CLEAR_RULES`/`FACTORY_RESET` xoá FB; `CV` theo tag COUNTER, `Q`, rule `INC_COUNTER`. `--reboot`: FB sống sót qua REBOOT cùng rule, mất sau CLEAR_RULES + REBOOT. `--probe-64`: FC16 4 khối (73 byte). **Ghi Flash (rule + FB), ép tag COUNTER, cuối cùng `CLEAR_RULES`.** Đã chạy trên board (`--reboot`): ALL PASS; `--probe-64` bản mới chưa chạy trên board. |
+| `test_fb.py COM14 [--reboot] [--probe-64]` | Bước 8a + 8b: khối FB `0x0B00..0x0B7F`. Ghi FB vào nháp rồi COMMIT mới đọc thấy; nháp vô hình trước COMMIT; khối không ghi thành unused; từ chối (`0x03`/`0x02`), all-or-nothing, trùng retain chỉ trong nháp; FC06 giữ field còn lại; deploy 3,3,2; COMMIT lỗi xoá nháp; `CLEAR_RULES`/`FACTORY_RESET` xoá FB; `CV`/`Q` theo tag CV do App chọn (VREG/VFLAG/COUNTER qua DIAG), rule `INC_COUNTER` trên tag VREG_RETAIN + `CLEAR_RETAIN`. `--reboot`: FB sống sót qua REBOOT cùng rule, mất sau CLEAR_RULES + REBOOT. `--probe-64`: FC16 4 khối (73 byte). **Ghi Flash (rule + FB), ép tag COUNTER, cuối cùng `CLEAR_RULES`.** Đã chạy trên board (`--reboot`): ALL PASS; `--probe-64` bản mới chưa chạy trên board. |
 | `test_sysclear.py COM14 [--reboot]` | Bước 6: 3 lệnh xoá, persistence qua reboot, lệnh trong diag, lệnh sai. **Ghi Flash và xoá sạch rule + retain trên board.** |
 
 Trước `test_diag.py manual`: reset board, xác nhận `DO0=0`.

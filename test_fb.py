@@ -10,8 +10,8 @@ DeviceResourceInfo (0x0020), dense layout (DI, DO, AI, VFLAG, VREG,
 VREG_RETAIN, COUNTER) like plc_tag.c.
 
 WARNING: this test uploads rules (WRITES Flash, replaces the rule table and,
-since step 8b, the FB config stored with it), forces COUNTER tags through
-DIAG, and finishes with CLEAR_RULES (FB config cleared too). Rules already on
+since step 8b, the FB config stored with it), forces CV tags (VREG/VFLAG/COUNTER)
+through DIAG, and finishes with CLEAR_RULES (FB config cleared too). Rules already on
 the board are lost. Do not run it on a board whose rules you want to keep.
 
 Step 8b semantics (services/plc_fb/plc_fb.h, "Staging"):
@@ -24,21 +24,27 @@ Step 8b semantics (services/plc_fb/plc_fb.h, "Staging"):
   * A COMMIT that fails (CRC mismatch) drops the draft. CLEAR_RULES /
     FACTORY_RESET clear the FB config and the draft. A wrong magic written to
     0xA000 is not a COMMIT and keeps the draft.
-  * Duplicate retain_tag_index is checked only between blocks in the draft.
+  * The Counter +6 register is the tag that holds the counter's CV (the
+    App's "Storage Register (CV)"): any VFLAG / VREG / VREG_RETAIN / COUNTER
+    tag, 0xFFFF = none. CV and Q read from THAT tag; it is not tied to the
+    Counter's own index. Duplicates are checked only between blocks in the draft.
 So every check of "the config I wrote" is: write FB, COMMIT (deploy), read.
 
 Checks, in order:
-  1. Profile V2, resource counts, counter/retain tag bases.
+  1. Profile V2, resource counts, tag bases.
   2. Defaults: after a Deploy with no FB written every block reads mode 0.
   3. Read sizes (64 + 64 works; one 128-register read is reported).
   4. Timer whole-block write: invisible before COMMIT, read back after,
      32-bit PT High Word first, junk in firmware-owned fields ignored.
-  5. Counter whole-block write: same, incl. negative PV and retain index.
-  6. CV follows the COUNTER tag written through DIAG; Q for CTU and CTD.
-  7. A rule (INC_COUNTER on COUNTER[0]) makes CV climb on the FB block.
+  5. Counter whole-block write: same, incl. negative PV and CV tag of each
+     allowed kind (VREG, VFLAG, COUNTER).
+  6. CV follows the CV tag written through DIAG; Q for CTU and CTD; a
+     Counter with no CV tag reads CV=0, Q=0.
+  7. A rule (INC_COUNTER on a VREG_RETAIN CV tag) makes CV climb on the FB
+     block; CLEAR_RETAIN brings the count back to 0.
   8. Rejections (0x03 / 0x02), all-or-nothing, FC06 keeps the other fields,
-     a block the Deploy did not write becomes unused, duplicate retain only
-     inside the draft.
+     a block the Deploy did not write becomes unused, duplicate CV tag only
+     inside the draft, DI/DO/AI tags refused as CV tag.
   9. App-style deploy: 8 Timers + 8 Counters in 3-block chunks (3, 3, 2).
  10. A failed COMMIT drops the draft: the next Deploy starts clean.
  11. CLEAR_RULES / FACTORY_RESET clear FB config and the draft.
@@ -190,19 +196,23 @@ def run(d, holder, args):
     print(f"  wire_profile={wire} DI={di} DO={do} AI={ai} VFLAG={vflag} VREG={vreg} "
           f"VREG_RETAIN={retain_n} COUNTER={cnt_n}")
     check(wire == 2, "wire_profile == 2 (FB block is a V2 feature)")
-    if wire != 2 or cnt_n < 2 or retain_n < 3 or vreg < 1:
-        print("need Wire Profile 2, >= 2 COUNTER, >= 3 VREG_RETAIN and >= 1 VREG tags")
+    if wire != 2 or cnt_n < 1 or retain_n < 3 or vreg < 2 or vflag < 1 or do < 1:
+        print("need Wire Profile 2, >= 1 COUNTER, >= 3 VREG_RETAIN, >= 2 VREG, >= 1 VFLAG and >= 1 DO tags")
         sys.exit(2)
-    vreg0 = di + do + ai + vflag
+    do0 = di
+    vflag0 = di + do + ai
+    vreg0 = vflag0 + vflag
+    vreg1 = vreg0 + 1
     retain0 = vreg0 + vreg
     cnt0 = retain0 + retain_n
     Ctx.noop_tag = vreg0
-    print(f"  VREG0 = tag {vreg0}, VREG_RETAIN0 = tag {retain0}, COUNTER0 = tag {cnt0}")
+    print(f"  DO0 = tag {do0}, VFLAG0 = tag {vflag0}, VREG0 = tag {vreg0}, "
+          f"VREG_RETAIN0 = tag {retain0}, COUNTER0 = tag {cnt0}")
 
     # ---- 2. defaults ------------------------------------------------------
     print("\n[2] a Deploy that writes no FB leaves every block unused")
     check(commit(d), "baseline Deploy (1 no-op rule, no FB written)")
-    check(all_unused(d), "every block: mode 0, counters retain_tag_index = 0xFFFF")
+    check(all_unused(d), "every block: mode 0, counters cv tag = 0xFFFF")
 
     # ---- 3. read sizes ----------------------------------------------------
     print("\n[3] read sizes")
@@ -235,46 +245,58 @@ def run(d, holder, args):
     check(read_timer(d, 3)[1] == 0, "Timer 3 (not written) is unused")
 
     # ---- 5. counter whole-block -------------------------------------------
-    print("\n[5] Counter whole-block write (draft, then COMMIT)")
-    d.fc16(REG_COUNTERS, counter_block(1, 10, retain0, status=0x00FF, cv=999, reserved=5))
-    d.fc16(REG_COUNTERS + BLOCK_REGS, counter_block(2, -3, retain0 + 1))
+    print("\n[5] Counter whole-block write (draft, then COMMIT); CV tag of any kind")
+    d.fc16(REG_COUNTERS, counter_block(1, 10, vreg1, status=0x00FF, cv=999, reserved=5))
+    d.fc16(REG_COUNTERS + BLOCK_REGS, counter_block(2, -3, vflag0))
+    d.fc16(REG_COUNTERS + 2 * BLOCK_REGS, counter_block(1, 5, cnt0))
+    d.fc16(REG_COUNTERS + 3 * BLOCK_REGS, counter_block(1, 10, RETAIN_NONE))
     check(read_counter(d, 0)[1] == 0, "before COMMIT: Counter 0 still reads unused")
     check(commit(d), "COMMIT")
     check(read_timer(d, 0)[1] == 0, "Timer 0 (not written in this Deploy) is now unused")
     c = read_counter(d, 0)
     check(c[1] == 1 and c[2:4] == [0, 10], f"CTU, PV=10 (got mode={c[1]} pv={c[2:4]})")
-    check(c[6] == retain0, f"retain_tag_index = {retain0} (got {c[6]})")
+    check(c[6] == vreg1, f"CV tag = VREG tag {vreg1} accepted and stored (got {c[6]})")
     check(c[7] == 0, "reserved reads 0")
-    check(s32(c[4], c[5]) != 999, "CV is NOT taken from the write (it is the COUNTER tag)")
+    check(s32(c[4], c[5]) != 999, "CV is NOT taken from the write (it is read from the CV tag)")
     c1 = read_counter(d, 1)
     check(c1[1] == 2 and s32(c1[2], c1[3]) == -3, f"CTD, PV=-3 read back (got {s32(c1[2], c1[3])})")
+    check(c1[6] == vflag0, f"CV tag = VFLAG tag {vflag0} accepted (got {c1[6]})")
+    check(read_counter(d, 2)[6] == cnt0, f"CV tag = COUNTER tag {cnt0} accepted (got {read_counter(d, 2)[6]})")
+    check(read_counter(d, 3)[6] == RETAIN_NONE, "CV tag 0xFFFF accepted")
 
-    # ---- 6. CV <-> COUNTER tag, Q -----------------------------------------
-    print("\n[6] CV follows the COUNTER tag (DIAG), Q for CTU / CTD")
+    # ---- 6. CV <-> CV tag, Q ----------------------------------------------
+    print("\n[6] CV follows the CV tag (DIAG), Q for CTU / CTD")
     if not check(enter_diag(d), "ENTER_DIAG -> DIAG_CONTROL"):
         return
-    diag_set_counter(d, cnt0, 4)
+    diag_set_counter(d, vreg1, 4)
     c = read_counter(d, 0)
-    check(s32(c[4], c[5]) == 4 and not c[0] & Q_BIT, f"CTU PV=10, tag=4 -> CV=4, Q=0 (status=0x{c[0]:04X})")
-    diag_set_counter(d, cnt0, 10)
+    check(s32(c[4], c[5]) == 4 and not c[0] & Q_BIT, f"Counter 0 (CV tag = VREG, CTU PV=10), tag=4 -> CV=4, Q=0 (status=0x{c[0]:04X})")
+    diag_set_counter(d, vreg1, 10)
     c = read_counter(d, 0)
     check(s32(c[4], c[5]) == 10 and c[0] & Q_BIT, "tag=10 -> CV=10, Q=1 (CV >= PV)")
-    diag_set_counter(d, cnt0, -7)
+    diag_set_counter(d, vreg1, -7)
     c = read_counter(d, 0)
     check(s32(c[4], c[5]) == -7 and not c[0] & Q_BIT, "tag=-7 -> CV=-7 (negative), Q=0")
-    diag_set_counter(d, cnt0 + 1, 2)
-    check(not read_counter(d, 1)[0] & Q_BIT, "CTD: tag=2 -> Q=0")
-    diag_set_counter(d, cnt0 + 1, 0)
+    diag_set_counter(d, vflag0, 2)
+    check(not read_counter(d, 1)[0] & Q_BIT, "Counter 1 (CV tag = VFLAG, CTD): tag=2 -> Q=0")
+    diag_set_counter(d, vflag0, 0)
     check(read_counter(d, 1)[0] & Q_BIT, "CTD: tag=0 -> Q=1 (CV <= 0)")
+    diag_set_counter(d, cnt0, 5)
+    c = read_counter(d, 2)
+    check(s32(c[4], c[5]) == 5 and c[0] & Q_BIT, "Counter 2 (CV tag = COUNTER tag, CTU PV=5): tag=5 -> CV=5, Q=1")
+    c3 = read_counter(d, 3)
+    check(s32(c3[4], c3[5]) == 0 and not c3[0] & Q_BIT, "Counter 3 (no CV tag): CV=0, Q=0")
+    diag_set_counter(d, vreg1, 0)
+    diag_set_counter(d, vflag0, 0)
     diag_set_counter(d, cnt0, 0)
     exit_diag(d)
 
     # ---- 7. rule drives the counter ---------------------------------------
-    print("\n[7] rule INC_COUNTER on COUNTER[0] -> CV climbs on the FB block")
-    d.fc16(REG_COUNTERS, counter_block(1, 50, RETAIN_NONE))
+    print("\n[7] rule INC_COUNTER on a VREG_RETAIN CV tag -> CV climbs on the FB block")
+    d.fc16(REG_COUNTERS, counter_block(1, 50, retain0))
     tr.set_time(d, tr.local_epoch(2026, 1, 15, 12, 0, 0, tr.TZ_VN))
-    rule = tr.time_rule(0, 0, 2359, cnt0)       # all-day window: +1 every scan
-    check(commit(d, [rule]), "Counter 0 (PV 50) + INC_COUNTER rule committed in one Deploy")
+    rule = tr.time_rule(0, 0, 2359, retain0)    # all-day window: +1 every scan
+    check(commit(d, [rule]), "Counter 0 (PV 50, CV tag = VREG_RETAIN0) + INC_COUNTER rule committed in one Deploy")
     time.sleep(0.3)
     c = read_counter(d, 0)
     cv_a = s32(c[4], c[5])
@@ -295,32 +317,32 @@ def run(d, holder, args):
     a = s32(*read_counter(d, 0)[4:6])
     time.sleep(0.4)
     b = s32(*read_counter(d, 0)[4:6])
-    check(a == b, "CV stops after CLEAR_RULES")
+    check(a == b, "CV tag stops changing after CLEAR_RULES")
     check(all_unused(d), "CLEAR_RULES also set every FB block to unused")
-    if enter_diag(d):
-        diag_set_counter(d, cnt0, 0)
-        exit_diag(d)
+    # Counting in a retain tag: CLEAR_RETAIN brings it back to 0 (plc_clear_retain).
+    d.fc16(REG_COUNTERS, counter_block(1, 50, retain0))
+    check(commit(d), "Counter 0 with CV tag = VREG_RETAIN0 committed again")
+    st, err, _ = d.run_syscmd(ts.SYS_CLEAR_RETAIN)
+    check(st == ts.ST_DONE and err == ts.ERR_NONE, f"CLEAR_RETAIN done (st={st} err={err})")
+    check(s32(*read_counter(d, 0)[4:6]) == 0, "CV (retain tag) reads 0 after CLEAR_RETAIN")
 
     # ---- 8. rejections ----------------------------------------------------
     print("\n[8] rejections and all-or-nothing (against the draft)")
-    check(deploy_fb(d, [timer_block(1, 1000)], [counter_block(1, 10, retain0)]), "baseline deployed")
+    check(deploy_fb(d, [timer_block(1, 1000)], [counter_block(1, 10, vreg1)]), "baseline deployed")
     base_t, base_c = read_timer(d, 0), read_counter(d, 0)
     # Re-write the baseline into the draft so Timer 0 / Counter 0 are flagged.
     d.fc16(REG_TIMERS, timer_block(1, 1000))
-    d.fc16(REG_COUNTERS, counter_block(1, 10, retain0))
+    d.fc16(REG_COUNTERS, counter_block(1, 10, vreg1))
     check(exc_code(d.fc16(REG_TIMERS, timer_block(9, 1000))) == EXC_VALUE, "Timer mode 9 -> 0x03")
     check(exc_code(d.fc16(REG_COUNTERS, counter_block(3, 10))) == EXC_VALUE, "Counter mode 3 -> 0x03")
     check(exc_code(d.fc16(REG_COUNTERS, counter_block(1, 10, 0))) == EXC_VALUE,
-          "retain index 0 (a DI, not a VREG_RETAIN tag) -> 0x03")
+          "CV tag 0 (a DI) -> 0x03")
+    check(exc_code(d.fc16(REG_COUNTERS, counter_block(1, 10, do0))) == EXC_VALUE,
+          "CV tag = a DO tag -> 0x03")
     check(exc_code(d.fc16(REG_COUNTERS, counter_block(1, 10, 0x0100))) == EXC_VALUE,
-          "retain index out of tag range -> 0x03")
-    check(exc_code(d.fc16(REG_COUNTERS + BLOCK_REGS, counter_block(1, 10, retain0))) == EXC_VALUE,
-          "retain index already used by Counter 0 IN THE DRAFT -> 0x03")
-    if cnt_n < BLOCKS:
-        check(exc_code(d.fc16(REG_COUNTERS + cnt_n * BLOCK_REGS, counter_block(1, 10))) == EXC_VALUE,
-              f"Counter {cnt_n} (board has only {cnt_n}) with mode 1 -> 0x03")
-        check(not d.fc16(REG_COUNTERS + cnt_n * BLOCK_REGS, UNUSED_COUNTER).isError(),
-              f"Counter {cnt_n} with mode 0 is accepted")
+          "CV tag out of tag range -> 0x03")
+    check(exc_code(d.fc16(REG_COUNTERS + BLOCK_REGS, counter_block(1, 10, vreg1))) == EXC_VALUE,
+          "CV tag already used by Counter 0 IN THE DRAFT -> 0x03")
     two = timer_block(2, 4242) + timer_block(9, 1)
     check(exc_code(d.fc16(REG_TIMERS, two)) == EXC_VALUE, "2-block write, 2nd bad -> 0x03")
     check(exc_code(d.fc16(REG_COUNTERS + 7 * BLOCK_REGS + 7, [0, 0])) == EXC_ADDR, "write past 0x0B7F -> 0x02")
@@ -336,32 +358,30 @@ def run(d, holder, args):
     t = read_timer(d, 0)
     check(t[1] == 2 and t[2:4] == [0, 1000], f"mode changed to 2, PT kept from the running config (got {t[1]}, {t[2:4]})")
     check(read_counter(d, 0)[1] == 0, "Counter 0 (not written in that Deploy) is now unused")
-    # Duplicate retain is checked only inside the draft, not against the running config.
-    check(deploy_fb(d, None, [counter_block(1, 10, retain0)]), "Counter 0 running with retain0")
+    # Duplicate CV tag is checked only inside the draft, not against the running config.
+    check(deploy_fb(d, None, [counter_block(1, 10, retain0)]), "Counter 0 running with CV tag retain0")
     d.fc16(REG_COUNTERS, UNUSED_COUNTER)    # leave the draft empty of Counter 0 ...
     resp = d.fc16(REG_COUNTERS + BLOCK_REGS, counter_block(1, 5, retain0))
-    check(not resp.isError(), "Counter 1 may take retain0 (only the RUNNING Counter 0 uses it, and it will be unused)")
+    check(not resp.isError(), "Counter 1 may take that CV tag (only the RUNNING Counter 0 uses it, and it will be unused)")
     check(commit(d), "COMMIT")
     check(read_counter(d, 0)[1] == 0 and read_counter(d, 1)[1] == 1 and read_counter(d, 1)[6] == retain0,
-          "Counter 0 unused, Counter 1 now holds retain0")
+          "Counter 0 unused, Counter 1 now holds that CV tag")
 
     # ---- 9. App-style deploy ----------------------------------------------
     print("\n[9] App-style deploy: 8 Timers + 8 Counters, 3-block chunks (3, 3, 2)")
     timers = [timer_block(1 + i % 3, 1000 * (i + 1)) for i in range(BLOCKS)]
     counters = []
     for i in range(BLOCKS):
-        if i < cnt_n and i < retain_n:
-            counters.append(counter_block(1 + i % 2, 5 + i, retain0 + i))
-        elif i < cnt_n:
-            counters.append(counter_block(1 + i % 2, 5 + i))
-        else:
-            counters.append(UNUSED_COUNTER)
+        # Counter i counts in VREG_RETAIN[i] (every Counter block works, however
+        # many COUNTER tags the board has).
+        counters.append(counter_block(1 + i % 2, 5 + i, retain0 + i) if i < retain_n
+                        else counter_block(1 + i % 2, 5 + i))
     check(write_blocks(d, REG_TIMERS, timers) is None, "8 Timers written in 3 FC16 frames")
     check(write_blocks(d, REG_COUNTERS, counters) is None, "8 Counters written in 3 FC16 frames")
     check(commit(d), "COMMIT")
     check(all(read_timer(d, i)[1:4] == timers[i][1:4] for i in range(BLOCKS)), "all 8 Timers read back (mode, PT)")
     check(all(read_counter(d, i)[1:4] == counters[i][1:4] and read_counter(d, i)[6] == counters[i][6]
-              for i in range(BLOCKS)), "all 8 Counters read back (mode, PV, retain)")
+              for i in range(BLOCKS)), "all 8 Counters read back (mode, PV, CV tag)")
 
     # ---- 10. failed COMMIT drops the draft --------------------------------
     print("\n[10] a failed COMMIT drops the draft; the next Deploy starts clean")

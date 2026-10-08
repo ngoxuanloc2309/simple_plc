@@ -15,7 +15,8 @@
  *   +1        mode                   (Host-written)
  *   +2..+3    pt_ms   / preset_value (Host-written, High Word first)
  *   +4..+5    et_ms   / current_value(firmware-owned, High Word first)
- *   +6        Timer: reserved   Counter: retain_tag_index (Host-written)
+ *   +6        Timer: reserved   Counter: cv_tag_index (Host-written): the tag
+ *             that holds this counter's CV (wire name: retain_tag_index)
  *   +7        reserved
  */
 #define FB_F_STATUS   0U
@@ -24,7 +25,7 @@
 #define FB_F_PRESET_LO 3U
 #define FB_F_VALUE_HI 4U
 #define FB_F_VALUE_LO 5U
-#define FB_F_RETAIN   6U   /* Counter only */
+#define FB_F_CV_TAG   6U   /* Counter only */
 
 typedef struct {
     uint16_t mode;
@@ -34,7 +35,7 @@ typedef struct {
 typedef struct {
     uint16_t mode;
     int32_t  preset;
-    uint16_t retain_idx;
+    uint16_t cv_tag;
 } counter_cfg_t;
 
 /* Running config: what FC03 reads return and what is saved to Flash. */
@@ -52,12 +53,27 @@ static uint16_t      s_draft_mask;
 #define MASK_COUNTER(i)  ((uint16_t)(1U << (PLC_FB_BLOCK_COUNT + (i))))
 #define MASK_ALL         ((uint16_t)0xFFFFU)
 
-/* Counter i is the tag COUNTER[i]. It "exists" when the board's tag layout
- * actually has that many counters. */
-static bool counter_exists(uint16_t i)
+/*
+ * The tag that holds a Counter's CV is chosen by the Host (the App's
+ * "Storage Register (CV)"): the Rule Engine's INC_COUNTER rules count in
+ * that tag, which can be a VFLAG, VREG, VREG_RETAIN or COUNTER tag. It is
+ * NOT tied to the Counter's own index. Only kinds a rule may write and that
+ * hold a number are accepted; DI/DO/AI/Modbus tags make no sense as a CV.
+ */
+static bool cv_tag_allowed(uint16_t idx)
 {
-    uint32_t idx = (uint32_t)tag_counter_base_index() + i;
-    return (idx < MAX_TAGS) && (tag_get_kind((uint16_t)idx) == TAG_COUNTER);
+    if (idx >= MAX_TAGS) {
+        return false;
+    }
+    switch (tag_get_kind(idx)) {
+        case TAG_VFLAG:
+        case TAG_VREG:
+        case TAG_VREG_RETAIN:
+        case TAG_COUNTER:
+            return true;
+        default:
+            return false;
+    }
 }
 
 static bool counter_q(const counter_cfg_t *c, int32_t cv)
@@ -74,7 +90,7 @@ static void counters_set_disabled(counter_cfg_t *c)
     for (uint16_t i = 0U; i < PLC_FB_BLOCK_COUNT; i++) {
         c[i].mode       = PLC_FB_MODE_NONE;
         c[i].preset     = 0;
-        c[i].retain_idx = PLC_FB_RETAIN_NONE;
+        c[i].cv_tag = PLC_FB_CV_TAG_NONE;
     }
 }
 
@@ -111,18 +127,24 @@ static uint16_t read_reg(uint16_t r)
     uint16_t i = (uint16_t)(blk - PLC_FB_BLOCK_COUNT);
     const counter_cfg_t *c = &s_counter[i];
     int32_t cv = 0;
-    if (c->mode != PLC_FB_MODE_NONE && counter_exists(i)) {
-        cv = tag_read((uint16_t)(tag_counter_base_index() + i));
+    bool    cv_known = false;
+    /* CV and Q come from the Host-chosen CV tag. Without one the firmware
+     * cannot know where the count lives, so CV reads 0 and Q reads 0 (a CTD
+     * with an unknown CV must not report "done"). */
+    if (c->mode != PLC_FB_MODE_NONE && c->cv_tag != PLC_FB_CV_TAG_NONE &&
+        cv_tag_allowed(c->cv_tag)) {
+        cv = tag_read(c->cv_tag);
+        cv_known = true;
     }
 
     switch (f) {
-        case FB_F_STATUS:    return counter_q(c, cv) ? PLC_FB_CNT_STATUS_Q : 0U;
+        case FB_F_STATUS:    return (cv_known && counter_q(c, cv)) ? PLC_FB_CNT_STATUS_Q : 0U;
         case FB_F_MODE:      return c->mode;
         case FB_F_PRESET_HI: return (uint16_t)((uint32_t)c->preset >> 16);
         case FB_F_PRESET_LO: return (uint16_t)((uint32_t)c->preset & 0xFFFFU);
         case FB_F_VALUE_HI:  return (uint16_t)((uint32_t)cv >> 16);
         case FB_F_VALUE_LO:  return (uint16_t)((uint32_t)cv & 0xFFFFU);
-        case FB_F_RETAIN:    return c->retain_idx;
+        case FB_F_CV_TAG:    return c->cv_tag;
         default:             return 0U;
     }
 }
@@ -138,7 +160,7 @@ void plc_fb_read(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
 /*
  * Validate the blocks selected by `mask` (see MASK_*). Blocks outside the
  * mask are not looked at -- in particular they take no part in the
- * duplicate-retain check.
+ * duplicate-CV-tag check.
  */
 static bool config_valid(const timer_cfg_t *t, const counter_cfg_t *c, uint16_t mask)
 {
@@ -155,17 +177,13 @@ static bool config_valid(const timer_cfg_t *t, const counter_cfg_t *c, uint16_t 
         if (c[i].mode > PLC_FB_COUNTER_CTD) {
             return false;
         }
-        if (c[i].mode != PLC_FB_MODE_NONE && !counter_exists(i)) {
-            return false;
-        }
-        if (c[i].retain_idx != PLC_FB_RETAIN_NONE) {
-            if (c[i].retain_idx >= MAX_TAGS ||
-                tag_get_kind(c[i].retain_idx) != TAG_VREG_RETAIN) {
+        if (c[i].cv_tag != PLC_FB_CV_TAG_NONE) {
+            if (!cv_tag_allowed(c[i].cv_tag)) {
                 return false;
             }
             for (uint16_t j = 0U; j < i; j++) {
-                if ((mask & MASK_COUNTER(j)) != 0U && c[j].retain_idx == c[i].retain_idx) {
-                    return false;   /* one retain slot cannot back two counters */
+                if ((mask & MASK_COUNTER(j)) != 0U && c[j].cv_tag == c[i].cv_tag) {
+                    return false;   /* one tag cannot hold the count of two counters */
                 }
             }
         }
@@ -216,7 +234,7 @@ plc_fb_write_result_t plc_fb_write(uint16_t offset, uint16_t quantity,
                 case FB_F_MODE:      cc->mode = v; break;
                 case FB_F_PRESET_HI: cc->preset = (int32_t)(((uint32_t)cc->preset & 0x0000FFFFUL) | ((uint32_t)v << 16)); break;
                 case FB_F_PRESET_LO: cc->preset = (int32_t)(((uint32_t)cc->preset & 0xFFFF0000UL) | v); break;
-                case FB_F_RETAIN:    cc->retain_idx = v; break;
+                case FB_F_CV_TAG:    cc->cv_tag = v; break;
                 default:             break;   /* firmware-owned: ignore (block still counts as written) */
             }
         }
@@ -254,7 +272,7 @@ void plc_fb_commit_draft(void)
         } else {
             s_counter[i].mode       = PLC_FB_MODE_NONE;
             s_counter[i].preset     = 0;
-            s_counter[i].retain_idx = PLC_FB_RETAIN_NONE;
+            s_counter[i].cv_tag = PLC_FB_CV_TAG_NONE;
         }
     }
     plc_fb_discard_draft();
@@ -297,7 +315,7 @@ void plc_fb_export(uint8_t out[PLC_FB_FLASH_SIZE])
     for (uint16_t i = 0U; i < PLC_FB_BLOCK_COUNT; i++) {
         put_u16(p, s_counter[i].mode);
         put_u32(p + 2U, (uint32_t)s_counter[i].preset);
-        put_u16(p + 6U, s_counter[i].retain_idx);
+        put_u16(p + 6U, s_counter[i].cv_tag);
         p += IMG_COUNTER_SIZE;
     }
 }
@@ -316,7 +334,7 @@ bool plc_fb_import(const uint8_t in[PLC_FB_FLASH_SIZE])
     for (uint16_t i = 0U; i < PLC_FB_BLOCK_COUNT; i++) {
         c[i].mode       = get_u16(p);
         c[i].preset     = (int32_t)get_u32(p + 2U);
-        c[i].retain_idx = get_u16(p + 6U);
+        c[i].cv_tag = get_u16(p + 6U);
         p += IMG_COUNTER_SIZE;
     }
 

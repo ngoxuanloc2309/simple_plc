@@ -11,7 +11,7 @@
  * Division of ownership (agreed with the App team):
  *   Host writes (config, at Deploy, FC16):
  *     Timer   : mode (+1), pt_ms (+2..+3)
- *     Counter : mode (+1), preset_value (+2..+3), retain_tag_index (+6)
+ *     Counter : mode (+1), preset_value (+2..+3), cv_tag_index (+6)
  *   Firmware owns (runtime telemetry, Host-written values are IGNORED):
  *     Timer   : status_bits (+0), et_ms (+4..+5), reserved (+6..+7)
  *     Counter : status_bits (+0), current_value (+4..+5), reserved (+7)
@@ -40,14 +40,21 @@
  *     in the Rule Engine (the App emits macro rules, "dual generation"),
  *     so status_bits and et_ms read as 0. The firmware cannot compute them
  *     without knowing which tag drives IN.
- *   - Counter: current_value IS the COUNTER[i] tag (Counter i <-> tag
- *     tag_counter_base_index() + i, one piece of data seen from two
- *     addresses). Q (status bit 3) is derived from it and preset_value.
+ *   - Counter: the count (CV) lives in a tag the Host chooses (the App's
+ *     "Storage Register (CV)": VFLAG, VREG, VREG_RETAIN or COUNTER) and the
+ *     Host sends that tag's index in the +6 register ("cv_tag_index"; the
+ *     wire/Structs doc still call it retain_tag_index). The App's macro
+ *     rules (INC_COUNTER ...) change the tag; this module only READS it:
+ *       current_value = value of the CV tag (0 when cv_tag_index = 0xFFFF)
+ *       Q (status bit 3) = CTU: CV >= PV, CTD: CV <= 0 (0 without a CV tag)
+ *     A Counter is NOT tied to the tag COUNTER[i]; the two are unrelated.
  *     CU / CD / RESET (bits 0..2) read as 0 for the same reason as Timer.
+ *     Persistence needs nothing here: a CV tag of kind VREG_RETAIN is saved
+ *     and restored by plc_retain.c like any retain tag, and CLEAR_RETAIN /
+ *     FACTORY_RESET clear it. A VFLAG/VREG CV tag is lost at reboot.
  *   - Flash persistence: plc_fb_export()/plc_fb_import() give the 112-byte
  *     image plc_rule_flash.c stores inside the Rule Table record. This
  *     module itself never touches Flash.
- *   - Not here yet: counter retain.
  *
  * This file is transport-agnostic: it does not include nanomodbus.h.
  * plc_modbus_cfg.c maps plc_fb_write()'s result onto Modbus exceptions.
@@ -67,12 +74,12 @@ extern "C" {
 #define PLC_FB_BLOCK_REGS       8U      /* registers per record */
 #define PLC_FB_REG_COUNT        (2U * PLC_FB_BLOCK_COUNT * PLC_FB_BLOCK_REGS)   /* 128 */
 
-#define PLC_FB_RETAIN_NONE      0xFFFFU /* counter retain_tag_index: not retained */
+#define PLC_FB_CV_TAG_NONE      0xFFFFU /* counter cv_tag_index: no CV tag known */
 
 /*
  * Flash image of the running config (big-endian, host-owned fields only):
  *   8 x Timer   { mode u16, pt_ms u32 }                         = 8 x 6
- *   8 x Counter { mode u16, preset i32, retain_tag_index u16 }  = 8 x 8
+ *   8 x Counter { mode u16, preset i32, cv_tag_index u16 }      = 8 x 8
  * = 112 bytes. Cross-checked against SPLC_RULE_FLASH_FB_SIZE in
  * plc_rule_flash.c.
  */
@@ -90,7 +97,7 @@ extern "C" {
 #define PLC_FB_CNT_STATUS_Q     0x0008U
 
 /*
- * Reset every block to "unused" (mode 0, preset 0, retain NONE) and drop
+ * Reset every block to "unused" (mode 0, preset 0, CV tag NONE) and drop
  * any draft. Call once at boot, after tag_table_load_from_flash().
  */
 void plc_fb_init(void);
@@ -119,13 +126,12 @@ typedef enum {
  * (including the ones this request touches) is validated first; one
  * invalid field leaves the draft unchanged and returns BAD_VALUE.
  *   - mode must be 0 (unused) or a valid mode for that block kind.
- *   - A Counter record whose COUNTER[i] tag does not exist on this board
- *     (the board has fewer counters) must have mode 0.
- *   - retain_tag_index must be PLC_FB_RETAIN_NONE or the index of a
- *     TAG_VREG_RETAIN tag, and no two counters may share one. The
- *     duplicate check compares only blocks present in the draft: blocks the
- *     Deploy does not write become DISABLED at COMMIT, so the running
- *     config of those blocks must not cause a rejection.
+ *   - cv_tag_index must be PLC_FB_CV_TAG_NONE or the index of an existing
+ *     VFLAG / VREG / VREG_RETAIN / COUNTER tag, and no two counters may
+ *     share one. The duplicate check compares only blocks present in the
+ *     draft: blocks the Deploy does not write become DISABLED at COMMIT, so
+ *     the running config of those blocks must not cause a rejection.
+ *     (A Counter does not need a COUNTER[i] tag to exist.)
  * A request that runs past the end of the block returns BAD_ADDRESS.
  */
 plc_fb_write_result_t plc_fb_write(uint16_t offset, uint16_t quantity,
@@ -153,7 +159,7 @@ void plc_fb_export(uint8_t out[PLC_FB_FLASH_SIZE]);
  * Load a PLC_FB_FLASH_SIZE-byte image as the running config (boot, or a
  * rollback). Validated like a Host write with every block counted as
  * present. Returns false -- running config unchanged -- if invalid (e.g. a
- * retain tag that no longer exists because the tag layout changed). The
+ * CV tag that no longer exists because the tag layout changed). The
  * draft is dropped either way.
  */
 bool plc_fb_import(const uint8_t in[PLC_FB_FLASH_SIZE]);
