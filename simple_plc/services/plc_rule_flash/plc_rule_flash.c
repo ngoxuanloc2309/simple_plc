@@ -30,14 +30,18 @@ _Static_assert(SPLC_RULE_FLASH_RECORD_MAX_SIZE ==
                 SPLC_RULE_FLASH_FB_SIZE),
                "SPLC_RULE_FLASH_RECORD_MAX_SIZE out of sync with MAX_RULES / FB size");
 
-/* Same literal-duplication story for the FB image size. */
+/* Same literal-duplication story for the FB image sizes. */
 _Static_assert(SPLC_RULE_FLASH_FB_SIZE == PLC_FB_FLASH_SIZE,
                "SPLC_RULE_FLASH_FB_SIZE out of sync with PLC_FB_FLASH_SIZE");
+_Static_assert(SPLC_RULE_FLASH_FB_SIZE_V1 == PLC_FB_FLASH_SIZE_V1,
+               "SPLC_RULE_FLASH_FB_SIZE_V1 out of sync with PLC_FB_FLASH_SIZE_V1");
 
-/* The flag and the count share one 16-bit field and must not overlap. */
-_Static_assert((SPLC_RULE_FLASH_FB_FLAG & SPLC_RULE_FLASH_COUNT_MASK) == 0U &&
-               (SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_COUNT_MASK) == 0xFFFFU,
-               "FB flag / count mask must partition the rule_count field");
+/* The two flags and the count share one 16-bit field and must not overlap. */
+_Static_assert((SPLC_RULE_FLASH_FB_FLAG & SPLC_RULE_FLASH_FB_V2_FLAG) == 0U &&
+               (SPLC_RULE_FLASH_FB_FLAG & SPLC_RULE_FLASH_COUNT_MASK) == 0U &&
+               (SPLC_RULE_FLASH_FB_V2_FLAG & SPLC_RULE_FLASH_COUNT_MASK) == 0U &&
+               (SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG | SPLC_RULE_FLASH_COUNT_MASK) == 0xFFFFU,
+               "FB flag / FB V2 flag / count mask must partition the rule_count field");
 
 #define RULE_FLASH_SEQ_OFFSET         0U
 #define RULE_FLASH_COUNT_OFFSET       4U
@@ -47,7 +51,7 @@ _Static_assert((SPLC_RULE_FLASH_FB_FLAG & SPLC_RULE_FLASH_COUNT_MASK) == 0U &&
 /* Working buffer for one full-size record (header + up to MAX_RULES
  * records' wire bytes + the FB section). Static, not stack-allocated: this
  * is Layer 3 running on a small MCU with a bounded stack budget, and this
- * buffer (3320 bytes) is large enough that putting it on the stack of a
+ * buffer (3336 bytes) is large enough that putting it on the stack of a
  * function called from write_commit_command() would be a needless risk. */
 static uint8_t s_rule_flash_buf[SPLC_RULE_FLASH_RECORD_MAX_SIZE];
 
@@ -82,25 +86,37 @@ static void write_u16_be(uint8_t *p, uint16_t v)
 }
 
 /*
- * The 16-bit field at RULE_FLASH_COUNT_OFFSET carries two things: bit 15 =
- * "FB section present", bits 0..14 = the real rule count. Every reader goes
- * through this split -- comparing the raw field against MAX_RULES would
- * reject every record that carries FB data (0x8002 reads as 32770). An
- * erased/garbage field (0xFFFF) splits into flag = 1, count = 0x7FFF, which
- * the callers' "count > MAX_RULES" check then rejects.
+ * The 16-bit field at RULE_FLASH_COUNT_OFFSET carries three things:
+ *   bit 15      "FB section present"
+ *   bit 14      "FB section is the 128-byte V2 image" (Step 8d; only
+ *               meaningful together with bit 15, absent = legacy 112 bytes)
+ *   bits 0..13  the real rule count
+ * Every reader goes through this split -- comparing the raw field against
+ * MAX_RULES would reject every record that carries FB data (0xC002 reads as
+ * 49154). An erased/garbage field (0xFFFF) splits into both flags set and
+ * count = 0x3FFF, which the callers' "count > MAX_RULES" check then rejects.
+ *
+ * `*fb_size` is the byte size of the FB section: 0 (none), 112 (legacy) or
+ * 128 (V2).
  */
-static void rule_flash_split_field(uint16_t field, uint16_t *rule_count, bool *has_fb)
+static void rule_flash_split_field(uint16_t field, uint16_t *rule_count, uint32_t *fb_size)
 {
     *rule_count = (uint16_t)(field & SPLC_RULE_FLASH_COUNT_MASK);
-    *has_fb     = (field & SPLC_RULE_FLASH_FB_FLAG) != 0U;
+    if ((field & SPLC_RULE_FLASH_FB_FLAG) == 0U) {
+        *fb_size = 0U;
+    } else if ((field & SPLC_RULE_FLASH_FB_V2_FLAG) != 0U) {
+        *fb_size = SPLC_RULE_FLASH_FB_SIZE;
+    } else {
+        *fb_size = SPLC_RULE_FLASH_FB_SIZE_V1;
+    }
 }
 
-/* Total bytes of a record: header + rules [+ FB section]. */
-static uint32_t rule_flash_record_size(uint16_t rule_count, bool has_fb)
+/* Total bytes of a record: header + rules [+ FB section of `fb_size` bytes]. */
+static uint32_t rule_flash_record_size(uint16_t rule_count, uint32_t fb_size)
 {
     return RULE_FLASH_DATA_OFFSET +
            (uint32_t)rule_count * SPLC_RULE_FLASH_RECORD_WIRE_SIZE +
-           (has_fb ? SPLC_RULE_FLASH_FB_SIZE : 0U);
+           fb_size;
 }
 
 /*
@@ -148,9 +164,10 @@ static uint32_t rule_flash_build_record(uint32_t seq_num)
     uint16_t rule_count = g_rule_count.rule_count;
 
     write_u32_be(&s_rule_flash_buf[RULE_FLASH_SEQ_OFFSET], seq_num);
-    /* Every save carries the FB section, so the flag is always set here. */
+    /* Every save carries the FB section in the V2 (128-byte) layout, so both
+     * flags are always set here. */
     write_u16_be(&s_rule_flash_buf[RULE_FLASH_COUNT_OFFSET],
-                 (uint16_t)(rule_count | SPLC_RULE_FLASH_FB_FLAG));
+                 (uint16_t)(rule_count | SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG));
 
     for (uint16_t i = 0; i < rule_count; i++) {
         rule_record_to_wire(&g_rule_table[i],
@@ -163,7 +180,7 @@ static uint32_t rule_flash_build_record(uint32_t seq_num)
                                     (uint32_t)rule_count * SPLC_RULE_FLASH_RECORD_WIRE_SIZE]);
 
     /* The one CRC covers header + rules + FB section. */
-    uint32_t record_size = rule_flash_record_size(rule_count, true);
+    uint32_t record_size = rule_flash_record_size(rule_count, SPLC_RULE_FLASH_FB_SIZE);
     uint16_t crc = rule_flash_record_crc(s_rule_flash_buf, record_size);
     write_u16_be(&s_rule_flash_buf[RULE_FLASH_CRC_OFFSET], crc);
 
@@ -213,7 +230,7 @@ static void rule_wire_to_record(const uint8_t in[32], SPLC_RuleRecord *r)
  * full record, done by rule_flash_read_and_validate() below.
  */
 static void rule_flash_read_header(uint32_t addr, uint32_t *seq_num_out, uint16_t *rule_count_out,
-                                   bool *has_fb_out)
+                                   uint32_t *fb_size_out)
 {
     uint8_t header[SPLC_RULE_FLASH_HEADER_SIZE];
     sx_flash_read(addr, header, SPLC_RULE_FLASH_HEADER_SIZE);
@@ -222,13 +239,13 @@ static void rule_flash_read_header(uint32_t addr, uint32_t *seq_num_out, uint16_
         *seq_num_out = read_u32_be(&header[RULE_FLASH_SEQ_OFFSET]);
     }
     uint16_t rule_count;
-    bool     has_fb;
-    rule_flash_split_field(read_u16_be(&header[RULE_FLASH_COUNT_OFFSET]), &rule_count, &has_fb);
+    uint32_t fb_size;
+    rule_flash_split_field(read_u16_be(&header[RULE_FLASH_COUNT_OFFSET]), &rule_count, &fb_size);
     if (rule_count_out != NULL) {
         *rule_count_out = rule_count;
     }
-    if (has_fb_out != NULL) {
-        *has_fb_out = has_fb;
+    if (fb_size_out != NULL) {
+        *fb_size_out = fb_size;
     }
 }
 
@@ -247,17 +264,17 @@ static void rule_flash_read_header(uint32_t addr, uint32_t *seq_num_out, uint16_
  * "not a valid record".
  */
 static bool rule_flash_read_and_validate(uint32_t addr, uint32_t *seq_num_out, uint16_t *rule_count_out,
-                                         bool *has_fb_out)
+                                         uint32_t *fb_size_out)
 {
     uint16_t rule_count;
-    bool     has_fb;
-    rule_flash_read_header(addr, NULL, &rule_count, &has_fb);
+    uint32_t fb_size;
+    rule_flash_read_header(addr, NULL, &rule_count, &fb_size);
 
     if (rule_count > MAX_RULES) {
         return false;
     }
 
-    uint32_t record_size = rule_flash_record_size(rule_count, has_fb);
+    uint32_t record_size = rule_flash_record_size(rule_count, fb_size);
     sx_flash_read(addr, s_rule_flash_buf, record_size);
 
     uint16_t stored_crc   = read_u16_be(&s_rule_flash_buf[RULE_FLASH_CRC_OFFSET]);
@@ -273,8 +290,8 @@ static bool rule_flash_read_and_validate(uint32_t addr, uint32_t *seq_num_out, u
     if (rule_count_out != NULL) {
         *rule_count_out = rule_count;
     }
-    if (has_fb_out != NULL) {
-        *has_fb_out = has_fb;
+    if (fb_size_out != NULL) {
+        *fb_size_out = fb_size;
     }
     return true;
 }
@@ -316,15 +333,15 @@ static void rule_flash_write_sector(uint32_t dst_addr, uint32_t size)
 static void rule_flash_copy_sector(uint32_t src_addr, uint32_t dst_addr)
 {
     uint16_t rule_count;
-    bool     has_fb;
-    rule_flash_read_header(src_addr, NULL, &rule_count, &has_fb);
+    uint32_t fb_size;
+    rule_flash_read_header(src_addr, NULL, &rule_count, &fb_size);
     if (rule_count > MAX_RULES) {
         rule_count = MAX_RULES; /* defensive clamp, same rationale as rule_flash_read_and_validate() */
     }
 
     /* The FB section must be copied too: dropping it here would silently
      * lose the FB config on every A->B sync / B->A restore. */
-    uint32_t size = rule_flash_record_size(rule_count, has_fb);
+    uint32_t size = rule_flash_record_size(rule_count, fb_size);
     sx_flash_read(src_addr, s_rule_flash_buf, size);
     rule_flash_write_sector(dst_addr, size);
 }
@@ -340,7 +357,7 @@ static void rule_flash_copy_sector(uint32_t src_addr, uint32_t dst_addr)
  * tag layout changed -- also leaves it DISABLED; that is logged but is not a
  * reason to drop the rules, which passed their own checks.
  */
-static void rule_flash_apply_buffer(uint16_t rule_count, bool has_fb, const char *from)
+static void rule_flash_apply_buffer(uint16_t rule_count, uint32_t fb_size, const char *from)
 {
     for (uint16_t i = 0; i < rule_count; i++) {
         rule_wire_to_record(&s_rule_flash_buf[RULE_FLASH_DATA_OFFSET + (uint32_t)i * SPLC_RULE_FLASH_RECORD_WIRE_SIZE],
@@ -348,14 +365,18 @@ static void rule_flash_apply_buffer(uint16_t rule_count, bool has_fb, const char
     }
     rule_table_commit((const uint8_t *)s_rule_flash_decoded, rule_count);
 
-    if (!has_fb) {
+    if (fb_size == 0U) {
         log_info(TAG, "Flash %s has no FB section (pre-8b record) -- FB config left DISABLED", from);
         return;
     }
 
     const uint8_t *fb = &s_rule_flash_buf[RULE_FLASH_DATA_OFFSET +
                                           (uint32_t)rule_count * SPLC_RULE_FLASH_RECORD_WIRE_SIZE];
-    if (plc_fb_import(fb)) {
+    /* A legacy 112-byte image (written before Step 8d) has no Timer rule
+     * binding: its Timers load unbound. The next save rewrites the record in
+     * the 128-byte layout. */
+    bool imported = (fb_size == SPLC_RULE_FLASH_FB_SIZE) ? plc_fb_import(fb) : plc_fb_import_v1(fb);
+    if (imported) {
         log_info(TAG, "FB config restored from Flash %s", from);
     } else {
         log_warn(TAG, "FB section in Flash %s failed validation -- FB config left DISABLED", from);
@@ -366,15 +387,15 @@ void plc_rule_flash_load(void)
 {
     uint32_t seq_num;
     uint16_t rule_count;
-    bool     has_fb;
+    uint32_t fb_size;
 
-    if (rule_flash_read_and_validate(SPLC_FLASH_RULE_TABLE_A_ADDR, &seq_num, &rule_count, &has_fb)) {
+    if (rule_flash_read_and_validate(SPLC_FLASH_RULE_TABLE_A_ADDR, &seq_num, &rule_count, &fb_size)) {
         /* A is good: the normal, steady-state boot path. The record is in
          * s_rule_flash_buf; rule_flash_apply_buffer() decodes each rule's
          * 32-byte wire image back into RAM-struct layout before calling
          * rule_table_commit() -- see rule_wire_to_record()'s comment for
          * why (rule_table_commit() expects native struct bytes). */
-        rule_flash_apply_buffer(rule_count, has_fb, "A");
+        rule_flash_apply_buffer(rule_count, fb_size, "A");
         log_info(TAG, "loaded %u rule(s) from Flash A (seq_num=%lu)",
                  rule_count, (unsigned long)seq_num);
         return;
@@ -382,7 +403,7 @@ void plc_rule_flash_load(void)
 
     log_warn(TAG, "Flash A invalid or blank, trying B");
 
-    if (rule_flash_read_and_validate(SPLC_FLASH_RULE_TABLE_B_ADDR, &seq_num, &rule_count, &has_fb)) {
+    if (rule_flash_read_and_validate(SPLC_FLASH_RULE_TABLE_B_ADDR, &seq_num, &rule_count, &fb_size)) {
         /* B is good but A was not: restore A from B before committing to
          * RAM, so the running/backup pair is back in sync on disk before
          * anything else touches Flash. The copy re-reads B into
@@ -391,7 +412,7 @@ void plc_rule_flash_load(void)
                  (unsigned long)seq_num);
         rule_flash_copy_sector(SPLC_FLASH_RULE_TABLE_B_ADDR, SPLC_FLASH_RULE_TABLE_A_ADDR);
 
-        rule_flash_apply_buffer(rule_count, has_fb, "B");
+        rule_flash_apply_buffer(rule_count, fb_size, "B");
         log_info(TAG, "loaded %u rule(s) from Flash B (A restored)", rule_count);
         return;
     }

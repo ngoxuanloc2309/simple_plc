@@ -120,6 +120,14 @@ static void scan_cycle(uint32_t now_ms)
         uint16_t hhmm = 0U;
         rule_scan(now_ms, plc_rtc_get_local_hhmm(&hhmm) ? (uint32_t)hhmm
                                                          : RULE_HHMM_INVALID);
+
+        /*
+         * Timer telemetry (ET / RUNNING / Q at 0x0B00..): read from the
+         * rules' runtime state this very pass just updated, with the same
+         * now_ms. Skipped while the engine is suspended, so the values hold
+         * their last reading in DIAG_CONTROL.
+         */
+        plc_fb_scan(now_ms);
     }
     s_rule_engine_was_suspended = suspended;
 

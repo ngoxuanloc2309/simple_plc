@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 test_fb.py - Verify the Function Block block (0x0B00..0x0B7F, Wire Profile
-V2.0, plan steps 8a + 8b) over Modbus RTU / USB-CDC.
+V2.0, plan steps 8a + 8b + 8d) over Modbus RTU / USB-CDC.
 
 Requires: pip install pymodbus pyserial   (same as the other test scripts)
 Put this file next to test_plc.py, test_sysclear.py and test_rtc.py (it
@@ -24,6 +24,9 @@ Step 8b semantics (services/plc_fb/plc_fb.h, "Staging"):
   * A COMMIT that fails (CRC mismatch) drops the draft. CLEAR_RULES /
     FACTORY_RESET clear the FB config and the draft. A wrong magic written to
     0xA000 is not a COMMIT and keeps the draft.
+  * Step 8d: the Timer +6 register is `rule_ref` = index + 1 of the rule that
+    does the timing (0 = none, max MAX_RULES = 100). The firmware only REPORTS:
+    status_bits (IN / Q / RUNNING) and ET come from that rule's runtime state.
   * The Counter +6 register is the tag that holds the counter's CV (the
     App's "Storage Register (CV)"): any VFLAG / VREG / VREG_RETAIN / COUNTER
     tag, 0xFFFF = none. CV and Q read from THAT tag; it is not tied to the
@@ -35,14 +38,17 @@ Checks, in order:
   2. Defaults: after a Deploy with no FB written every block reads mode 0.
   3. Read sizes (64 + 64 works; one 128-register read is reported).
   4. Timer whole-block write: invisible before COMMIT, read back after,
-     32-bit PT High Word first, junk in firmware-owned fields ignored.
+     32-bit PT High Word first, rule_ref (+6) stored, junk in firmware-owned
+     fields (status, ET, +7) ignored.
   5. Counter whole-block write: same, incl. negative PV and CV tag of each
      allowed kind (VREG, VFLAG, COUNTER).
   6. CV follows the CV tag written through DIAG; Q for CTU and CTD; a
      Counter with no CV tag reads CV=0, Q=0.
   7. A rule (INC_COUNTER on a VREG_RETAIN CV tag) makes CV climb on the FB
      block; CLEAR_RETAIN brings the count back to 0.
-  8. Rejections (0x03 / 0x02), all-or-nothing, FC06 keeps the other fields,
+  7b. Timer telemetry (8d): a TON bound to a rule reports RUNNING + growing ET,
+     then Q with ET = PT.
+  8. Rejections (0x03 / 0x02), Timer rule_ref > 100, all-or-nothing, FC06 keeps the other fields,
      a block the Deploy did not write becomes unused, duplicate CV tag only
      inside the draft, DI/DO/AI tags refused as CV tag.
   9. App-style deploy: 8 Timers + 8 Counters in 3-block chunks (3, 3, 2).
@@ -101,8 +107,9 @@ def u32_regs(v):
     return [v >> 16, v & 0xFFFF]
 
 
-def timer_block(mode, pt_ms, status=0, et=0, reserved=(0, 0)):
-    return [status, mode, *u32_regs(pt_ms), *u32_regs(et), *reserved]
+def timer_block(mode, pt_ms, status=0, et=0, rule_ref=0, reserved=0):
+    """+6 = rule_ref (Host-written, Step 8d), +7 = reserved."""
+    return [status, mode, *u32_regs(pt_ms), *u32_regs(et), rule_ref, reserved]
 
 
 def counter_block(mode, pv, retain=RETAIN_NONE, status=0, cv=0, reserved=0):
@@ -196,8 +203,8 @@ def run(d, holder, args):
     print(f"  wire_profile={wire} DI={di} DO={do} AI={ai} VFLAG={vflag} VREG={vreg} "
           f"VREG_RETAIN={retain_n} COUNTER={cnt_n}")
     check(wire == 2, "wire_profile == 2 (FB block is a V2 feature)")
-    if wire != 2 or cnt_n < 1 or retain_n < 3 or vreg < 2 or vflag < 1 or do < 1:
-        print("need Wire Profile 2, >= 1 COUNTER, >= 3 VREG_RETAIN, >= 2 VREG, >= 1 VFLAG and >= 1 DO tags")
+    if wire != 2 or cnt_n < 1 or retain_n < 3 or vreg < 2 or vflag < 2 or do < 1:
+        print("need Wire Profile 2, >= 1 COUNTER, >= 3 VREG_RETAIN, >= 2 VREG, >= 2 VFLAG and >= 1 DO tags")
         sys.exit(2)
     do0 = di
     vflag0 = di + do + ai
@@ -231,8 +238,8 @@ def run(d, holder, args):
     # ---- 4. timer whole-block: draft -> COMMIT -> read ---------------------
     print("\n[4] Timer whole-block write (draft, then COMMIT)")
     resp = d.fc16(REG_TIMERS, timer_block(1, 70000, status=0x1234, et=0x00070008,
-                                          reserved=(0x7777, 0x8888)))
-    check(not resp.isError(), "FC16 whole Timer 0 block accepted (junk in status/ET/reserved)")
+                                          rule_ref=3, reserved=0x8888))
+    check(not resp.isError(), "FC16 whole Timer 0 block accepted (junk in status/ET/+7, rule_ref 3)")
     check(read_timer(d, 0)[1] == 0, "before COMMIT: Timer 0 still reads unused (draft is invisible)")
     d.fc16(REG_TIMERS + BLOCK_REGS, timer_block(2, 5000))
     d.fc16(REG_TIMERS + 2 * BLOCK_REGS, timer_block(3, 5000))
@@ -240,7 +247,8 @@ def run(d, holder, args):
     t = read_timer(d, 0)
     check(t[1] == 1, f"mode = TON (got {t[1]})")
     check(t[2:4] == [1, 0x1170], f"PT 70000 ms = 0x00011170, High Word first (got {t[2:4]})")
-    check(t[0] == 0 and t[4:6] == [0, 0] and t[6:8] == [0, 0], "status / ET / reserved ignored, read 0")
+    check(t[0] == 0 and t[4:6] == [0, 0] and t[7] == 0, "status / ET / reserved(+7) ignored, read 0")
+    check(t[6] == 3, f"rule_ref (+6) stored and read back (got {t[6]})")
     check(read_timer(d, 1)[1] == 2 and read_timer(d, 2)[1] == 3, "Timer 1 TOF, Timer 2 TP stored")
     check(read_timer(d, 3)[1] == 0, "Timer 3 (not written) is unused")
 
@@ -326,6 +334,43 @@ def run(d, holder, args):
     check(st == ts.ST_DONE and err == ts.ERR_NONE, f"CLEAR_RETAIN done (st={st} err={err})")
     check(s32(*read_counter(d, 0)[4:6]) == 0, "CV (retain tag) reads 0 after CLEAR_RETAIN")
 
+    # ---- 7b. timer telemetry (8d) -----------------------------------------
+    print("\n[7b] Timer telemetry (Step 8d): TON bound to rule 1 via +6 -> RUNNING / ET / Q")
+    in_tag, q_tag = vflag0, vflag0 + 1
+    ton_rule = tp.encode_rule_registers(
+        threshold_lo=0, threshold_hi=0, for_ms=1500, action_param=1,
+        trigger_tag=in_tag, action_tag=q_tag, guard_tag=tp.GUARD_TAG_NONE,
+        enabled=1, trigger_type=tp.SPLC_TRG_ON_RISE, compare_op=tp.SPLC_OP_NONE,
+        action_type=tp.SPLC_ACT_SET_TAG)
+    check(deploy_fb(d, [timer_block(1, 1500, rule_ref=1)], None, [ton_rule]),
+          "Timer 0 (TON, PT 1500, rule_ref = 1) + the timing rule committed in one Deploy")
+    if check(enter_diag(d), "ENTER_DIAG"):
+        diag_set_counter(d, q_tag, 0)
+        diag_set_counter(d, in_tag, 1)          # IN is already high when the engine resumes
+        exit_diag(d)                            # rule runtime reset: IN counts as a rising edge
+        time.sleep(0.4)
+        t = read_timer(d, 0)
+        et_a = (t[4] << 16) | t[5]
+        check(t[0] & 0x0008 and t[0] & 0x0001 and not t[0] & 0x0002,
+              f"~0.4 s after IN: RUNNING + IN, not Q (status=0x{t[0]:04X})")
+        check(0 < et_a < 1500, f"ET is between 0 and PT while running (ET={et_a})")
+        time.sleep(0.4)
+        t = read_timer(d, 0)
+        et_b = (t[4] << 16) | t[5]
+        check(et_b > et_a, f"ET keeps growing ({et_a} -> {et_b})")
+        time.sleep(1.6)
+        t = read_timer(d, 0)
+        check(t[0] == 0x0003 and ((t[4] << 16) | t[5]) == 1500,
+              f"after PT: IN + Q, RUNNING cleared, ET = PT (status=0x{t[0]:04X}, ET={(t[4] << 16) | t[5]})")
+        if enter_diag(d):
+            diag_set_counter(d, in_tag, 0)
+            diag_set_counter(d, q_tag, 0)
+            exit_diag(d)
+    check(read_timer(d, 0)[0] & 0x0008 == 0, "telemetry quiet again after the test")
+    d.run_syscmd(ts.SYS_CLEAR_RULES)
+    time.sleep(0.3)
+    check(read_timer(d, 0)[0] == 0 and read_timer(d, 0)[6] == 0, "CLEAR_RULES: Timer 0 unused, rule_ref 0, status 0")
+
     # ---- 8. rejections ----------------------------------------------------
     print("\n[8] rejections and all-or-nothing (against the draft)")
     check(deploy_fb(d, [timer_block(1, 1000)], [counter_block(1, 10, vreg1)]), "baseline deployed")
@@ -334,6 +379,10 @@ def run(d, holder, args):
     d.fc16(REG_TIMERS, timer_block(1, 1000))
     d.fc16(REG_COUNTERS, counter_block(1, 10, vreg1))
     check(exc_code(d.fc16(REG_TIMERS, timer_block(9, 1000))) == EXC_VALUE, "Timer mode 9 -> 0x03")
+    check(exc_code(d.fc16(REG_TIMERS, timer_block(1, 1000, rule_ref=101))) == EXC_VALUE,
+          "Timer rule_ref 101 (> MAX_RULES) -> 0x03")
+    check(not d.fc16(REG_TIMERS, timer_block(1, 1000, rule_ref=100)).isError(), "Timer rule_ref 100 accepted")
+    d.fc16(REG_TIMERS, timer_block(1, 1000))        # back to the baseline in the draft
     check(exc_code(d.fc16(REG_COUNTERS, counter_block(3, 10))) == EXC_VALUE, "Counter mode 3 -> 0x03")
     check(exc_code(d.fc16(REG_COUNTERS, counter_block(1, 10, 0))) == EXC_VALUE,
           "CV tag 0 (a DI) -> 0x03")
@@ -369,7 +418,7 @@ def run(d, holder, args):
 
     # ---- 9. App-style deploy ----------------------------------------------
     print("\n[9] App-style deploy: 8 Timers + 8 Counters, 3-block chunks (3, 3, 2)")
-    timers = [timer_block(1 + i % 3, 1000 * (i + 1)) for i in range(BLOCKS)]
+    timers = [timer_block(1 + i % 3, 1000 * (i + 1), rule_ref=i + 1) for i in range(BLOCKS)]
     counters = []
     for i in range(BLOCKS):
         # Counter i counts in VREG_RETAIN[i] (every Counter block works, however
@@ -379,7 +428,8 @@ def run(d, holder, args):
     check(write_blocks(d, REG_TIMERS, timers) is None, "8 Timers written in 3 FC16 frames")
     check(write_blocks(d, REG_COUNTERS, counters) is None, "8 Counters written in 3 FC16 frames")
     check(commit(d), "COMMIT")
-    check(all(read_timer(d, i)[1:4] == timers[i][1:4] for i in range(BLOCKS)), "all 8 Timers read back (mode, PT)")
+    check(all(read_timer(d, i)[1:4] == timers[i][1:4] and read_timer(d, i)[6] == timers[i][6]
+              for i in range(BLOCKS)), "all 8 Timers read back (mode, PT, rule_ref)")
     check(all(read_counter(d, i)[1:4] == counters[i][1:4] and read_counter(d, i)[6] == counters[i][6]
               for i in range(BLOCKS)), "all 8 Counters read back (mode, PV, CV tag)")
 

@@ -10,10 +10,10 @@
  *
  * Division of ownership (agreed with the App team):
  *   Host writes (config, at Deploy, FC16):
- *     Timer   : mode (+1), pt_ms (+2..+3)
+ *     Timer   : mode (+1), pt_ms (+2..+3), rule_ref (+6, Step 8d)
  *     Counter : mode (+1), preset_value (+2..+3), cv_tag_index (+6)
  *   Firmware owns (runtime telemetry, Host-written values are IGNORED):
- *     Timer   : status_bits (+0), et_ms (+4..+5), reserved (+6..+7)
+ *     Timer   : status_bits (+0), et_ms (+4..+5), reserved (+7)
  *     Counter : status_bits (+0), current_value (+4..+5), reserved (+7)
  *
  * The App sends its FB config as WHOLE 8-register blocks (zeros in the
@@ -36,10 +36,20 @@
  *   so a single-register write keeps the block's other fields.
  *
  * Scope of this module today:
- *   - Timer: config is stored and read back. The timing itself still runs
- *     in the Rule Engine (the App emits macro rules, "dual generation"),
- *     so status_bits and et_ms read as 0. The firmware cannot compute them
- *     without knowing which tag drives IN.
+ *   - Timer (Step 8d): config is stored and read back. The timing itself
+ *     still runs in the Rule Engine (the App emits macro rules, "dual
+ *     generation"); the firmware only REPORTS it. The Host says which rule
+ *     does the timing in +6 (rule_ref = rule index + 1, 0 = none, so no
+ *     sentinel clashes with rule 0). plc_fb_scan(), called once per scan
+ *     after rule_scan(), reads that rule's runtime state and its action
+ *     tag (the Q tag, set by all three timing rules) and fills:
+ *       TON: RUNNING = rule is dwelling, Q = Q tag, ET = elapsed dwell
+ *            (PT once Q), IN = dwelling or Q
+ *       TOF: RUNNING = dwelling while Q is 1, IN = Q && !RUNNING
+ *       TP : RUNNING = dwelling, IN not derivable (0)
+ *     rule_ref is NOT checked against the committed rule count at write
+ *     time (rules are committed after the FB config is written); a ref that
+ *     points past the running table simply reports 0.
  *   - Counter: the count (CV) lives in a tag the Host chooses (the App's
  *     "Storage Register (CV)": VFLAG, VREG, VREG_RETAIN or COUNTER) and the
  *     Host sends that tag's index in the +6 register ("cv_tag_index"; the
@@ -52,9 +62,10 @@
  *     Persistence needs nothing here: a CV tag of kind VREG_RETAIN is saved
  *     and restored by plc_retain.c like any retain tag, and CLEAR_RETAIN /
  *     FACTORY_RESET clear it. A VFLAG/VREG CV tag is lost at reboot.
- *   - Flash persistence: plc_fb_export()/plc_fb_import() give the 112-byte
- *     image plc_rule_flash.c stores inside the Rule Table record. This
- *     module itself never touches Flash.
+ *   - Flash persistence: plc_fb_export()/plc_fb_import() give the 128-byte
+ *     image plc_rule_flash.c stores inside the Rule Table record
+ *     (plc_fb_import_v1() reads the legacy 112-byte one, without rule_ref).
+ *     This module itself never touches Flash.
  *
  * This file is transport-agnostic: it does not include nanomodbus.h.
  * plc_modbus_cfg.c maps plc_fb_write()'s result onto Modbus exceptions.
@@ -78,12 +89,17 @@ extern "C" {
 
 /*
  * Flash image of the running config (big-endian, host-owned fields only):
- *   8 x Timer   { mode u16, pt_ms u32 }                         = 8 x 6
+ *   8 x Timer   { mode u16, pt_ms u32, rule_ref u16 }           = 8 x 8
  *   8 x Counter { mode u16, preset i32, cv_tag_index u16 }      = 8 x 8
- * = 112 bytes. Cross-checked against SPLC_RULE_FLASH_FB_SIZE in
- * plc_rule_flash.c.
+ * = 128 bytes. Cross-checked against SPLC_RULE_FLASH_FB_SIZE in
+ * plc_rule_flash.c. The legacy image (before Step 8d) has no rule_ref:
+ *   8 x Timer { mode u16, pt_ms u32 } + 8 x Counter = 112 bytes.
  */
-#define PLC_FB_FLASH_SIZE       112U
+#define PLC_FB_FLASH_SIZE       128U
+#define PLC_FB_FLASH_SIZE_V1    112U
+
+/* Timer rule_ref: rule index + 1; 0 = this Timer is not bound to a rule. */
+#define PLC_FB_RULE_REF_NONE    0U
 
 /* SPLC_TimerMode_t / SPLC_CounterMode_t. 0 = block unused. */
 #define PLC_FB_MODE_NONE        0U
@@ -92,6 +108,12 @@ extern "C" {
 #define PLC_FB_TIMER_TP         3U
 #define PLC_FB_COUNTER_CTU      1U
 #define PLC_FB_COUNTER_CTD      2U
+
+/* Timer status_bits */
+#define PLC_FB_TMR_STATUS_IN       0x0001U
+#define PLC_FB_TMR_STATUS_Q        0x0002U
+#define PLC_FB_TMR_STATUS_RESET    0x0004U   /* not derivable: always 0 */
+#define PLC_FB_TMR_STATUS_RUNNING  0x0008U
 
 /* Counter status_bits */
 #define PLC_FB_CNT_STATUS_Q     0x0008U
@@ -126,6 +148,7 @@ typedef enum {
  * (including the ones this request touches) is validated first; one
  * invalid field leaves the draft unchanged and returns BAD_VALUE.
  *   - mode must be 0 (unused) or a valid mode for that block kind.
+ *   - Timer rule_ref must be 0..MAX_RULES (see "Timer" above).
  *   - cv_tag_index must be PLC_FB_CV_TAG_NONE or the index of an existing
  *     VFLAG / VREG / VREG_RETAIN / COUNTER tag, and no two counters may
  *     share one. The duplicate check compares only blocks present in the
@@ -163,6 +186,16 @@ void plc_fb_export(uint8_t out[PLC_FB_FLASH_SIZE]);
  * draft is dropped either way.
  */
 bool plc_fb_import(const uint8_t in[PLC_FB_FLASH_SIZE]);
+
+/* Same for the legacy 112-byte image: Timers come back with rule_ref = none. */
+bool plc_fb_import_v1(const uint8_t in[PLC_FB_FLASH_SIZE_V1]);
+
+/*
+ * Refresh the Timer telemetry (status_bits / ET). Layer 4 calls this once
+ * per scan, right after rule_scan(), with the same now_ms. Read-only with
+ * respect to the rules and tags.
+ */
+void plc_fb_scan(uint32_t now_ms);
 
 #ifdef __cplusplus
 }
