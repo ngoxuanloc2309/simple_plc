@@ -202,7 +202,7 @@ typedef struct SPLC_PACKED {
     uint16_t mode;                /* 0x02: SPLC_CounterMode_t (1=CTU, 2=CTD) */
     int32_t  preset_value;        /* 0x04: Preset Value PV (High Word trước) */
     int32_t  current_value;       /* 0x08: Current Value CV (High Word trước) */
-    uint16_t retain_tag_index;    /* 0x0C: TagIndex của VREG_RETAIN (84..115) hoặc 0xFFFF nếu None */
+    uint16_t retain_tag_index;    /* 0x0C: TagIndex của thanh ghi lưu CV (VREG, VREG_RETAIN, VFLAG, COUNTER) hoặc 0xFFFF nếu Unbound */
     uint16_t reserved;            /* 0x0E: Dự phòng, luôn ghi 0x0000 */
 } SPLC_FbCounterRecord_t;
 ```
@@ -292,7 +292,7 @@ Host (Studio)                                    MCU Firmware
 * **Sự cố mất kết nối**: Nếu sau 3000ms Host không gửi nhịp tim (do rút cáp, đơ máy):
   1. MCU lập tức chuyển `DIAG_STATE = ENGINE_RUNNING (1)`.
   2. Bật mã lỗi `DIAG_ERROR_CODE = LEASE_EXPIRED (2)`.
-  3. **Tự động đưa toàn bộ 8 ngõ ra DO0..DO7 (0x0910..0x091F) về 0 an toàn** nhằm ngăn chặn tai nạn kẹt cơ cấu chấp hành.
+  3. **Tự động đưa toàn bộ các ngõ ra DO vật lý (`DO0..DO(do_count-1)` bắt đầu từ chỉ số `DoBase = di_count`) về 0 an toàn** nhằm ngăn chặn tai nạn kẹt cơ cấu chấp hành.
 
 ---
 

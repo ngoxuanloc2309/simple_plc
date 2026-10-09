@@ -118,10 +118,21 @@ static void sx_flash_clear_icache(void)
     HAL_ICACHE_Invalidate();
 }
 
-void sx_flash_write(uint32_t addr, const uint8_t *data, uint32_t len)
+/*
+ * Shared quad-word programming loop behind sx_flash_write() and
+ * sx_flash_write_quiet(). `log_errors` selects the only difference between
+ * them: the logging variant reports a failed program through log_error()
+ * (not ISR-safe) and, as before, keeps going through the whole range; the
+ * quiet variant stays silent so it can run inside the PVD interrupt and
+ * stops at the first failed quad-word. Returns true when every quad-word
+ * was accepted.
+ */
+static bool sx_flash_program(uint32_t addr, const uint8_t *data, uint32_t len,
+                             bool log_errors)
 {
     uint8_t  quad[SX_FLASH_QUADWORD_BYTES];
     uint32_t written = 0;
+    bool     ok      = true;
 
     sx_flash_clear_error_flags();
 
@@ -141,26 +152,45 @@ void sx_flash_write(uint32_t addr, const uint8_t *data, uint32_t len)
                                                         addr + written,
                                                         (uint32_t)quad);
         if (status != HAL_OK) {
-            /* Not returned to the caller (this function's signature is
-             * void, matched by both existing callers -- plc_retain.c and
-             * plc_rule_flash.c -- neither of which currently checks a
-             * return value here). Both callers already have their own
-             * read-back+CRC verification layered on top (plc_retain.c's
-             * retain_record_is_valid(), plc_rule_flash.c's
-             * rule_flash_read_and_validate()), so a write failure is still
-             * detected and acted on one layer up -- this log exists so the
-             * ROOT CAUSE is visible in the log instead of only the
-             * downstream symptom ("CRC mismatch"/"restore failed"). */
-            log_error(TAG, "HAL_FLASH_Program failed at addr=0x%08lX, "
-                      "status=%d, HAL error flags=0x%08lX",
-                      (unsigned long)(addr + written), (int)status,
-                      (unsigned long)HAL_FLASH_GetError());
+            ok = false;
+            if (log_errors) {
+                /* Not returned to the caller of sx_flash_write() (that
+                 * function's signature is void, matched by its existing
+                 * callers -- plc_retain.c and plc_rule_flash.c -- which
+                 * both layer their own read-back+CRC verification on top,
+                 * so a write failure is still detected one layer up).
+                 * This log exists so the ROOT CAUSE is visible instead of
+                 * only the downstream symptom ("CRC mismatch"/"restore
+                 * failed"). */
+                log_error(TAG, "HAL_FLASH_Program failed at addr=0x%08lX, "
+                          "status=%d, HAL error flags=0x%08lX",
+                          (unsigned long)(addr + written), (int)status,
+                          (unsigned long)HAL_FLASH_GetError());
+            } else {
+                /* Quiet (ISR) path: nothing after a failed quad-word can
+                 * make the record valid, and every extra program attempt
+                 * is time the dying supply may not have. The logging path
+                 * keeps its original behaviour of attempting the whole
+                 * range. */
+                break;
+            }
         }
 
         written += SX_FLASH_QUADWORD_BYTES;
     }
 
     sx_flash_clear_icache();
+    return ok;
+}
+
+void sx_flash_write(uint32_t addr, const uint8_t *data, uint32_t len)
+{
+    (void)sx_flash_program(addr, data, len, true);
+}
+
+bool sx_flash_write_quiet(uint32_t addr, const uint8_t *data, uint32_t len)
+{
+    return sx_flash_program(addr, data, len, false);
 }
 
 void sx_flash_erase(uint32_t addr, uint32_t len)

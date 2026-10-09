@@ -16,6 +16,7 @@
 #include "plc_rule.h"       /* SPLC_RuleRecord, MAX_RULES, rule_table_commit() */
 #include "plc_modbus_cfg.h" /* rule_record_to_wire(), rule_table_wire_crc16(), crc16_modbus_update() */
 #include "plc_fb.h"         /* plc_fb_export()/plc_fb_import(): Function Block config image */
+#include "plc_retain.h"     /* retain_flash_op_begin()/end(): keeps the PVD write off the Flash during this one */
 #include "logger.h"
 
 static const char *TAG = "PLC_RULE_FLASH";
@@ -287,10 +288,15 @@ static bool rule_flash_read_and_validate(uint32_t addr, uint32_t *seq_num_out, u
  */
 static void rule_flash_write_sector(uint32_t dst_addr, uint32_t size)
 {
+    /* Flash-operation guard: if the PVD interrupt fires while this erase
+     * +write is running it must not start its own Flash operation (see
+     * plc_retain.h); it defers the retain snapshot to retain_service(). */
+    retain_flash_op_begin();
     sx_flash_unlock();
     sx_flash_erase(dst_addr, SPLC_FLASH_RULE_TABLE_SIZE);
     sx_flash_write(dst_addr, s_rule_flash_buf, size);
     sx_flash_lock();
+    retain_flash_op_end();
 }
 
 /*

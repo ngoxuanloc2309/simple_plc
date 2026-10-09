@@ -52,6 +52,7 @@ set(SPLC_PLATFORM_STM32H5_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/time/stm32h5_time.c
     ${CMAKE_CURRENT_SOURCE_DIR}/system/stm32h5_system.c
     ${CMAKE_CURRENT_SOURCE_DIR}/rtc/stm32h5_rtc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/pwd/stm32h5_pwd.c
 )
 
 add_library(splc_platform_stm32h5 STATIC ${SPLC_PLATFORM_STM32H5_SRC})

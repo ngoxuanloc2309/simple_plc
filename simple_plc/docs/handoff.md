@@ -34,7 +34,7 @@
   `test_rtc.py --reboot` và test mất điện thật bằng tay. Chi tiết ở mục 3.
 - **Bước 8a (khối FB `0x0B00..0x0B7F`: nhận ghi cấu hình, đọc, Counter
   `CV`/`Q`): xong và verify trên board (CV/Q đã ĐỔI cách tính ở phiên 2026-10-08, xem #15; bản mới đã build ARM và verify trên board: `test_fb.py COM14`, `--reboot`, `--probe-64` đều ALL PASS)** (`test_fb.py COM14`: ALL PASS, kể cả
-  `--probe-64`). **Còn lại của Bước 8:** PVD ghi retain khẩn cấp (8c, chỉ còn việc này; Counter retain thực ra không cần code, xem mục 3), Timer chạy thật (8d, chờ App). Chi tiết ở mục 3.
+  `--probe-64`). **8c PVD ghi retain khẩn cấp: ĐÃ CODE VÀ VERIFY TRÊN PC (2026-10-09), CHƯA build ARM, CHƯA test trên board** (board hiện chưa thiết kế phần cứng PVD/giữ điện; xem #25 và mục 3). **Còn lại của Bước 8:** Timer chạy thật (8d, chờ App). Chi tiết ở mục 3.
 - **Bước 8b (lưu cấu hình FB vào Flash; bản nháp FB + COMMIT): xong và verify trên board** (`test_fb.py COM14 --reboot`: ALL PASS; `test_rtc.py`, `test_tag.py`, `test_sysclear.py` cả bản thường lẫn `--reboot`: ALL PASS, không hồi quy). Ghi FB vào BẢN NHÁP; `0x0B00..` luôn đọc ra cấu hình đang chạy; COMMIT mới áp dụng và lưu Flash cùng Rule Table; cấu hình FB sống sót qua REBOOT. Hành vi 8a đổi: `test_fb.py` đã viết lại cho khớp. Chi tiết mục 2 (#19, #21..#24) và mục 3. **Còn chưa chạy:** `test_fb.py --probe-64` bản mới trên board, mất điện thật giữa lúc lưu (chỉ test thủ công được), build ARM chưa kiểm `.text+.data` so với `0x08036000`.
 - **Đã sửa lỗi FC16 > 64 byte** (khung 73 byte không được trả lời) trong
   `components/usb_cdc/sx_usb_cdc.c` (`sx_usb_tiny_read()`), verify trên board
@@ -269,6 +269,8 @@ V2.0 là **strict superset** của V1.9. Khi 2 tài liệu mâu thuẫn về HÀ
   DO về 0) thì đổi sang quét theo kind, sửa 1 chỗ trong
   `diag_baseline_reset_dirty_tags()`.
 
+- **#25 PVD ghi retain khẩn cấp (2026-10-09).** Nối PVD hoàn toàn bằng file của dự án, KHÔNG sửa file CubeMX (#11): `PVD_AVD_IRQHandler` nằm trong `stm32h5_pwd.c`; nếu sau này bật NVIC PVD trong CubeMX (sinh handler riêng) thì định nghĩa `SPLC_PVD_IRQ_HANDLER_FROM_CUBEMX` để tránh trùng ký hiệu. Đăng ký callback = bật NVIC. Mọi thao tác Flash của vòng chính ngoài `plc_retain.c` phải bọc `retain_flash_op_begin/end()`. Bản ghi PVD chỉ ghi khi dữ liệu retain đổi so với record mới nhất; chống dội `RETAIN_EMERGENCY_MIN_INTERVAL_MS` = 5000. `retain_snapshot_write()` giờ chỉ dùng ở vòng chính (không còn là điểm vào cho ISR).
+
 ## 3. Kế hoạch các bước tiếp theo
 
 ### Bước 7 — RTC (`0x0810`, 4 reg) — XONG, ĐÃ VERIFY TRÊN BOARD (trừ reboot/mất điện)
@@ -383,19 +385,36 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
   30/30 kiểm tra PASS (mọi kind tag CV, Q CTU/CTD, không có tag CV, từ chối
   DI/DO/ngoài dải, trùng tag trong nháp, board ít COUNTER, khứ hồi Flash image,
   bản ghi cũ trước đổi vẫn nạp được vì layout 112 byte không đổi).
-  **Còn lại cho 8c: PVD ghi khẩn cấp** (cơ chế đã ghi ở mục "Việc tồn đọng"):
-  PVD là cơ chế chính khi mất điện; chu kỳ 5 phút giữ làm lưới an toàn CHỈ ghi khi
-  dữ liệu có đổi; ghi snapshot ngay trước `REBOOT`; không rút ngắn chu kỳ, không
-  ghi theo thay đổi (hao Flash: vòng 117 record, ~10.000 chu kỳ erase mỗi sector;
-  5 phút ≈ 11 năm, 1 phút ≈ 2,2 năm, 10 giây ≈ 135 ngày). Yêu cầu cho nhánh PVD
-  (an toàn trong ISR): (1) không erase trong ISR: erase trước sector kế tiếp ngay
-  sau khi ghi record cuối của sector hiện tại; (2) cờ chống chồng thao tác Flash:
-  ISR nổ lúc vòng chính đang ghi/erase thì chỉ đặt cờ, vòng chính ghi lại khi
-  xong; (3) không log trong ISR (`sx_flash_write` có `log_error`); (4) việc đăng
-  ký callback là của Layer 4. **Chưa đo:** thời gian ghi/erase thật và thời gian
-  giữ điện từ lúc PVD nổ tới lúc điện sụt (cần oscilloscope). Chưa có dòng code
-  nào cho PVD. Cơ chế lưu Flash này người dùng từng đồng ý, nhưng nên xác nhận
-  lại trước khi code.
+  **8c PVD — ĐÃ CODE (2026-10-09), VERIFY TRÊN PC, CHƯA BUILD ARM, CHƯA TEST BOARD** (xem #25).
+  Phát hiện khi làm: chuỗi PVD trước đó KHÔNG được nối (comment cũ trong `stm32h5_pwd.c` ghi
+  "đã làm" là sai): `stm32h5_pwd.c` không có trong `SPLC_PLATFORM_STM32H5_SRC`,
+  `components/pwd` không có trong include path, không có `PVD_AVD_IRQHandler` (vector rơi vào
+  `Default_Handler`) và NVIC chưa bật (`HAL_MspInit` chỉ cấu hình PVD level 4 + IT falling +
+  EnablePVD). Đã làm: (1) `sx_flash_write_quiet()` (không log, trả bool) + dùng chung vòng
+  program với `sx_flash_write()` (hành vi cũ giữ nguyên); (2) `stm32h5_pwd.c`: định nghĩa
+  `PVD_AVD_IRQHandler`, đăng ký callback = bật NVIC (ưu tiên 0), NULL = tắt; nối vào CMake;
+  (3) `plc_retain`: `retain_emergency_snapshot()` (ISR: không erase, không log, hoãn nếu vòng
+  chính đang thao tác Flash, bỏ qua nếu dữ liệu không đổi, chống dội 5 s), cờ bảo vệ
+  `retain_flash_op_begin/end()` (cũng bọc `rule_flash_write_sector()`), erase trước sector kế
+  tiếp ngay khi ghi hết sector, khi khởi động bỏ qua slot ghi dở và erase sector kế tiếp nếu
+  chưa trắng, chu kỳ 5 phút CHỈ ghi khi dữ liệu đổi (trước đây ghi vô điều kiện, lệch thiết kế
+  đã ghi); (4) `plc_engine_init()` đăng ký callback sau `retain_store_restore()`, tắt được bằng
+  `-DPLC_PVD_EMERGENCY_SAVE_ENABLE=0`. **Sửa lỗi có sẵn:** `retain_snapshot_write()` cũ gọi
+  `sx_flash_erase()` TRƯỚC `sx_flash_unlock()` (khi xoay vòng sang sector đã dùng, tức từ lần ghi
+  thứ 118, khoảng 9,75 giờ ở chu kỳ 5 phút); nếu phần cứng bỏ qua erase khi Flash khoá thì các
+  lần ghi sau đều lỗi. Chạy lại code cũ trong harness (giả định erase bị bỏ qua khi khoá): sau 130
+  lần ghi, khởi động lại đọc ra 117 thay vì 130. Code mới erase trong cặp unlock/lock.
+  Verify trên PC (gcc host + ASan/UBSan, `plc_retain.c` thật, Flash giả có khoá/erase/lỗi
+  program/mất điện, nanoMODBUS thật cho CRC): 34 kiểm tra PASS: chỉ ghi khi đổi; ISR hoãn khi
+  bận rồi `retain_service()` ghi; ISR không gọi erase/log; chống dội; pre-erase + xoay vòng 200
+  lần ghi không lỗi; ISR gặp sector đầy thì hoãn; mất điện tại mọi điểm của lần ghi ISR (30 ca,
+  gồm ghi dở nửa quad-word): luôn đúng bản cũ hoặc đúng bản mới (26/4), lần ghi kế tiếp luôn được;
+  mất điện sau ghi đầy sector, trước pre-erase: khởi động lại erase sector kế tiếp.
+  **Chưa làm / chưa biết:** build ARM (kiểm `.text+.data` và stack ISR ~0,6 KB); thời gian
+  program 1 record và thời gian giữ điện sau PVD (cần phần cứng + oscilloscope); đối chiếu
+  `PWR_PVDLEVEL_4` với điện áp tối thiểu để program Flash trong datasheet; xác nhận phần cứng
+  thật có bỏ qua erase khi khoá hay không. Chưa ghi snapshot ngay trước REBOOT (có trong thiết
+  kế cũ, chưa nằm trong phạm vi lần này).
 - **8d — Timer chạy thật** (#20): cần App chốt cách nối `IN`/`RESET`/`Q`.
   Hai phương án đã nêu: (a) quy ước cố định VFLAG (Timer `i`: `IN`=VFLAG[i],
   `RESET`=VFLAG[8+i], `Q`=VFLAG[16+i]) và RuleCompiler sinh rule sao chép;
@@ -414,11 +433,7 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
 - Validate `guard_tag` / `trigger_tag` / `action_tag` nằm trong `0..MAX_TAGS-1`
   (hoặc `GUARD_TAG_NONE`) khi nạp rule — hiện index sai không crash nhưng rule
   bị vô hiệu hoá âm thầm.
-- PVD → ghi Retain khẩn cấp chưa nối
-  (`sx_power_register_low_voltage_callback(retain_snapshot_write)` chưa ai gọi).
-  Thiết kế (ISR-safe, erase trước, cờ chống chồng thao tác, không log): xem Bước 8c
-  ở trên. Không còn bước "đồng bộ Counter trước khi ghi" (Counter retain là tag
-  retain thường).
+- PVD → ghi Retain khẩn cấp: đã code (xem Bước 8c), còn chờ build ARM và test trên board có phần cứng giữ điện.
 - `modbus_usb_write()` bỏ qua `timeout_ms`, có thể vượt ngân sách scan 10 ms
   dưới tải nặng (đo được 83 ms với 100 rule).
 - `ACT_WRITE_REMOTE` / `ACT_LOG_EVENT` / `ACT_SEND_ALARM` chưa implement,
@@ -524,8 +539,15 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
   bug thật. Chỉ báo người dùng.
 - Khi đề xuất nguyên nhân, nói rõ mức chắc chắn; kiểm chứng bằng dữ liệu thật
   (log, test PC, đọc code) trước khi khẳng định.
-- Với mỗi bước mới: code → verify PC (nếu được) → người dùng build ARM → chạy
-  script test trên board → cập nhật file này.
+- Với mỗi bước mới: code → người dùng build ARM → chạy script test trên board
+  → cập nhật file này.
+- **Chỉ giao code của project + script test Python (`test_*.py`, chạy với board
+  qua Modbus).** KHÔNG giao harness C chạy trên PC (Flash giả, shim HAL...): người
+  dùng thấy khó kiểm soát vì project chưa hoàn thiện (chốt 2026-10-09). Việc tự
+  kiểm tra nội bộ của Claude (ví dụ gcc host) vẫn được làm nhưng không đưa vào
+  gói giao, và kết quả phải nói rõ là chạy trên mô hình giả. Nếu một tính năng
+  không test được trên board (ví dụ PVD khi chưa có phần cứng giữ điện), nói rõ
+  là chưa test được thay vì đưa harness thay thế.
 
 ## 6. Verify & test
 

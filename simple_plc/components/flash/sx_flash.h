@@ -6,6 +6,7 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /*
@@ -27,6 +28,24 @@ void sx_flash_read(uint32_t addr, uint8_t *buf, uint32_t len);
  * see the padding.
  */
 void sx_flash_write(uint32_t addr, const uint8_t *data, uint32_t len);
+
+/*
+ * Same programming operation as sx_flash_write(), but safe to call from
+ * interrupt context: it never logs (sx_flash_write() calls log_error() on
+ * a failed program, which is not ISR-safe), never erases, and reports the
+ * outcome through its return value instead. Returns true only if every
+ * quad-word was accepted by the Flash controller; programming stops at the
+ * first failure. A true return does NOT mean the data reads back
+ * correctly -- the caller still verifies (CRC) as sx_flash_write()'s
+ * callers do.
+ *
+ * Same preconditions as sx_flash_write(): the caller has unlocked the
+ * Flash, the target range is already erased, and no other Flash operation
+ * is in progress (the HAL serialises with a process lock and returns BUSY
+ * instead of waiting, so an overlapping call fails rather than corrupts --
+ * see services/plc_retain/plc_retain.c's flash-operation guard).
+ */
+bool sx_flash_write_quiet(uint32_t addr, const uint8_t *data, uint32_t len);
 
 /*
  * Erases whole sectors covering [addr, addr+len). addr should be

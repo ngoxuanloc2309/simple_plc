@@ -65,6 +65,36 @@ static bool     s_write_pos_known = false; /* true once retain_store_restore() h
 static uint32_t s_last_snapshot_tick_ms = 0;
 
 /*
+ * Flash-operation guard, shared by every main-loop Flash operation (this
+ * file's own writes/erases and plc_rule_flash.c's save, which brackets its
+ * erase+write with retain_flash_op_begin()/end()). The PVD interrupt can
+ * fire at any instruction; if it fired while the main loop was inside
+ * HAL_FLASH_Program()/HAL_FLASHEx_Erase(), the HAL's process lock would
+ * make the interrupt's own call fail with BUSY -- and the interrupt must
+ * not touch s_write_sector/s_write_slot while the main loop is part-way
+ * through updating them. While the depth is non-zero the interrupt does
+ * nothing except raise s_emergency_pending; retain_service() then does the
+ * write from the main loop once the Flash is free.
+ *
+ * A plain volatile counter is enough on this single-core MCU: the
+ * interrupt never changes the depth by a net amount (it only runs when the
+ * depth is 0 and leaves it 0), so the main loop's non-atomic increment
+ * cannot be corrupted by it.
+ */
+static volatile uint32_t s_flash_op_depth       = 0U;
+static volatile bool     s_emergency_pending    = false;
+static volatile bool     s_emergency_seen       = false; /* an emergency write has been attempted since boot */
+static volatile uint32_t s_last_emergency_tick_ms = 0U;
+
+/*
+ * Values of the 32 retain tags as stored in the newest valid Flash record
+ * (or as loaded at boot). Lets the periodic and emergency paths skip a
+ * write -- and the Flash wear -- when nothing changed since the last save.
+ */
+static int32_t s_saved_values[SPLC_RETAIN_TAG_COUNT];
+static bool    s_saved_valid = false;
+
+/*
  * TAG_VREG_R0..31 used to be fixed #define's (core/plc_tag/plc_tag_def.h,
  * now removed) that this array could initialize at compile time. Since a
  * board's VREG_RETAIN group now starts at a board-dependent offset (see
@@ -200,6 +230,112 @@ static bool retain_record_is_valid(uint32_t sector_idx, uint32_t slot_idx, uint3
     return true;
 }
 
+
+void retain_flash_op_begin(void)
+{
+    s_flash_op_depth++;
+}
+
+void retain_flash_op_end(void)
+{
+    if (s_flash_op_depth != 0U) {
+        s_flash_op_depth--;
+    }
+}
+
+/* True if the whole record slot still reads as erased (all 0xFF), i.e. it
+ * can be programmed. A slot that holds a partly programmed record (power
+ * lost mid-write) is NOT blank and cannot be reused until its sector is
+ * erased. Reads through sx_flash_read() like every other read here (plain
+ * loads, no unlock: safe from the PVD interrupt); 16 bytes at a time to
+ * keep the interrupt's stack use small. */
+static bool retain_slot_is_blank(uint32_t sector_idx, uint32_t slot_idx)
+{
+    uint32_t addr = retain_record_addr(sector_idx, slot_idx);
+    uint8_t  chunk[16];
+
+    for (uint32_t off = 0; off < SPLC_RETAIN_RECORD_SIZE; off += sizeof(chunk)) {
+        sx_flash_read(addr + off, chunk, sizeof(chunk));
+        for (uint32_t i = 0; i < sizeof(chunk); i++) {
+            if (chunk[i] != 0xFFU) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool retain_sector_is_blank(uint32_t sector_idx)
+{
+    for (uint32_t slot = 0; slot < SPLC_RETAIN_RECORDS_PER_SECTOR; slot++) {
+        if (!retain_slot_is_blank(sector_idx, slot)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* Erases one retain sector. Flash must be unlocked for an erase exactly as
+ * for a program (plc_rule_flash.c does unlock -> erase -> write -> lock). */
+static void retain_erase_sector(uint32_t sector_idx)
+{
+    sx_flash_unlock();
+    sx_flash_erase(retain_sector_addr(sector_idx), SPLC_FLASH_SECTOR_SIZE);
+    sx_flash_lock();
+}
+
+/* Moves the write position to slot 0 of the next sector in the ring and
+ * erases it. Main loop only (erase is slow and not allowed in the PVD
+ * interrupt). The next sector in rotation always holds the OLDEST
+ * records, so it is always safe to erase. */
+static void retain_rotate_and_erase(void)
+{
+    s_write_sector = (s_write_sector + 1U) % SPLC_FLASH_RETAIN_SECTOR_COUNT;
+    s_write_slot   = 0U;
+    retain_erase_sector(s_write_sector);
+}
+
+static bool retain_values_changed(void)
+{
+    if (!s_saved_valid) {
+        return true;
+    }
+    retain_tag_indices_init();
+    for (uint16_t i = 0; i < SPLC_RETAIN_TAG_COUNT; i++) {
+        if (tag_read(s_retain_tag_indices[i]) != s_saved_values[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/*
+ * Makes the write position safe to program, at boot (main loop, so an
+ * erase is allowed). Two things can leave it unusable:
+ *   1. The slot right after the newest record holds a partly programmed
+ *      record (power lost during a write, which the emergency path makes
+ *      more likely): skip forward over non-blank slots.
+ *   2. The newest record filled its sector and power was lost before the
+ *      next sector was pre-erased (see retain_write_record()): the next
+ *      sector still holds old records and must be erased now, so that the
+ *      first write after boot -- possibly the PVD one -- needs no erase.
+ */
+static void retain_prepare_write_position(void)
+{
+    while (s_write_slot < SPLC_RETAIN_RECORDS_PER_SECTOR &&
+           !retain_slot_is_blank(s_write_sector, s_write_slot)) {
+        s_write_slot++;
+    }
+
+    if (s_write_slot >= SPLC_RETAIN_RECORDS_PER_SECTOR) {
+        s_write_sector = (s_write_sector + 1U) % SPLC_FLASH_RETAIN_SECTOR_COUNT;
+        s_write_slot   = 0U;
+        if (!retain_sector_is_blank(s_write_sector)) {
+            retain_erase_sector(s_write_sector);
+        }
+    }
+}
+
 void retain_store_restore(void)
 {
     /* Must run after tag_table_load_from_flash() (plc_engine_init()'s call
@@ -270,11 +406,8 @@ void retain_store_restore(void)
         s_next_seq_num = best_seq + 1U;
         s_write_sector = best_sector;
         s_write_slot   = best_slot + 1U;
-        if (s_write_slot >= SPLC_RETAIN_RECORDS_PER_SECTOR) {
-            s_write_sector = (best_sector + 1U) % SPLC_FLASH_RETAIN_SECTOR_COUNT;
-            s_write_slot   = 0U;
-        }
         s_write_pos_known = true;
+        retain_prepare_write_position();
     } else {
         /* First boot ever, or the whole region is blank/corrupted: start
          * fresh at the very first sector/slot. Every TAG_VREG_RETAIN tag
@@ -285,45 +418,75 @@ void retain_store_restore(void)
         s_write_sector = 0U;
         s_write_slot   = 0U;
         s_write_pos_known = true;
+        retain_prepare_write_position();
     }
+
+    /* Whatever the tags hold now is what Flash holds (restored values, or
+     * the all-zero power-on state when there was no record): nothing to
+     * save until a tag changes. */
+    for (uint16_t i = 0; i < SPLC_RETAIN_TAG_COUNT; i++) {
+        s_saved_values[i] = tag_read(s_retain_tag_indices[i]);
+    }
+    s_saved_valid = true;
 
     s_last_snapshot_tick_ms = sx_get_tick_ms();
 }
 
-bool retain_snapshot_write(void)
+/*
+ * Writes one record with the current retain tag values. Shared by the
+ * main-loop paths (in_isr == false) and the PVD interrupt (in_isr == true);
+ * the caller has already made sure no other Flash operation is running
+ * (retain_flash_op_begin(), or depth 0 for the interrupt).
+ *
+ * Interrupt path differences: never erases (a full sector returns false
+ * and the caller defers to the main loop), programs with
+ * sx_flash_write_quiet() (no logging), and does not pre-erase afterwards.
+ *
+ * Returns true only if the record was read back with a valid CRC and the
+ * expected seq_num.
+ */
+static bool retain_write_record(bool in_isr)
 {
     if (!s_write_pos_known) {
-        /* Defensive: retain_store_restore() must run first (Layer 4's
-         * plc_engine_init() ordering guarantees this in practice -- see
-         * plc_retain.h). Refusing to write with an unknown position
-         * avoids silently clobbering a slot whose validity hasn't been
-         * established yet. */
+        /* Defensive: retain_store_restore() must run first (plc_engine_init()
+         * guarantees this). Refusing to write with an unknown position
+         * avoids clobbering a slot whose validity hasn't been established. */
         return false;
     }
 
-    if (s_write_slot >= SPLC_RETAIN_RECORDS_PER_SECTOR) {
-        /* Current sector is full: rotate to the next sector in the ring
-         * and erase it before writing -- per
-         * docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md section 7.2, the
-         * next sector in rotation is always the oldest, so it is always
-         * safe to erase. */
-        s_write_sector = (s_write_sector + 1U) % SPLC_FLASH_RETAIN_SECTOR_COUNT;
-        s_write_slot   = 0U;
-        sx_flash_erase(retain_sector_addr(s_write_sector), SPLC_FLASH_SECTOR_SIZE);
+    retain_tag_indices_init();
+
+    /* Find a programmable slot. A slot that is not blank (earlier failed or
+     * interrupted write) is consumed. The main loop may rotate into the
+     * next sector, but at most once around the ring so a sector that
+     * refuses to erase cannot spin here forever. */
+    uint32_t rotations = 0U;
+    for (;;) {
+        if (s_write_slot >= SPLC_RETAIN_RECORDS_PER_SECTOR) {
+            if (in_isr || rotations >= SPLC_FLASH_RETAIN_SECTOR_COUNT) {
+                return false;
+            }
+            retain_rotate_and_erase();
+            rotations++;
+        }
+        if (retain_slot_is_blank(s_write_sector, s_write_slot)) {
+            break;
+        }
+        s_write_slot++;
     }
 
+    int32_t snap[SPLC_RETAIN_TAG_COUNT];
     uint8_t raw[SPLC_RETAIN_RECORD_SIZE];
     memset(raw, 0, sizeof(raw));
 
     write_u32_be(&raw[RETAIN_RECORD_SEQ_OFFSET], s_next_seq_num);
     write_u16_be(&raw[RETAIN_RECORD_COUNT_OFFSET], (uint16_t)SPLC_RETAIN_TAG_COUNT);
 
-    retain_tag_indices_init();
-
     for (uint16_t i = 0; i < SPLC_RETAIN_TAG_COUNT; i++) {
         uint8_t *entry = &raw[RETAIN_RECORD_ENTRIES_OFFSET + i * 6U];
+        snap[i] = tag_read(s_retain_tag_indices[i]);
         write_u16_be(&entry[0], s_retain_tag_indices[i]);
-        write_i32_be(&entry[2], tag_read(s_retain_tag_indices[i]));
+        write_i32_be(&entry[2], snap[i]);
     }
 
     uint16_t crc = retain_record_crc(raw);
@@ -332,31 +495,115 @@ bool retain_snapshot_write(void)
     uint32_t addr = retain_record_addr(s_write_sector, s_write_slot);
 
     sx_flash_unlock();
-    sx_flash_write(addr, raw, SPLC_RETAIN_RECORD_SIZE);
+    if (in_isr) {
+        (void)sx_flash_write_quiet(addr, raw, SPLC_RETAIN_RECORD_SIZE);
+    } else {
+        sx_flash_write(addr, raw, SPLC_RETAIN_RECORD_SIZE);
+    }
     sx_flash_lock();
 
     const uint32_t written_seq  = s_next_seq_num;
     const uint32_t written_sect = s_write_sector;
     const uint32_t written_slot = s_write_slot;
 
+    /* The slot is consumed even if the write failed: a partly programmed
+     * slot cannot be reused. */
     s_next_seq_num++;
     s_write_slot++;
 
     /* Read back and verify (Wire Contract section 7, step 3). */
     uint32_t seq_back = 0U;
-    return retain_record_is_valid(written_sect, written_slot, &seq_back) &&
-           (seq_back == written_seq);
+    bool verified = retain_record_is_valid(written_sect, written_slot, &seq_back) &&
+                    (seq_back == written_seq);
+
+    if (verified) {
+        memcpy(s_saved_values, snap, sizeof(s_saved_values));
+        s_saved_valid = true;
+    }
+
+    /* Pre-erase: that record filled its sector, so erase the next one NOW
+     * (main loop, no deadline) instead of lazily at the next write. The
+     * next write may be the PVD one, which must not erase. The record just
+     * written is in the sector being left, so erasing the oldest sector
+     * never touches the newest valid record. */
+    if (!in_isr && s_write_slot >= SPLC_RETAIN_RECORDS_PER_SECTOR) {
+        retain_rotate_and_erase();
+    }
+
+    return verified;
+}
+
+bool retain_snapshot_write(void)
+{
+    retain_flash_op_begin();
+    bool ok = retain_write_record(false);
+    retain_flash_op_end();
+    return ok;
+}
+
+void retain_emergency_snapshot(void)
+{
+    /* Interrupt context. No logging, no erase, no blocking beyond the
+     * quad-word programming of one record. */
+    if (!s_write_pos_known) {
+        return;
+    }
+
+    uint32_t now = sx_get_tick_ms();
+
+    /* The detector can chatter around its threshold; one emergency write
+     * per interval is enough and bounds the Flash wear. */
+    if (s_emergency_seen &&
+        (now - s_last_emergency_tick_ms) < RETAIN_EMERGENCY_MIN_INTERVAL_MS) {
+        return;
+    }
+
+    if (s_flash_op_depth != 0U) {
+        /* The main loop is inside a Flash operation: do not touch Flash or
+         * the write position. retain_service() writes once it is free. */
+        s_emergency_pending = true;
+        return;
+    }
+
+    if (!retain_values_changed()) {
+        return;
+    }
+
+    s_flash_op_depth++;
+    bool ok = retain_write_record(true);
+    s_flash_op_depth--;
+
+    s_emergency_seen         = true;
+    s_last_emergency_tick_ms = now;
+
+    if (!ok) {
+        /* Sector full (needs an erase) or the write did not verify: let
+         * the main loop retry, where an erase is allowed. */
+        s_emergency_pending = true;
+    }
 }
 
 void retain_service(void)
 {
     uint32_t now = sx_get_tick_ms();
 
+    if (s_emergency_pending && s_flash_op_depth == 0U) {
+        s_emergency_pending = false;
+        if (retain_values_changed()) {
+            (void)retain_snapshot_write();
+            s_last_snapshot_tick_ms = now;
+        }
+    }
+
     /* Unsigned subtraction handles tick wraparound correctly as long as
      * the actual elapsed time never exceeds UINT32_MAX ms (~49.7 days) --
-     * true for any period this project uses. */
+     * true for any period this project uses. Safety net only: the PVD
+     * interrupt is the primary power-loss path, so a period with no change
+     * costs no Flash write. */
     if ((now - s_last_snapshot_tick_ms) >= RETAIN_SNAPSHOT_PERIOD_MS) {
-        retain_snapshot_write();
+        if (retain_values_changed()) {
+            (void)retain_snapshot_write();
+        }
         s_last_snapshot_tick_ms = now;
     }
 }

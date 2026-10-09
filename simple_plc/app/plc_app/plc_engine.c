@@ -11,6 +11,7 @@
 #include "plc_system_cmd_service.h"
 #include "board.h"
 #include "sx_time.h"
+#include "sx_pwd.h"
 
 /*
  * plc_engine.c - Layer 4 (Engine & Application entry)
@@ -52,6 +53,17 @@ void plc_engine_init(void)
     rule_table_load_from_flash();
     plc_rule_flash_load();
     retain_store_restore();
+
+#if PLC_PVD_EMERGENCY_SAVE_ENABLE
+    /*
+     * Low-voltage (PVD) early warning -> emergency retain write. Registered
+     * here, after retain_store_restore() has established the Flash write
+     * position the interrupt will use, and as the last step that can fail
+     * quietly: registering also arms the PVD interrupt in the NVIC, so
+     * nothing runs from it before this point.
+     */
+    sx_power_register_low_voltage_callback(retain_emergency_snapshot);
+#endif
 
     board_init();
 
