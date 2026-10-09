@@ -50,9 +50,10 @@ extern "C" {
  * still fired even with DI0 held at 0.
  *
  * 0x7FFF is safe as the new sentinel because GUARD_TAG_INDEX_MASK is only
- * 15 bits wide, so it can never equal a real tag index: MAX_TAGS is 128
- * (indices 0..127), far below 32767. Every valid tag index (0..127) is
- * therefore always distinguishable from "no guard".
+ * 15 bits wide, so it can never equal a real tag index: MAX_TAGS is at most 128
+ * (see board/board_tag_define.h; 112 on the Zigbee-IO SKU), far below 32767.
+ * Every valid tag index (0..MAX_TAGS-1) is therefore always distinguishable
+ * from "no guard".
  *
  * rule_table_commit() does not currently reject a guard_tag whose index
  * bits fall in 128..32766 (a value that is neither a valid tag nor this

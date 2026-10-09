@@ -47,7 +47,12 @@ target_include_directories(splc_core PRIVATE
 # #include'd by Layer 3/4 code (services/, app/) that links against
 # splc_core. PRIVATE would hide them from splc_core's exported include
 # interface and break every Layer 3/4 caller.
+# ../board is here ONLY so plc_tag.h can #include "board_tag_define.h" (MAX_TAGS
+# is defined per board there). Header include path only: splc_core still does
+# not link against splc_board. A PC unit-test build must put a directory with
+# board_tag_define.h / board_config.h on the include path as well.
 target_include_directories(splc_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/../board
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_tag
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_device

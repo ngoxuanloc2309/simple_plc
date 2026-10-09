@@ -23,10 +23,12 @@
  *                                     what's currently running, in case
  *                                     step 2/3 below fails partway.
  *   2. Erase A, write the new rule table (already committed in RAM) to A.
- *   3. Read A back, check CRC:
+ *   3. Read A back, check CRC and that A carries the NEW seq_num:
  *        - OK    -> re-sync B = A (erase B, copy A -> B), so B is ready
  *                    as the backup for the next save.
- *        - BAD   -> (power loss mid-write, etc.) report SPLC_ERROR_FLASH,
+ *        - BAD   -> (power loss mid-write, or the write was ignored so A
+ *                    still holds the old, CRC-valid record: its seq_num is
+ *                    not the new one) report SPLC_ERROR_FLASH,
  *                    copy B -> A to restore A to a runnable state (B was
  *                    never touched on this branch, so it is always intact).
  *

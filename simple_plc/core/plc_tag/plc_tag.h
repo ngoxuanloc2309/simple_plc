@@ -19,12 +19,18 @@
 extern "C" {
 #endif
 
-/* Maximum number of tags supported system-wide.
- * Per docs/SimplePLC_App_MCU_Structs_v1.9_Self_Describing_Profile.md
- * section 5.1: DI 0-7, DO 8-15, AI 16-19, VFLAG 20-51, VREG 52-83,
- * VREG_RETAIN 84-115, COUNTER 116-123, RESERVED 124-127 (128 total wire
- * capacity; a product may use fewer -- see SPLC_DeviceResourceInfo). */
-#define MAX_TAGS 128
+/* Maximum number of tags supported system-wide = size of g_tag_table[] and
+ * g_tag_value[]. MAX_TAGS is defined per board in board/board_tag_define.h
+ * (112 for BOARD_ZIGBEE_IO_4DI_4DO, 128 for BOARD_REMOTE_IO_8DI_8DO); this
+ * header only pulls it in. The wire capacity is still 128 tags
+ * (docs/SimplePLC_App_MCU_Structs_v2.0_Self_Describing_Profile.md: Runtime
+ * tag window 0x0900..0x09FF); a board uses fewer -- see
+ * SPLC_DeviceResourceInfo.runtime_tag_count.
+ *
+ * NOTE: this makes Layer 2 depend on a Layer 4 header at compile time (include
+ * path only, no link dependency). core/CMakeLists.txt adds ../board to
+ * splc_core's include path for this. */
+#include "board_tag_define.h"
 
 /* TagKind identifies what a tag represents. It does not carry any live
  * value; live values live in g_tag_value[] instead.

@@ -4,29 +4,34 @@
 /*
  * board_tag_define.h - Layer 4 (board/)
  *
- * NOTE (current status): as of the SPLC_TagLayout / tag_table_load_from_
- * flash(&layout) change (core/plc_tag/plc_tag.h), NO board .c file
- * includes this header anymore. board_zigbee_io.c now gets DI/DO/AI/...
- * base indices at runtime via tag_di_base_index()/tag_do_base_index()/etc.
- * (plc_tag.h) instead of a compile-time TAG_DI0/TAG_DO0 macro from here --
- * that avoids having two hand-maintained sources of the same offset (this
- * file's macros, and board_<sku>.c's SPLC_TagLayout) that could silently
- * drift apart if only one were updated after a layout change.
+ * MAX_TAGS (size of g_tag_table[] / g_tag_value[]) is defined here, once per
+ * board, and is consumed by core/plc_tag/plc_tag.h (which includes this
+ * header). Every board section below MUST define it, and it must be >= the
+ * sum of that board's SPLC_TagLayout counts (board_<sku>.c, s_tag_layout);
+ * tag_table_load_from_flash() silently ignores any slot past MAX_TAGS.
+ * The Modbus window 0x0900..0x09FF stays 256 registers (128 tags) on the
+ * wire regardless of MAX_TAGS: tags >= MAX_TAGS read as 0 and are rejected
+ * (0x02) on write.
  *
- * Kept in the repo (not deleted) as a reference table of each board's
- * full tag map (useful when writing rules/tests by hand, or documenting a
- * board's wire layout) and as a starting point for a future board that
- * prefers compile-time constants for its own reasons -- but no code path
- * currently depends on it compiling correctly. If it drifts from a
- * board's real SPLC_TagLayout, nothing will catch that automatically;
- * do not treat it as authoritative without cross-checking the relevant
- * board_<sku>.c's s_tag_layout.
+ * NOTE: the TAG_DI0/TAG_DO0/... index macros below are still NOT used by any
+ * board .c file. board_zigbee_io.c gets DI/DO/AI/... base indices at runtime
+ * via tag_di_base_index()/tag_do_base_index()/etc. (plc_tag.h), so that
+ * there is one source of truth (s_tag_layout) for where each group starts.
+ * The index macros are kept as a reference table of each board's tag map;
+ * if they drift from a board's real SPLC_TagLayout nothing will catch that
+ * automatically, so cross-check board_<sku>.c's s_tag_layout before
+ * trusting them. MAX_TAGS, in contrast, IS authoritative.
  */
 
 #include "board_config.h"
 
 /*===========BOARD_ZIGBEE_IO===========*/
 #if BOARD_ZIGBEE_IO_4DI_4DO
+/* Tags 0..111 exist on this SKU: 4 DI + 4 DO + 0 AI + 32 VFLAG + 32 VREG +
+ * 32 VREG_RETAIN + 8 COUNTER = 112 (must match s_tag_layout in
+ * board_zigbee_io.c; there is no spare headroom). */
+#define MAX_TAGS 112
+
 /* 0-3: DI0-DI3 (digital inputs), kind = TAG_DI */
 #define TAG_DI0  0
 #define TAG_DI1  1
@@ -169,11 +174,9 @@
 #define TAG_COUNTER7  111
 
 /*
- * 112-115 (4 slots): reserved for a future Gateway SKU's remote Modbus
- * tags (TAG_MB_COIL / TAG_MB_HOLDING). Unused by this SKU -- no #define
- * here on purpose. g_tag_table[112..115] stays TAG_NONE (all-zero) after
- * tag_table_load_from_flash() on a Remote I/O board; do not read/write
- * these indices from Remote I/O code.
+ * No tags exist at index >= 112 on this SKU (MAX_TAGS == 112). A future
+ * Gateway SKU's remote Modbus tags (TAG_MB_COIL / TAG_MB_HOLDING) would
+ * need a larger MAX_TAGS in its own board section.
  */
 
 #endif
@@ -181,6 +184,9 @@
 
 /*===========BOARD_REMOTE_IO===========*/
 #if BOARD_REMOTE_IO_8DI_8DO
+/* Full wire capacity (tags 0..127): 124 in use, 124..127 reserved. */
+#define MAX_TAGS 128
+
 /* 0-7: DI0-DI7 (digital inputs), kind = TAG_DI */
 #define TAG_DI0  0
 #define TAG_DI1  1
@@ -345,5 +351,9 @@
 #endif
 /*===========BOARD_REMOTE_IO===========*/
 
+
+#ifndef MAX_TAGS
+#error "board_tag_define.h: no MAX_TAGS for the selected board (see board_config.h)"
+#endif
 
 #endif

@@ -34,7 +34,7 @@
   `test_rtc.py --reboot` và test mất điện thật bằng tay. Chi tiết ở mục 3.
 - **Bước 8a (khối FB `0x0B00..0x0B7F`: nhận ghi cấu hình, đọc, Counter
   `CV`/`Q`): xong và verify trên board (CV/Q đã ĐỔI cách tính ở phiên 2026-10-08, xem #15; bản mới đã build ARM và verify trên board: `test_fb.py COM14`, `--reboot`, `--probe-64` đều ALL PASS)** (`test_fb.py COM14`: ALL PASS, kể cả
-  `--probe-64`). **8c PVD ghi retain khẩn cấp: ĐÃ CODE VÀ VERIFY TRÊN PC (2026-10-09), CHƯA build ARM, CHƯA test trên board** (board hiện chưa thiết kế phần cứng PVD/giữ điện; xem #25 và mục 3). **Còn lại của Bước 8:** Timer chạy thật (8d, chờ App). Chi tiết ở mục 3.
+  `--probe-64`). **8c PVD ghi retain khẩn cấp: ĐÃ CODE; phần retain/Flash đã verify trên board (2026-10-09, `test_retain.py COM14` và `--periodic --commits 0`: ALL PASS), PHẦN PVD THẬT CHƯA TEST** (board chưa thiết kế phần cứng PVD/giữ điện; xem #25 và mục 3). **Còn lại của Bước 8:** Timer chạy thật (8d, chờ App). Chi tiết ở mục 3.
 - **Bước 8b (lưu cấu hình FB vào Flash; bản nháp FB + COMMIT): xong và verify trên board** (`test_fb.py COM14 --reboot`: ALL PASS; `test_rtc.py`, `test_tag.py`, `test_sysclear.py` cả bản thường lẫn `--reboot`: ALL PASS, không hồi quy). Ghi FB vào BẢN NHÁP; `0x0B00..` luôn đọc ra cấu hình đang chạy; COMMIT mới áp dụng và lưu Flash cùng Rule Table; cấu hình FB sống sót qua REBOOT. Hành vi 8a đổi: `test_fb.py` đã viết lại cho khớp. Chi tiết mục 2 (#19, #21..#24) và mục 3. **Còn chưa chạy:** `test_fb.py --probe-64` bản mới trên board, mất điện thật giữa lúc lưu (chỉ test thủ công được), build ARM chưa kiểm `.text+.data` so với `0x08036000`.
 - **Đã sửa lỗi FC16 > 64 byte** (khung 73 byte không được trả lời) trong
   `components/usb_cdc/sx_usb_cdc.c` (`sx_usb_tiny_read()`), verify trên board
@@ -385,7 +385,17 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
   30/30 kiểm tra PASS (mọi kind tag CV, Q CTU/CTD, không có tag CV, từ chối
   DI/DO/ngoài dải, trùng tag trong nháp, board ít COUNTER, khứ hồi Flash image,
   bản ghi cũ trước đổi vẫn nạp được vì layout 112 byte không đổi).
-  **8c PVD — ĐÃ CODE (2026-10-09), VERIFY TRÊN PC, CHƯA BUILD ARM, CHƯA TEST BOARD** (xem #25).
+  **8c PVD — ĐÃ CODE (2026-10-09). Trên board: `test_retain.py COM14` ALL PASS (32 tag
+  retain sống sót REBOOT; 130 COMMIT_RETAIN liên tiếp qua ranh giới sector và xoay vòng, REBOOT
+  giữa chừng và cuối đều đọc đúng giá trị mới nhất; CLEAR_RETAIN sau xoay vòng; lưu rule xen kẽ
+  commit retain, cả hai thứ tự). Test này KHÔNG phân biệt firmware cũ/mới nếu chip không bỏ qua
+  erase khi Flash khoá, nên chưa chứng minh được lỗi erase-trước-unlock cũ có thật trên chip.
+  CHƯA test: `test_retain.py --periodic` (chu kỳ 5 phút, ~6 phút), đường PVD thật (chưa có
+  phần cứng), kiểm `.text+.data` ARM, mất điện thật giữa lúc ghi.** (xem #25).
+  **`--periodic` đã chạy trên board: ALL PASS.** Rule đếm RETAIN0 ~100,5 lượt/giây, không commit;
+  sau 330 s REBOOT khôi phục 29798 (live trước REBOOT là 33329), tức bản ghi tự động nằm ở khoảng
+  300 s sau khởi động, đúng `RETAIN_SNAPSHOT_PERIOD_MS`. Vậy nhánh "chu kỳ 5 phút ghi khi dữ
+  liệu đổi" đã được kiểm; nhánh "không đổi thì không ghi" vẫn không quan sát được qua Modbus.
   Phát hiện khi làm: chuỗi PVD trước đó KHÔNG được nối (comment cũ trong `stm32h5_pwd.c` ghi
   "đã làm" là sai): `stm32h5_pwd.c` không có trong `SPLC_PLATFORM_STM32H5_SRC`,
   `components/pwd` không có trong include path, không có `PVD_AVD_IRQHandler` (vector rơi vào
@@ -426,7 +436,7 @@ một thanh ghi cấu hình; deploy kiểu App 8+8 khối chia 3,3,2; khung 4 kh
 
 - **App + spec cho CV tag (không gấp):** xem #17 (RuleCompiler.cs dòng ~260, giá trị dự
   phòng 84 ở Studio, Structs 3.7 / Wire Contract 9.3).
-- **Test số đếm VREG_RETAIN sống sót REBOOT thật** (đếm trên VREG_RETAIN, `COMMIT_RETAIN`
+- **(Đã làm bằng `test_retain.py`: giá trị VREG_RETAIN commit qua DIAG sống sót REBOOT, và số đếm do rule `INC_COUNTER` được chu kỳ 5 phút ghi và khôi phục qua REBOOT.)** **Test số đếm VREG_RETAIN sống sót REBOOT thật** (đếm trên VREG_RETAIN, `COMMIT_RETAIN`
   trong DIAG, REBOOT, đọc lại CV): `test_fb.py --reboot` hiện chỉ kiểm cấu hình FB qua
   reboot, chưa kiểm giá trị đếm. `--probe-64` bản hiện tại chỉ kiểm "có trả lời", không
   đọc lại nội dung 4 khối.
@@ -561,6 +571,7 @@ interpreter — dùng `python -m pip`, máy dev có nhiều Python do ESP-IDF):
 | `test_tag.py COM14 [--pins --commit --reboot]` | ghi tag trong diag, all-or-nothing, retain draft/COMMIT/DISCARD, baseline reset trước REBOOT |
 | `test_rtc.py COM14 [--reboot]` | Bước 7: khối `0x0810`, `status_flags` RO, từ chối ghi sai (`0x02`/`0x03`), tốc độ đồng hồ, Time Window (mốc phút, khung, qua nửa đêm), giờ sống sót qua REBOOT. **Ghi Flash, xoá rule, đặt giờ board.** Đã chạy trên board: ALL PASS (chưa chạy `--reboot`). |
 | `test_fb.py COM14 [--reboot] [--probe-64]` | Bước 8a + 8b: khối FB `0x0B00..0x0B7F`. Ghi FB vào nháp rồi COMMIT mới đọc thấy; nháp vô hình trước COMMIT; khối không ghi thành unused; từ chối (`0x03`/`0x02`), all-or-nothing, trùng retain chỉ trong nháp; FC06 giữ field còn lại; deploy 3,3,2; COMMIT lỗi xoá nháp; `CLEAR_RULES`/`FACTORY_RESET` xoá FB; `CV`/`Q` theo tag CV do App chọn (VREG/VFLAG/COUNTER qua DIAG), rule `INC_COUNTER` trên tag VREG_RETAIN + `CLEAR_RETAIN`. `--reboot`: FB sống sót qua REBOOT cùng rule, mất sau CLEAR_RULES + REBOOT. `--probe-64`: FC16 4 khối (73 byte). **Ghi Flash (rule + FB), ép tag COUNTER, cuối cùng `CLEAR_RULES`.** Đã chạy trên board (`--reboot`): ALL PASS; `--probe-64` bản mới chưa chạy trên board. |
+| `test_retain.py COM14 [--commits N] [--periodic]` | VREG_RETAIN qua REBOOT: 32 tag dương/âm, N `COMMIT_RETAIN` liên tiếp (mặc định 130 > vòng 117 record: qua ranh giới sector + xoay vòng/erase), REBOOT giữa chừng, `CLEAR_RETAIN` sau xoay vòng, lưu rule xen kẽ commit retain. `--periodic` (~6 phút): rule đếm tăng RETAIN0 không commit, sau 5 phút REBOOT phải khôi phục giá trị khác 0. KHÔNG kiểm được PVD (chưa có phần cứng) và "chu kỳ không đổi thì không ghi" (không có thanh ghi cho thấy). **Ghi Flash, xoá rule + retain, REBOOT nhiều lần.** Đã chạy trên board: ALL PASS (cả bản mặc định và `--periodic --commits 0`). |
 | `test_sysclear.py COM14 [--reboot]` | Bước 6: 3 lệnh xoá, persistence qua reboot, lệnh trong diag, lệnh sai. **Ghi Flash và xoá sạch rule + retain trên board.** |
 
 Trước `test_diag.py manual`: reset board, xác nhận `DO0=0`.

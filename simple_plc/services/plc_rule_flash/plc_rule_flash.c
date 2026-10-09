@@ -435,18 +435,31 @@ bool plc_rule_flash_save(void)
     uint32_t record_size = rule_flash_build_record(new_seq_num);
     rule_flash_write_sector(SPLC_FLASH_RULE_TABLE_A_ADDR, record_size);
 
-    /* Step 3: Read A back, check CRC. */
-    if (rule_flash_read_and_validate(SPLC_FLASH_RULE_TABLE_A_ADDR, NULL, NULL, NULL)) {
-        /* CRC OK: re-sync B = A, so B is ready as the backup for the
-         * next save. */
+    /* Step 3: Read A back, check CRC AND seq_num.
+     *
+     * The seq_num check is what proves THIS save reached Flash. A CRC-valid
+     * record alone is not enough: if the erase and the program of step 2 were
+     * both ignored (Flash locked / write-protected / hardware refused), A
+     * still holds the OLD record, whose CRC is perfectly valid -- the CRC
+     * check would then report a save that never happened. The old record
+     * carries old_seq_num, never new_seq_num (= old + 1), so comparing the
+     * two tells "new record is in A" from "old record survived". */
+    uint32_t written_seq_num = 0U;
+    if (rule_flash_read_and_validate(SPLC_FLASH_RULE_TABLE_A_ADDR, &written_seq_num, NULL, NULL) &&
+        written_seq_num == new_seq_num) {
+        /* New record verified: re-sync B = A, so B is ready as the backup
+         * for the next save. */
         rule_flash_copy_sector(SPLC_FLASH_RULE_TABLE_A_ADDR, SPLC_FLASH_RULE_TABLE_B_ADDR);
         log_info(TAG, "rule table saved to Flash A+B (seq_num=%lu)", (unsigned long)new_seq_num);
         return true;
     }
 
-    /* CRC BAD (e.g. power loss mid-write): restore A from B, which step 1
-     * guaranteed still holds the previous known-good table untouched. */
-    log_warn(TAG, "Flash A write verify failed, restoring A from B");
+    /* Verify failed: CRC bad (e.g. power loss mid-write) or A still holds
+     * the old record (seq_num != new_seq_num: the write did not take effect).
+     * Restore A from B, which step 1 guaranteed still holds the previous
+     * known-good table untouched. */
+    log_warn(TAG, "Flash A write verify failed (record with seq_num=%lu not found in A), restoring A from B",
+             (unsigned long)new_seq_num);
     rule_flash_copy_sector(SPLC_FLASH_RULE_TABLE_B_ADDR, SPLC_FLASH_RULE_TABLE_A_ADDR);
 
     /*
