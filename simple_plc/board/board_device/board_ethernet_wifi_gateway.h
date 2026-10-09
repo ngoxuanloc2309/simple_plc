@@ -1,0 +1,4 @@
+#ifndef ETHERNET_WIFI_GATEWAY_H
+#define ETHERNET_WIFI_GATEWAY_H
+
+#endif

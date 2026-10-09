@@ -1,0 +1,1 @@
+#include "board_ethernet_wifi_gateway.h"
