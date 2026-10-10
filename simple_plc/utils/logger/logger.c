@@ -1,5 +1,6 @@
 #include "logger.h"
 #include "sx_os_config.h"
+#include "splc_opt.h"        /* SPLC_LOG_BUFFER_SIZE */
 
 /* Single source of truth: the RTOS switch lives in app/sx_os_config.h. */
 #define FREE_RTOS SX_OS_USE_FREERTOS
@@ -87,7 +88,8 @@ static const char *banner =
     "               ###                                 ##                        ,,,,,,.      ######\r\n"
     "                                                                          ......,,         ######\r\n";
 
-char buff[4096];
+/* One shared line buffer; size is the product option SPLC_LOG_BUFFER_SIZE. */
+static char buff[SPLC_LOG_BUFFER_SIZE];
 
 void log_func(LOGGING_LEVELS level, const char *TAG, const char *frmt, ...)
 {

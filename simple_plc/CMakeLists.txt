@@ -12,6 +12,38 @@
 # to the executable for now and will get their own CMakeLists.txt as they
 # gain real content.
 
+# --- Product configuration (splcopts.h) --------------------------------
+# Same model as lwIP's lwipopts.h. The library supplies the defaults
+# (config/splc_opt.h); the PRODUCT supplies splcopts.h and says where it is:
+#     cmake ... -DSPLC_OPTS_DIR=<dir containing splcopts.h>
+# Default: <top-level source dir>/splc_config. Users configure the library by
+# editing that one file, never by editing anything under simple_plc/.
+# Two mechanisms on purpose: include_directories() (directory scope) gives
+# every layer target created below both dirs without touching each of their
+# CMakeLists; the INTERFACE target splc_config is linked into the top-level
+# executable (its own sources, e.g. main.c, include plc_engine.h ->
+# splc_opt.h, and directory scope does not reach targets of the parent).
+set(SPLC_OPTS_DIR "${CMAKE_SOURCE_DIR}/splc_config" CACHE PATH
+    "Directory containing the product's splcopts.h (see config/splcopts_template.h)")
+if(NOT EXISTS "${SPLC_OPTS_DIR}/splcopts.h")
+    message(FATAL_ERROR
+        "SimplePLC: splcopts.h not found in SPLC_OPTS_DIR='${SPLC_OPTS_DIR}'.\n"
+        "Copy ${CMAKE_CURRENT_SOURCE_DIR}/config/splcopts_template.h to that directory "
+        "as splcopts.h, or pass -DSPLC_OPTS_DIR=<dir>.")
+endif()
+message(STATUS "SimplePLC options: ${SPLC_OPTS_DIR}/splcopts.h")
+include_directories(
+    ${SPLC_OPTS_DIR}                          # product's splcopts.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/config        # library's splc_opt.h
+)
+add_library(splc_config INTERFACE)
+target_include_directories(splc_config INTERFACE
+    ${SPLC_OPTS_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/config
+)
+# Rebuild/re-configure when the options file changes.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SPLC_OPTS_DIR}/splcopts.h")
+
 # --- Layer 2 - PLC Core -----------------------------------------------
 # splc_core is defined in core/CMakeLists.txt. It has no dependency on any
 # Layer 0/1 target by design (build/port boundary, see
@@ -111,6 +143,7 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/app)
 # between static libraries anyway; for the final top-level executable
 # they have no real effect beyond satisfying CMake's consistency check.
 target_link_libraries(${CMAKE_PROJECT_NAME}
+    splc_config
     splc_core
     splc_components
     splc_platform_stm32h5

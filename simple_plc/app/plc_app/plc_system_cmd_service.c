@@ -1,3 +1,4 @@
+#include "splc_opt.h"
 #include "plc_system_cmd_service.h"
 
 #include <stdbool.h>
@@ -24,8 +25,10 @@
  * project for a different reason (see docs/handoff.md). A few scan
  * cycles' delay costs nothing (REBOOT is not latency-sensitive) and is
  * comfortably longer than one USB Full-Speed frame's transmission time.
+ *
+ * PLC_REBOOT_DELAY_MS is a product option (splcopts.h; default 300 ms in
+ * config/splc_opt.h).
  */
-#define PLC_REBOOT_DELAY_MS  300U
 
 /* SPLC_SYSTEM_CMD_NONE (0) is never a valid "reboot pending" tick value
  * on its own, but 0 IS a legitimate sx_get_tick_ms() reading right after

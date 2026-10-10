@@ -21,8 +21,9 @@
 extern "C" {
 #endif
 
-/* Maximum number of rules supported system-wide. */
-#define MAX_RULES 100
+/* Maximum number of rules supported system-wide: product option MAX_RULES
+ * (splcopts.h; default and limits in config/splc_opt.h). */
+#include "splc_opt.h"
 
 /* Bit position within Rule.guard_tag used to negate the guard condition.
  * guard_tag & GUARD_TAG_NEGATE_BIT set means "fire only when guard is 0".

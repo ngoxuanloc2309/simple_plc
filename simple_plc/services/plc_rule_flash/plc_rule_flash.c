@@ -21,10 +21,9 @@
 
 static const char *TAG = "PLC_RULE_FLASH";
 
-/* Cross-check the literal duplicated into SPLC_RULE_FLASH_RECORD_MAX_SIZE
- * (splc_flash_define.h) against the real MAX_RULES (plc_rule.h) at
- * compile time -- see that macro's own comment for why it is a literal
- * rather than a #include of plc_rule.h. */
+/* SPLC_RULE_FLASH_RECORD_MAX_SIZE (splc_flash_define.h) and MAX_RULES both
+ * come from the product options (config/splc_opt.h); this keeps them from
+ * drifting if either formula is edited. */
 _Static_assert(SPLC_RULE_FLASH_RECORD_MAX_SIZE ==
                (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE +
                 SPLC_RULE_FLASH_FB_SIZE),

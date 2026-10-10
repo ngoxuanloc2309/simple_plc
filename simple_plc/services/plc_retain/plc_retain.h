@@ -37,33 +37,13 @@ extern "C" {
 #endif
 
 /*
- * Snapshot period for the routine (non-emergency) write path, per
- * docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md section 7.1. Configurable
- * over Modbus in the future (see that section's note) -- for now a fixed
- * compile-time constant. Shortening this reduces the Flash-endurance
- * budget computed in app/splc_flash_define.h's header comment
- * (~15 years at this period); that tradeoff must be re-checked before
- * this value is ever made runtime-configurable.
+ * RETAIN_SNAPSHOT_PERIOD_MS, PLC_PVD_EMERGENCY_SAVE_ENABLE and
+ * RETAIN_EMERGENCY_MIN_INTERVAL_MS are product options: set them in the
+ * product's splcopts.h (meaning, default and range in config/splc_opt.h).
+ * Shortening the snapshot period spends Flash endurance (the estimate in
+ * flash_define assumes the 5 minute default); re-check it before changing.
  */
-#define RETAIN_SNAPSHOT_PERIOD_MS (5U * 60U * 1000U)
-
-/*
- * 1 = plc_engine_init() registers retain_emergency_snapshot() on the PVD
- * (low-voltage) interrupt, which also arms that interrupt in the NVIC.
- * Set to 0 (compile flag) to leave the PVD interrupt disarmed, e.g. on a
- * board whose supply has no hold-up energy for the write. The periodic
- * snapshot is unaffected either way.
- */
-#ifndef PLC_PVD_EMERGENCY_SAVE_ENABLE
-#define PLC_PVD_EMERGENCY_SAVE_ENABLE 1
-#endif
-
-/*
- * Minimum time between two emergency writes. The detector can chatter
- * around its threshold; one write per interval is enough and bounds the
- * Flash wear it can cause.
- */
-#define RETAIN_EMERGENCY_MIN_INTERVAL_MS 5000U
+#include "splc_opt.h"
 
 /*
  * Scans the entire retain Flash region (app/splc_flash_define.h's

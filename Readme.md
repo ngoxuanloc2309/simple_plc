@@ -40,7 +40,13 @@ input_scan() -> rule_scan() -> output_scan() -> modbus_config_service() -> retai
   Engine include nothing from the hardware layers, so they compile and unit
   test on a plain PC — no target hardware required.
 - **Adding a new chip means adding a new file, not editing existing ones.**
-  Platform selection happens once, via a single macro in `sx_config.h`.
+  Platform selection happens once, via the `SPLC_PLATFORM` option.
+- **Configure like lwIP.** The library supplies defaults in
+  `simple_plc/config/splc_opt.h` (like `opt.h`); your product supplies its own
+  `splcopts.h` (like `lwipopts.h`) — start from
+  `simple_plc/config/splcopts_template.h`, put it in `splc_config/` (or point
+  CMake at it with `-DSPLC_OPTS_DIR=<dir>`). You never edit files inside the
+  library to turn an option on.
 
 ## Repository layout
 
@@ -56,10 +62,14 @@ simple_plc/
 ├── platforms/    Layer 0 — the ONLY layer allowed to include vendor HAL
 ├── utils/        Layer U — pure algorithms with no hardware dependency
 │                 (ring buffer, filters, CRC-16/MODBUS)
-├── libs/         Third-party libraries (nanoMODBUS as a git submodule)
+├── board/        Layer 4 — per-SKU wiring (board_<sku>.c), tag layout
+├── libs/         Third-party libraries (nanoMODBUS, TinyUSB as submodules)
+├── config/       Option defaults (splc_opt.h) + splcopts_template.h
 └── docs/
-    └── architecture.md   Full layered architecture reference — read this
-                            first before touching any code
+    ├── architecture.md   Full layered architecture reference — read first
+    └── handoff.md        Current state, decisions, open items, test procedure
+
+splc_config/splcopts.h    (repo root) your product's options
 ```
 
 ## Core concepts
@@ -84,11 +94,12 @@ official register map.
 
 ## Status
 
-Early-stage. Layer 2 (Tag/Rule core) is implemented and unit-tested
-independently of hardware. Layers 0/1/3/3.5/4 are in progress — see the
-"still open" checklist in `docs/architecture.md` §10 for exactly what's
-missing (Rule Table Flash location, Gateway Modbus Master role, Event Log,
-Alarm mechanism, RTC source, system command handling).
+Wire Profile V2.0 is implemented and verified on the Zigbee-IO board
+(STM32H523CCU6): Rule Engine, Rule Table in Flash (A/B), retain storage,
+diagnostic control, RTC + Time Window, Timer/Counter function blocks, system
+commands. Bare-metal by default; an optional single-task FreeRTOS mode is
+selected with `SX_OS_USE_FREERTOS` in `splcopts.h`. See `docs/handoff.md` for
+what is verified and what is still open.
 
 ## Getting started
 

@@ -2,6 +2,10 @@
 
 #include "board.h"
 #include "board_zigbee_io.h"
+#include "board_config.h"
+#if !BOARD_ZIGBEE_IO_4DI_4DO
+#error "board_zigbee_io.c is built but SPLC_BOARD (splcopts.h) is not SPLC_BOARD_ZIGBEE_IO_4DI_4DO - keep it in step with CMake -DSPLC_BOARD_SKU"
+#endif
 
 #include "main.h"    /* CubeMX-generated: GPIOA/GPIOB, GPIO_PIN_x macros used
                        * by board_zigbee_io.h's DI*_PORT/DI*_PIN/DO*_PORT/
@@ -266,7 +270,7 @@ static void board_log_uart_init(void)
 
     sx_uart_init(&s_board.log_uart, &s_board.log_uart_cfg);
 
-    logger_init(LOGGER_DEBUG, board_log_write);
+    logger_init((LOGGING_LEVELS)SPLC_LOG_LEVEL, board_log_write);
     log_info(TAG, "Zigbee-IO board init start");
 }
 

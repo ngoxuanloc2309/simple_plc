@@ -53,17 +53,14 @@ void plc_engine_init(void);
  * and every other caller use plc_engine_poll() and never carry their own
  * copy of this number.
  *
- * Overridable per build without editing this file, e.g. for bring-up:
- *     target_compile_definitions(<target> PRIVATE PLC_SCAN_INTERVAL_MS=1U)
+ * Set PLC_SCAN_INTERVAL_MS in the product's splcopts.h (e.g. 1U for bring-up).
  * (0 = scan as fast as the loop spins; not recommended -- it floods the log
  * and wastes CPU without improving rule timing.)
  *
  * Rule dwell/interval resolution equals this period (see rule_scan() in
  * plc_rule.h).
  */
-#ifndef PLC_SCAN_INTERVAL_MS
-#define PLC_SCAN_INTERVAL_MS 10U
-#endif
+#include "splc_opt.h"   /* PLC_SCAN_INTERVAL_MS: product option, default in config/splc_opt.h */
 
 /*
  * Call from main()'s while(1) loop on EVERY iteration. Non-blocking: returns
