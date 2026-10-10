@@ -70,7 +70,7 @@ target_link_libraries(splc_services PUBLIC
 # include-path wrangling on this target's part: linking
 # splc_platform_stm32h5 PUBLIC here is what makes that resolve.
 target_link_libraries(splc_services PUBLIC
-    splc_platform_stm32h5
+    ${SPLC_PLATFORM_TARGET}
 )
 
 # nanomodbus (libs/CMakeLists.txt) supplies nanomodbus.h, which

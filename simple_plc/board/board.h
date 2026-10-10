@@ -23,6 +23,31 @@
 #include "modbus_transport.h"
 #include "plc_tag.h" /* SPLC_TagLayout */
 
+/*
+ * Compile-time checks every board_<sku>.c must use (one call each, at file
+ * scope), so a new board gets the same safety net as zigbee_io:
+ *
+ *   SPLC_BOARD_CHECK_SELECTED(BOARD_<SKU>);
+ *       stops the build when this file is compiled while SPLC_BOARD in
+ *       splcopts.h selects a different board (CMake already picks the file
+ *       from SPLC_BOARD; this protects IDE / hand-made builds).
+ *   SPLC_BOARD_CHECK_TAG_COUNT(SPLC_TAG_LAYOUT_TOTAL(...same counts as the
+ *       SPLC_TagLayout...));
+ *       stops the build when the layout needs more tags than MAX_TAGS
+ *       (board_tag_define.h). tag_table_load_from_flash() would otherwise
+ *       silently ignore the slots past MAX_TAGS.
+ */
+#define SPLC_BOARD_CHECK_SELECTED(flag) \
+    _Static_assert((flag), \
+        "this board_<sku>.c is built but SPLC_BOARD in splcopts.h selects another board")
+
+#define SPLC_TAG_LAYOUT_TOTAL(di, dout, ai, vflag, vreg, vreg_retain, counter) \
+    ((di) + (dout) + (ai) + (vflag) + (vreg) + (vreg_retain) + (counter))
+
+#define SPLC_BOARD_CHECK_TAG_COUNT(total) \
+    _Static_assert((total) <= MAX_TAGS, \
+        "tag layout of this board exceeds MAX_TAGS in board/board_tag_define.h")
+
 #ifdef __cplusplus
 extern "C" {
 #endif

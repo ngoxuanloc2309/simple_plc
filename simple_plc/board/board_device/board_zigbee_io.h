@@ -3,6 +3,11 @@
 
 #define ZIGBEE_IO_DI_NUM    4
 #define ZIGBEE_IO_DO_NUM    4
+#define ZIGBEE_IO_AI_NUM    0
+#define ZIGBEE_IO_VFLAG_NUM        32
+#define ZIGBEE_IO_VREG_NUM         32
+#define ZIGBEE_IO_VREG_RETAIN_NUM  32
+#define ZIGBEE_IO_COUNTER_NUM      8
 
 /*This is the board for test PLC_SIMPLE, this board has 4DI, 4DO, 0AI*/
 #define DI0_PORT    GPIOB

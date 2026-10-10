@@ -2,7 +2,7 @@
 #
 # Builds board_init()/board_hw_init() as a static library target:
 # splc_board. Only ONE SKU's board_<name>.c is compiled in at a time --
-# selected here via SPLC_BOARD_SKU (default "zigbee_io"), not via
+# selected from SPLC_BOARD in splcopts.h (cmake/splc_select.cmake sets SPLC_BOARD_SKU), not via
 # #ifdef inside a shared file (see docs/handoff.md section 1.11's
 # rationale against #ifdef-based SKU selection).
 #
@@ -16,7 +16,7 @@
 # CMakeLists.txt's older comment claiming this file "still needs the
 # FreeRTOS mutex stripped" is stale; no code change was needed here.
 
-set(SPLC_BOARD_SKU "zigbee_io" CACHE STRING "Which board SKU's board_<sku>.c to build (e.g. zigbee_io, remoteio)")
+# SPLC_BOARD_SKU is set by cmake/splc_select.cmake from SPLC_BOARD in splcopts.h.
 
 set(SPLC_BOARD_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/board.c

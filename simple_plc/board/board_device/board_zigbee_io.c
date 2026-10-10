@@ -3,9 +3,7 @@
 #include "board.h"
 #include "board_zigbee_io.h"
 #include "board_config.h"
-#if !BOARD_ZIGBEE_IO_4DI_4DO
-#error "board_zigbee_io.c is built but SPLC_BOARD (splcopts.h) is not SPLC_BOARD_ZIGBEE_IO_4DI_4DO - keep it in step with CMake -DSPLC_BOARD_SKU"
-#endif
+SPLC_BOARD_CHECK_SELECTED(BOARD_ZIGBEE_IO_4DI_4DO);
 
 #include "main.h"    /* CubeMX-generated: GPIOA/GPIOB, GPIO_PIN_x macros used
                        * by board_zigbee_io.h's DI*_PORT/DI*_PIN/DO*_PORT/
@@ -62,12 +60,15 @@ static const char *TAG = "BOARD_ZIGBEE_IO";
 static const SPLC_TagLayout s_tag_layout = {
     .di_count          = ZIGBEE_IO_DI_NUM,
     .do_count          = ZIGBEE_IO_DO_NUM,
-    .ai_count          = 0,
-    .vflag_count       = 32,
-    .vreg_count        = 32,
-    .vreg_retain_count = 32,
-    .counter_count     = 8,
+    .ai_count          = ZIGBEE_IO_AI_NUM,
+    .vflag_count       = ZIGBEE_IO_VFLAG_NUM,
+    .vreg_count        = ZIGBEE_IO_VREG_NUM,
+    .vreg_retain_count = ZIGBEE_IO_VREG_RETAIN_NUM,
+    .counter_count     = ZIGBEE_IO_COUNTER_NUM,
 };
+SPLC_BOARD_CHECK_TAG_COUNT(SPLC_TAG_LAYOUT_TOTAL(
+    ZIGBEE_IO_DI_NUM, ZIGBEE_IO_DO_NUM, ZIGBEE_IO_AI_NUM, ZIGBEE_IO_VFLAG_NUM,
+    ZIGBEE_IO_VREG_NUM, ZIGBEE_IO_VREG_RETAIN_NUM, ZIGBEE_IO_COUNTER_NUM));
 
 SPLC_TagLayout board_get_tag_layout(void)
 {

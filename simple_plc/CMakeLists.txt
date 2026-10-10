@@ -44,6 +44,10 @@ target_include_directories(splc_config INTERFACE
 # Rebuild/re-configure when the options file changes.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SPLC_OPTS_DIR}/splcopts.h")
 
+# --- Board + platform selection, read from splcopts.h --------------------
+# Sets SPLC_BOARD_SKU, SPLC_PLATFORM_DIR, SPLC_PLATFORM_TARGET (see the file).
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules/splc_select.cmake)
+
 # --- Layer 2 - PLC Core -----------------------------------------------
 # splc_core is defined in core/CMakeLists.txt. It has no dependency on any
 # Layer 0/1 target by design (build/port boundary, see
@@ -70,7 +74,7 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/components)
 # still-open question of whether 247.5 cycles is the right value for this
 # product's actual analog input sources). Verified by direct gcc compile
 # of all 5 .c files against this exact include path, 0 errors.
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/platforms/stm32/stm32h5)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/platforms/${SPLC_PLATFORM_DIR})
 
 # --- Layer 0 - Platform: OS (platforms/freertos/) ------------------------
 # splc_platform_freertos (an OBJECT library, see below at the executable's
@@ -146,7 +150,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     splc_config
     splc_core
     splc_components
-    splc_platform_stm32h5
+    ${SPLC_PLATFORM_TARGET}
     nanomodbus
     splc_port
     splc_services
