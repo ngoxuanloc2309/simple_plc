@@ -110,13 +110,21 @@ Hợp đồng `sx_*.h` ở Layer 1; hiện thực STM32H5 ở Layer 0 (HAL). USB
 timeout bằng tick thật. Flash: ghi quad-word 16 byte, erase theo sector 8 KB; layout vùng
 dữ liệu ở `platforms/stm32/stm32h5/flash_define/splc_flash_define.h`:
 
-| Sector | Địa chỉ (từ `FLASH_BASE`) | Dùng cho |
-|---|---|---|
-| 31 | `0x03E000` | Rule Table A (bản chạy) |
-| 30 | `0x03C000` | Rule Table B (bản dự phòng) |
-| 29, 28, 27 | `0x03A000`, `0x038000`, `0x036000` | Retain (log xoay vòng 3 sector) |
+Vùng dữ liệu luôn là **5 sector cuối** của Flash, tính ngược từ `END = FLASH_BASE +
+SPLC_FLASH_SIZE_KB * 1024` (option duy nhất người dùng khai báo trong `splcopts.h`; sector
+8 KB là hằng số của họ H5, không phải option). Cột ví dụ là chip 256 KB (STM32H523CC):
 
-Firmware (`.text+.data`) phải nằm dưới `0x08036000`.
+| Sector tính từ cuối | Địa chỉ | Ví dụ 256 KB | Dùng cho |
+|---|---|---|---|
+| cuối cùng | `END - 1 sector` | `0x0803E000` | Rule Table A (bản chạy) |
+| thứ 2 từ cuối | `END - 2` | `0x0803C000` | Rule Table B (bản dự phòng) |
+| thứ 3, 4, 5 từ cuối | `END - 3`, `END - 4`, `END - 5` | `0x0803A000`, `0x08038000`, `0x08036000` | Retain (log xoay vòng 3 sector) |
+
+Firmware (`.text+.data`) phải nằm dưới `SPLC_FLASH_DATA_BASE_ADDR` (= `END - 40 KB`; ví dụ
+256 KB: `0x08036000`) — đặt `LENGTH` của FLASH trong linker script bằng
+`SPLC_FLASH_SIZE_KB - 40 KB`. `splc_flash_define.h` kiểm tra lúc biên dịch: size là bội số
+của 16 KB, trong khoảng 128..2048 KB, 5 sector nằm trọn trong bank 2. Giả định cần đối chiếu
+datasheet khi dùng chip mới: hai bank bằng nhau.
 
 ### Layer 2 — PLC Core
 - **`plc_tag`**: một mảng `g_tag_value[MAX_TAGS]` duy nhất + `g_tag_table[]` (kind,

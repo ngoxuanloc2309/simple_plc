@@ -15,6 +15,10 @@
 #define SPLC_PLATFORM                 SPLC_PLATFORM_STM32H5
 #define SPLC_BOARD                    SPLC_BOARD_ZIGBEE_IO_4DI_4DO
 
+/* Chip Flash size in KB (STM32H523CC = 256). Rule Table A/B + Retain are the
+ * last 5 sectors of it. */
+#define SPLC_FLASH_SIZE_KB            256
+
 /* OS: 0 = bare-metal super-loop (main.c calls plc_engine_poll()),
  *     1 = FreeRTOS (one task calls plc_engine_poll()). */
 #define SX_OS_USE_FREERTOS            1

@@ -11,6 +11,7 @@
 #include <stddef.h>
 
 #include "plc_tag.h"
+#include "plc_io_remote.h"   /* Gateway: DI/DO of RS485 I/O boards (no-op without nodes) */
 
 /* One registration slot: which tag index this hardware descriptor feeds
  * into/reads from. registered=false means the slot is empty. */
@@ -119,6 +120,9 @@ void input_scan(void)
          * range. */
         tag_write(s_ai_table[i].tag_idx, (int32_t)raw);
     }
+
+    /* Virtual DI of remote I/O boards (Gateway). No-op when none added. */
+    plc_io_remote_input_scan();
 }
 
 void output_scan(void)
@@ -130,4 +134,9 @@ void output_scan(void)
         int32_t v = tag_read(s_do_table[i].tag_idx);
         sx_gpio_write(s_do_table[i].pin, (v != 0) ? SX_GPIO_HIGH : SX_GPIO_LOW);
     }
+
+    /* Virtual DO -> RS485 requests to remote I/O boards (Gateway). No-op when
+     * none added. Runs after the loop above so the rules' latest DO tag
+     * values are what gets sent. */
+    plc_io_remote_output_scan();
 }

@@ -9,24 +9,27 @@
 static const char *TAG = "SX_FLASH";
 
 /*
- * STM32H523CCU6 hard facts (per ST datasheet DS14540 / RM0481) --
- * DO NOT derive these from FLASH_SIZE/FLASH_BANK_SIZE in the CMSIS
- * header. Those macros read the flash-size data register at
- * FLASHSIZE_BASE (0x08FFF80C), which is confirmed by ST's own
- * community forum to cause a Hard Fault on STM32H5 parts -- and even
- * if it didn't fault, FLASH_SIZE_DEFAULT in this CMSIS header falls
- * back to 512 KB (0x80000), which is wrong for this 256 KB part
- * (STM32H523CC = category C = 256 KB, confirmed against ST's product
- * page and datasheet -- NOT the 512 KB variant the header's default
- * assumes).
+ * STM32H5 Flash facts -- DO NOT derive the size from FLASH_SIZE/FLASH_BANK_SIZE
+ * in the CMSIS header. Those macros read the flash-size data register at
+ * FLASHSIZE_BASE (0x08FFF80C), which is confirmed by ST's own community
+ * forum to cause a Hard Fault on STM32H5 parts -- and even if it didn't
+ * fault, FLASH_SIZE_DEFAULT in this CMSIS header falls back to 512 KB, which
+ * is wrong for the 256 KB STM32H523CC this project started on.
  *
- * STM32H523CC is dual-bank even at 256 KB total (ST blog, April 2024):
- * 2 banks x 128 KB, 16 sectors/bank x 8 KB/sector = 32 sectors total.
- * This still matches FLASH_SECTOR_SIZE (0x2000 = 8 KB) from the CMSIS
- * header -- only the total/bank size macros are unsafe to use here.
+ * The total size comes from the product option SPLC_FLASH_SIZE_KB
+ * (splcopts.h) through splc_flash_define.h, the single place that derives
+ * the geometry (total size, two equal banks, 8 KB sectors) and the data
+ * regions at the end of Flash. STM32H5 parts are dual-bank with equal banks
+ * (e.g. STM32H523CC: 2 x 128 KB, 16 sectors/bank), so a bank is half of the
+ * total. Only the sector size is cross-checked against CMSIS below.
  */
-#define SX_FLASH_TOTAL_SIZE   0x40000U   /* 256 KB */
-#define SX_FLASH_BANK_SIZE    0x20000U   /* 128 KB per bank */
+#include "splc_flash_define.h"
+
+#define SX_FLASH_TOTAL_SIZE   SPLC_FLASH_TOTAL_SIZE
+#define SX_FLASH_BANK_SIZE    SPLC_FLASH_BANK_SIZE
+
+_Static_assert(FLASH_SECTOR_SIZE == SPLC_FLASH_SECTOR_SIZE,
+               "splc_flash_define.h sector size differs from the CMSIS FLASH_SECTOR_SIZE");
 
 #define SX_FLASH_QUADWORD_BYTES 16U
 
@@ -195,13 +198,19 @@ bool sx_flash_write_quiet(uint32_t addr, const uint8_t *data, uint32_t len)
 
 void sx_flash_erase(uint32_t addr, uint32_t len)
 {
-    /* Reject anything outside the real 256 KB flash range up front --
-     * silently proceeding would compute a bogus bank/sector and either
-     * hand HAL_FLASHEx_Erase() garbage or erase memory this chip
-     * doesn't have. */
-    if (addr < FLASH_BASE || (addr - FLASH_BASE) >= SX_FLASH_TOTAL_SIZE) {
-        log_error(TAG, "sx_flash_erase: addr=0x%08lX out of range, ignored",
-                  (unsigned long)addr);
+    /* Reject anything outside the real flash range (SPLC_FLASH_SIZE_KB) up
+     * front -- silently proceeding would compute a bogus bank/sector and
+     * either hand HAL_FLASHEx_Erase() garbage or erase memory this chip
+     * doesn't have. The whole sector-rounded range must fit, not just its
+     * first address, and a single erase call cannot cross the bank boundary
+     * (erase.Banks names one bank). */
+    uint32_t span = ((len + FLASH_SECTOR_SIZE - 1U) / FLASH_SECTOR_SIZE) * FLASH_SECTOR_SIZE;
+    if (addr < FLASH_BASE || (addr - FLASH_BASE) >= SX_FLASH_TOTAL_SIZE ||
+        span > SX_FLASH_TOTAL_SIZE - (addr - FLASH_BASE) ||
+        ((addr - FLASH_BASE) < SX_FLASH_BANK_SIZE &&
+         (addr - FLASH_BASE) + span > SX_FLASH_BANK_SIZE)) {
+        log_error(TAG, "sx_flash_erase: addr=0x%08lX len=%lu out of range, ignored",
+                  (unsigned long)addr, (unsigned long)len);
         return;
     }
 

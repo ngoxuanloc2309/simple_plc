@@ -4,47 +4,49 @@
 #include "sx_platform_config.h"
 
 /*
- * app/splc_flash_define.h - Layer 4 (App / product-specific configuration)
+ * splc_flash_define.h - Layer 0 (platforms/stm32/stm32h5/flash_define)
  *
- * Flash memory map for this product (Remote I/O, STM32H523CCU6). Defines
- * WHERE each persistent-storage region lives in Flash, as a set of
- * macros -- not a driver, not business logic. Kept in app/ (Layer 4)
- * rather than platforms/ or services/ because this layout is a
- * PRODUCT decision (this SKU, this chip's 256 KB), not a chip-driver
- * concern (that's platforms/stm32/stm32h5/flash/stm32h5_flash.c, which
- * knows HOW to erase/read/write a sector but not WHAT goes in which
- * one) and not a chip-agnostic business-logic concern (that's
- * services/plc_retain.c, which should be portable to a future chip with
- * a different Flash size/layout by swapping only this file).
+ * Flash memory map of the persistent-storage regions, as a set of macros --
+ * not a driver, not business logic. Defines WHERE each region lives; the
+ * driver (platforms/stm32/stm32h5/flash/stm32h5_flash.c) knows HOW to erase/
+ * program a sector and services/plc_retain, services/plc_rule_flash know WHAT
+ * goes in each region.
  *
- * Every stm32h5_*.h file in platforms/stm32/stm32h5/ already #includes
- * sx_platform_config.h from this same app/ directory (see the TODO in
- * platforms/stm32/stm32h5/CMakeLists.txt) to select STM32H5_PLATFORM --
- * this file follows that same existing precedent of product-specific
- * config living in app/ and being reached by lower layers via the
- * PUBLIC include path platforms/stm32/stm32h5/CMakeLists.txt already
- * exposes.
+ * The regions are ALWAYS the last 5 sectors of the chip's Flash, counted
+ * backwards from its end. The only product input is the chip's Flash size,
+ * SPLC_FLASH_SIZE_KB (splcopts.h, default in config/splc_opt.h); every
+ * address below is derived from it, so moving to another STM32H5 part needs
+ * no edit in this file. Every stm32h5_*.h file already #includes
+ * sx_platform_config.h (which includes splc_opt.h), and the file is reached
+ * by lower and upper layers through the PUBLIC include path of
+ * platforms/stm32/stm32h5/CMakeLists.txt.
  *
- * Hardware facts this file is built on (STM32H523CCU6, per ST datasheet
- * DS14540 / RM0481, cross-checked against
- * platforms/stm32/stm32h5/flash/stm32h5_flash.c's own verified
- * constants -- see the comment block at the top of that file):
- *   - 256 KB total Flash, dual-bank: 2 banks x 128 KB
- *   - 16 sectors/bank x 8 KB/sector = 32 sectors total, globally
- *     numbered 0..31 (sector 0..15 = Bank 1, sector 16..31 = Bank 2)
- *   - FLASH_BASE (0x08000000) comes from the CMSIS device header via
- *     the stm32cubemx target, not redefined here.
+ * Hardware facts this file is built on (STM32H5, RM0481 / datasheets):
+ *   - Sector size 8 KB on every STM32H5 part (FLASH_SECTOR_SIZE in CMSIS).
+ *   - Two banks of equal size (SPLC_FLASH_SIZE_KB / 2 each), so the last
+ *     sectors are always in bank 2 and the code running from bank 1 keeps
+ *     executing while they are erased/programmed. ASSUMPTION to re-check
+ *     against the datasheet of any part not yet used: that part is dual-bank
+ *     with equal banks (the checks below only prove the 5 sectors fit in
+ *     bank 2).
+ *   - FLASH_BASE (0x08000000) comes from the CMSIS device header; the size
+ *     macros of that header (FLASH_SIZE/FLASH_BANK_SIZE) read a register
+ *     that Hard-Faults on STM32H5 and must NOT be used.
  *
- * Layout decided (5 sectors reserved at the very end of Flash, counting
- * backwards from the last sector):
+ * Layout (offsets counted back from END = FLASH_BASE + total size; the
+ * example column is a 256 KB part, STM32H523CC):
  *
- *   Sector # (global) | Offset from FLASH_BASE | Region
- *   ------------------+-------------------------+------------------
- *   31 (last)         | 0x03E000                | Rule Table A (running copy)
- *   30 (2nd-to-last)  | 0x03C000                | Rule Table B (backup copy)
- *   29 (3rd-to-last)  | 0x03A000                | Retain slot 1 of 3
- *   28 (4th-to-last)  | 0x038000                | Retain slot 2 of 3
- *   27 (5th-to-last)  | 0x036000                | Retain slot 3 of 3
+ *   Sector (from the end) | Address        | 256 KB example | Region
+ *   ----------------------+----------------+----------------+-----------------
+ *   last                  | END - 1 sector | 0x0803E000     | Rule Table A (running copy)
+ *   2nd from last         | END - 2        | 0x0803C000     | Rule Table B (backup copy)
+ *   3rd from last         | END - 3        | 0x0803A000     | Retain sector 3 of 3
+ *   4th from last         | END - 4        | 0x08038000     | Retain sector 2 of 3
+ *   5th from last         | END - 5        | 0x08036000     | Retain sector 1 of 3 (lowest)
+ *
+ * The firmware image (.text/.data) must stay below SPLC_FLASH_DATA_BASE_ADDR
+ * (END - 5 sectors): set the linker script's FLASH LENGTH to
+ * SPLC_FLASH_SIZE_KB minus SPLC_FLASH_RESERVED_SIZE (40 KB).
  *
  * Rule Table: 2 sectors (A/B, 8 KB each), per docs/handoff.md section 1 --
  * see services/plc_rule_flash/plc_rule_flash.h for the full A/B recovery
@@ -66,7 +68,7 @@
  * numbers -- 104 byte/record, ~78 records/sector, 64 KB/8 sectors -- were
  * computed for the OLD 16-slot VREG_RETAIN layout and do not apply
  * as-is; see the recomputed constants below). Reduced from the original
- * 4 sectors to 3 to free one sector (former sector #30) for Rule Table B
+ * 4 sectors to 3 to free one sector (the former 4th Retain sector) for Rule Table B
  * -- per docs/handoff.md section 1.1 point 1, this trade was made
  * deliberately with the user rather than growing the total reserved
  * Flash region.
@@ -109,24 +111,34 @@
 extern "C" {
 #endif
 
-/* --- Sector geometry (STM32H523CCU6) ------------------------------------
- *
- * Mirrors platforms/stm32/stm32h5/flash/stm32h5_flash.c's own
- * SX_FLASH_TOTAL_SIZE/SX_FLASH_BANK_SIZE constants (not re-derived from
- * CMSIS FLASH_SIZE -- see that file's comment on why that macro is
- * unsafe on this part). Duplicated here rather than #included from
- * there because those are file-local #defines in stm32h5_flash.c, not
- * exposed via stm32h5_flash.h -- if that ever changes, these should
- * become a single shared source of truth instead of two copies that
- * could drift.
- */
-#define SPLC_FLASH_SECTOR_SIZE          0x2000U     /* 8 KB, matches FLASH_SECTOR_SIZE (CMSIS) */
-#define SPLC_FLASH_TOTAL_SIZE           0x40000U    /* 256 KB total */
-#define SPLC_FLASH_SECTOR_COUNT         32U         /* 256 KB / 8 KB */
+/* --- Flash geometry (derived from SPLC_FLASH_SIZE_KB) ------------------ */
+#define SPLC_FLASH_SECTOR_SIZE          0x2000U                                  /* 8 KB, all STM32H5 */
+#define SPLC_FLASH_TOTAL_SIZE           ((uint32_t)SPLC_FLASH_SIZE_KB * 1024U)
+#define SPLC_FLASH_BANK_SIZE            (SPLC_FLASH_TOTAL_SIZE / 2U)             /* two equal banks */
+#define SPLC_FLASH_SECTOR_COUNT         (SPLC_FLASH_TOTAL_SIZE / SPLC_FLASH_SECTOR_SIZE)
+#define SPLC_FLASH_END_ADDR             (FLASH_BASE + SPLC_FLASH_TOTAL_SIZE)     /* one past the last byte */
+
+/* Sectors reserved for data at the end of Flash: Rule Table A/B + Retain. */
+#define SPLC_FLASH_RULE_TABLE_SECTORS   2U
+#define SPLC_FLASH_RETAIN_SECTOR_COUNT  3U
+#define SPLC_FLASH_RESERVED_SECTORS     (SPLC_FLASH_RULE_TABLE_SECTORS + SPLC_FLASH_RETAIN_SECTOR_COUNT)
+#define SPLC_FLASH_RESERVED_SIZE        (SPLC_FLASH_RESERVED_SECTORS * SPLC_FLASH_SECTOR_SIZE)   /* 40 KB */
+/* Lowest address of the reserved region; the firmware must end below it. */
+#define SPLC_FLASH_DATA_BASE_ADDR       (SPLC_FLASH_END_ADDR - SPLC_FLASH_RESERVED_SIZE)
+
+/* A bad SPLC_FLASH_SIZE_KB must stop the build, not erase code at run time. */
+#ifndef __cplusplus
+_Static_assert((SPLC_FLASH_SIZE_KB) % 16 == 0,
+               "SPLC_FLASH_SIZE_KB must be a multiple of 16 (two banks of whole 8 KB sectors)");
+_Static_assert((SPLC_FLASH_SIZE_KB) >= 128 && (SPLC_FLASH_SIZE_KB) <= 2048,
+               "SPLC_FLASH_SIZE_KB outside the 128..2048 KB range of the STM32H5 family");
+_Static_assert(SPLC_FLASH_RESERVED_SIZE <= SPLC_FLASH_BANK_SIZE,
+               "data sectors do not fit in bank 2 of this Flash size");
+#endif
 
 /* --- Rule Table A/B (see services/plc_rule_flash/plc_rule_flash.h) ------
  *
- * Last two sectors in Flash (global sectors #31 and #30). A is the
+ * Last two sectors in Flash. A is the
  * "running" copy that plc_rule_flash_load() reads first at boot; B is its
  * backup, used to self-heal A if A's CRC is ever bad (e.g. power loss
  * mid-write) -- see plc_rule_flash.h for the full mechanism. Both sectors
@@ -135,30 +147,36 @@ extern "C" {
  * docs/architecture.md section 2.6.2 for the Modbus staging/commit
  * protocol that produces what eventually gets written here.
  */
-#define SPLC_FLASH_RULE_TABLE_A_ADDR    (FLASH_BASE + 0x03E000U)
-#define SPLC_FLASH_RULE_TABLE_B_ADDR    (FLASH_BASE + 0x03C000U)
+#define SPLC_FLASH_RULE_TABLE_A_ADDR    (SPLC_FLASH_END_ADDR - 1U * SPLC_FLASH_SECTOR_SIZE)
+#define SPLC_FLASH_RULE_TABLE_B_ADDR    (SPLC_FLASH_END_ADDR - 2U * SPLC_FLASH_SECTOR_SIZE)
 #define SPLC_FLASH_RULE_TABLE_SIZE      SPLC_FLASH_SECTOR_SIZE   /* 1 sector each, 8 KB */
 
 /* --- Retain (VREG_RETAIN rotating EEPROM-emulation store) ---------------
  *
- * 3 contiguous sectors immediately before Rule Table B (global sectors
- * #27..#29), per docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md section 7.1's
+ * 3 contiguous sectors immediately before Rule Table B (the 5th..3rd
+ * sectors from the end of Flash), per docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md section 7.1's
  * rotating-record scheme: services/plc_retain/plc_retain.c scans this
  * whole region at boot for the record with the highest seq_num and a
  * valid CRC to find the "active" write position, rather than persisting
- * a separate pointer anywhere. Reduced from 4 to 3 sectors to free sector
- * #30 for Rule Table B -- see the header comment above.
+ * a separate pointer anywhere. Reduced from 4 to 3 sectors to free a sector
+ * for Rule Table B -- see the header comment above.
  *
  * SPLC_FLASH_RETAIN_BASE_ADDR is the LOWEST address of the 3-sector
- * region (sector #27, 5th-from-last) -- i.e. writing/scanning proceeds
+ * region (5th sector from the end) -- i.e. writing/scanning proceeds
  * from SPLC_FLASH_RETAIN_BASE_ADDR upward through
  * SPLC_FLASH_RETAIN_BASE_ADDR + SPLC_FLASH_RETAIN_TOTAL_SIZE - 1, which
  * ends exactly where SPLC_FLASH_RULE_TABLE_B_ADDR begins (no gap, no
- * overlap -- verified by construction: 0x036000 + 0x6000 == 0x03C000).
+ * overlap -- checked at compile time just below).
  */
-#define SPLC_FLASH_RETAIN_BASE_ADDR     (FLASH_BASE + 0x036000U)
-#define SPLC_FLASH_RETAIN_SECTOR_COUNT  3U
+#define SPLC_FLASH_RETAIN_BASE_ADDR     (SPLC_FLASH_END_ADDR - SPLC_FLASH_RESERVED_SECTORS * SPLC_FLASH_SECTOR_SIZE)
 #define SPLC_FLASH_RETAIN_TOTAL_SIZE    (SPLC_FLASH_RETAIN_SECTOR_COUNT * SPLC_FLASH_SECTOR_SIZE) /* 24 KB */
+
+#ifndef __cplusplus
+_Static_assert(SPLC_FLASH_RETAIN_BASE_ADDR + SPLC_FLASH_RETAIN_TOTAL_SIZE == SPLC_FLASH_RULE_TABLE_B_ADDR,
+               "Retain region must end exactly where Rule Table B begins");
+_Static_assert(SPLC_FLASH_RETAIN_BASE_ADDR == SPLC_FLASH_DATA_BASE_ADDR,
+               "Retain region must start at the bottom of the reserved data region");
+#endif
 
 /*
  * Retain record layout, per docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md

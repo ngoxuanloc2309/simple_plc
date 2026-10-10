@@ -57,6 +57,18 @@
 #define SPLC_PLATFORM                    SPLC_PLATFORM_STM32H5
 #endif
 
+/* Total on-chip Flash of THIS chip, in KB (e.g. 256 for STM32H523CC, 512 for
+ * STM32H523/H533 "E" parts, 2048 for STM32H563/H573). The Flash data regions
+ * (Rule Table A/B + Retain, 5 sectors) are always placed at the END of the
+ * Flash and counted backwards from this size, so this is the only number a
+ * product has to state (platforms/<family>/<chip>/flash_define). The sector
+ * size is a property of the chip family, not an option. The firmware image
+ * must stay below the data region: set the linker's FLASH LENGTH to
+ * SPLC_FLASH_SIZE_KB minus the reserved size (SPLC_FLASH_RESERVED_SIZE). */
+#ifndef SPLC_FLASH_SIZE_KB
+#define SPLC_FLASH_SIZE_KB               256
+#endif
+
 /* Product/board. Must agree with the board source CMake builds
  * (-DSPLC_BOARD_SKU=..., default zigbee_io); the board .c checks this and
  * stops with #error if they disagree. */
@@ -197,6 +209,9 @@
 #endif
 #if (SPLC_BOARD < SPLC_BOARD_ZIGBEE_IO_4DI_4DO) || (SPLC_BOARD > SPLC_BOARD_GATEWAY)
 #error "SPLC_BOARD must be one of the SPLC_BOARD_* selectors"
+#endif
+#if (SPLC_FLASH_SIZE_KB < 16)
+#error "SPLC_FLASH_SIZE_KB must be the chip's Flash size in KB (at least 16)"
 #endif
 #if (MAX_RULES < 1) || (MAX_RULES > 100)
 #error "MAX_RULES must be 1..100 (Wire Profile V2.0 register windows hold 100 rules)"

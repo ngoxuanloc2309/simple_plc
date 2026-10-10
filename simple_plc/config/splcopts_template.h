@@ -19,6 +19,8 @@
 /* #define SPLC_PLATFORM                 SPLC_PLATFORM_STM32H5 */
 /* #define SPLC_BOARD                    SPLC_BOARD_ZIGBEE_IO_4DI_4DO */   /* also CMake -DSPLC_BOARD_SKU */
 
+/* #define SPLC_FLASH_SIZE_KB            256 */    /* chip Flash in KB; data sectors are the last 5 */
+
 /* --- Operating system ------------------------------------------------ */
 /* #define SX_OS_USE_FREERTOS            1 */      /* 0 bare-metal (default), 1 FreeRTOS */
 
