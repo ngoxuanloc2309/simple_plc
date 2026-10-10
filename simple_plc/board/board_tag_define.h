@@ -182,6 +182,20 @@
 #endif
 /*===========BOARD_ZIGBEE_IO===========*/
 
+/*===========BOARD_GATEWAY===========*/
+#if BOARD_GATEWAY
+/* Gateway: its DI/DO are virtual (bits of RS485 I/O boards), laid out by the
+ * rows of GATEWAY_IO_NODES in board_ethernet_wifi_gateway.h. The full wire
+ * capacity (128 tags) is reserved so adding I/O boards or growing 4DI/4DO to
+ * 8DI/8DO never needs a change here; board_ethernet_wifi_gateway.c checks at
+ * compile time that the layout fits. Read the base index of each group at
+ * runtime with tag_di_base_index() etc.; no TAG_xxx macros are kept for this
+ * board because the layout follows the node table. */
+#define MAX_TAGS 128
+
+#endif
+/*===========BOARD_GATEWAY===========*/
+
 /*===========BOARD_REMOTE_IO===========*/
 #if BOARD_REMOTE_IO_8DI_8DO
 /* Full wire capacity (tags 0..127): 124 in use, 124..127 reserved. */

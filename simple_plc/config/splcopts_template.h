@@ -37,6 +37,13 @@
 /* #define SPLC_USB_RX_BUF_SIZE          256 */
 /* #define SPLC_USB_TX_BUF_SIZE          256 */
 
+/* --- Remote I/O (Gateway) -------------------------------------------- */
+/* #define SPLC_REMOTE_MAX_NODES         8 */       /* 1..32 I/O boards on RS485 */
+/* #define SPLC_REMOTE_TIMEOUT_MS        100U */    /* 20..2000 per request */
+/* #define SPLC_REMOTE_POLL_MS           50U */     /* 10..1000 DI read period per node */
+/* #define SPLC_REMOTE_OFFLINE_AFTER     3U */      /* failed requests -> node offline */
+/* #define SPLC_REMOTE_RETRY_MS          1000U */   /* retry period of an offline node */
+
 /* --- Logging --------------------------------------------------------- */
 /* #define SPLC_LOG_LEVEL                4 */      /* 0 OFF .. 4 DEBUG */
 /* #define SPLC_LOG_BUFFER_SIZE          4096 */

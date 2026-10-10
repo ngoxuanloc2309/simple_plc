@@ -141,6 +141,36 @@
 #endif
 
 /* ======================================================================
+ * Remote I/O (Gateway: virtual DI/DO carried to I/O boards over RS485)
+ * Used by services/plc_io/plc_io_remote.c. Unused (no node added) on boards
+ * with local I/O, where it costs a few hundred bytes of RAM.
+ * ==================================================================== */
+/* Max I/O boards (RS485 slaves) one gateway talks to. */
+#ifndef SPLC_REMOTE_MAX_NODES
+#define SPLC_REMOTE_MAX_NODES            8
+#endif
+
+/* How long to wait for a slave's answer before the request counts as failed. */
+#ifndef SPLC_REMOTE_TIMEOUT_MS
+#define SPLC_REMOTE_TIMEOUT_MS           100U
+#endif
+
+/* Interval between DI/status reads of one node (ms). */
+#ifndef SPLC_REMOTE_POLL_MS
+#define SPLC_REMOTE_POLL_MS              50U
+#endif
+
+/* Consecutive failed requests after which a node is reported offline. */
+#ifndef SPLC_REMOTE_OFFLINE_AFTER
+#define SPLC_REMOTE_OFFLINE_AFTER        3U
+#endif
+
+/* While a node is offline, how often to try it again (ms). */
+#ifndef SPLC_REMOTE_RETRY_MS
+#define SPLC_REMOTE_RETRY_MS             1000U
+#endif
+
+/* ======================================================================
  * Logging
  * ==================================================================== */
 /* Initial log level: 0 OFF, 1 ERROR, 2 WARNING, 3 INFO, 4 DEBUG. */
@@ -179,6 +209,21 @@
 #endif
 #if (SPLC_USB_RX_BUF_SIZE < 64) || (SPLC_USB_TX_BUF_SIZE < 64)
 #error "SPLC_USB_RX_BUF_SIZE / SPLC_USB_TX_BUF_SIZE must be at least 64 (one USB packet)"
+#endif
+#if (SPLC_REMOTE_MAX_NODES < 1) || (SPLC_REMOTE_MAX_NODES > 32)
+#error "SPLC_REMOTE_MAX_NODES must be 1..32"
+#endif
+#if (SPLC_REMOTE_TIMEOUT_MS < 20) || (SPLC_REMOTE_TIMEOUT_MS > 2000)
+#error "SPLC_REMOTE_TIMEOUT_MS must be 20..2000"
+#endif
+#if (SPLC_REMOTE_POLL_MS < 10) || (SPLC_REMOTE_POLL_MS > 1000)
+#error "SPLC_REMOTE_POLL_MS must be 10..1000"
+#endif
+#if (SPLC_REMOTE_OFFLINE_AFTER < 1) || (SPLC_REMOTE_OFFLINE_AFTER > 100)
+#error "SPLC_REMOTE_OFFLINE_AFTER must be 1..100"
+#endif
+#if (SPLC_REMOTE_RETRY_MS < 100)
+#error "SPLC_REMOTE_RETRY_MS below 100 ms would flood a dead RS485 link"
 #endif
 #if (SPLC_LOG_LEVEL < 0) || (SPLC_LOG_LEVEL > 4)
 #error "SPLC_LOG_LEVEL must be 0..4"

@@ -11,6 +11,7 @@
 
 set(SPLC_SERVICES_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_io/plc_io.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_io/plc_io_remote.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_retain/plc_retain.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_modbus_cfg/plc_modbus_cfg.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rtc/plc_rtc.c

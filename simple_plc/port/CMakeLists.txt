@@ -15,9 +15,8 @@
 #
 # Real content today: only port/modbus_usb/ (the App<->MCU channel over
 # USB-CDC, per v1.7/v1.9 -- see docs/architecture.md section 2.4b).
-# port/modbus_serial/ and port/modbus_tcp/ are still stubs (see the two
-# NOTE blocks below) and are deliberately left out of
-# SPLC_PORT_SRC/target_sources for now.
+# port/modbus_serial/ is the Gateway's RS485 master; port/modbus_tcp/ is
+# still an empty stub (NOTE below) and is left out of SPLC_PORT_SRC.
 
 # --- modbus_usb (Layer 3.5, has a real .c) -------------------------------
 #
@@ -29,19 +28,16 @@
 # target_link_libraries below).
 set(SPLC_PORT_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/modbus_usb/modbus_usb.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/modbus_serial/modbus_serial.c
 )
 
-# NOTE: port/modbus_serial/modbus_serial.c is NOT in SPLC_PORT_SRC.
-# It is a 2-line stub today (only #include "modbus_serial.h" and
-# #include "nanomodbus.h", no function definitions at all) -- meant to
-# eventually wrap sx_uart_read()/sx_uart_write() (Layer 1,
-# components/uart/) for the Gateway variant's Modbus Master over real
-# RS485, per docs/architecture.md's port/ table. Add it to SPLC_PORT_SRC
-# once it has real read()/write() implementations; compiling it as-is
-# would build fine (it defines nothing) but silently give a false sense
-# that this transport is implemented when it is not.
+# modbus_serial (Layer 3.5): non-blocking Modbus RTU MASTER over sx_uart_t
+# (RS485), used by the Gateway's Remote I/O channel (services/plc_io/
+# plc_io_remote.c). It does not use nanoMODBUS's blocking client; only
+# nmbs_crc_calc() is taken from nanoMODBUS. Compiled into every build (a few
+# hundred bytes of code, no static RAM until a master is created).
 #
-# NOTE: port/modbus_tcp/modbus_tcp.c is NOT in SPLC_PORT_SRC either, and
+# NOTE: port/modbus_tcp/modbus_tcp.c is NOT in SPLC_PORT_SRC, and
 # is further along from "stub" -- it is a genuinely EMPTY file (0 bytes,
 # not even an #include). port/modbus_tcp/modbus_tcp.h itself has no
 # function declarations yet either (just the include guard and
@@ -61,6 +57,7 @@ add_library(splc_port STATIC ${SPLC_PORT_SRC})
 # lifetime rule (caller-owned, not hidden in this library).
 target_include_directories(splc_port PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/modbus_usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/modbus_serial
     ${CMAKE_CURRENT_SOURCE_DIR}/modbus_transport
 )
 
@@ -74,17 +71,12 @@ target_link_libraries(splc_port PUBLIC
     splc_components
 )
 
-# modbus_usb.c/.h still do NOT #include "nanomodbus.h" -- confirmed
-# again while updating this comment: neither file includes it directly,
-# they only implement the two function signatures nanoMODBUS's
-# nmbs_platform_conf expects (int32_t/uint8_t/uint16_t are enough), so
-# splc_port itself does not need to link "nanomodbus" to compile.
-#
-# nanomodbus.h resolvable + nanomodbus.c actually compiled is needed one
-# layer up instead: services/CMakeLists.txt (now exists) links
-# splc_services against both splc_port and the nanomodbus target
-# (libs/CMakeLists.txt, now exists) -- see that file for the real
-# wiring. This target intentionally still does not reach into libs/
-# itself.
+# modbus_serial.c calls nmbs_crc_calc() (libs/nanomodbus), so splc_port links
+# the nanomodbus target (libs/ is added before port/ in the root CMakeLists).
+# modbus_usb.c/.h still do not include nanomodbus.h themselves.
+# sx_time.h (Layer 1) comes from splc_components.
+target_link_libraries(splc_port PUBLIC
+    nanomodbus
+)
 
 target_compile_features(splc_port PUBLIC c_std_11)
