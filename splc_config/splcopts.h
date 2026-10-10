@@ -17,7 +17,7 @@
 
 /* OS: 0 = bare-metal super-loop (main.c calls plc_engine_poll()),
  *     1 = FreeRTOS (one task calls plc_engine_poll()). */
-#define SX_OS_USE_FREERTOS            0
+#define SX_OS_USE_FREERTOS            1
 
 /* Engine */
 #define PLC_SCAN_INTERVAL_MS          10U

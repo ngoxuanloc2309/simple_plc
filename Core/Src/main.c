@@ -32,6 +32,8 @@
 /* USER CODE BEGIN Includes */
 #include "stdint.h"
 #include "plc_engine.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #define TEST_DI 0
 #if TEST_DI
 #include <string.h>
@@ -47,6 +49,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define PLC_TASK_STACK_WORDS  1024U                      /* 4 KB; tune with uxTaskGetStackHighWaterMark() */
+#define PLC_TASK_PRIORITY     (tskIDLE_PRIORITY + 25U)   /* just above defaultTask (osPriorityNormal = 24) */
 
 /* USER CODE END PD */
 
@@ -65,6 +69,9 @@
 void SystemClock_Config(void);
 void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
+#if SX_OS_USE_FREERTOS && !TEST_DI
+static void plc_task(void *arg);
+#endif
 
 /* USER CODE END PFP */
 
@@ -175,7 +182,13 @@ int main(void)
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
   #if !TEST_DI
+  #if SX_OS_USE_FREERTOS
+  /* RTOS mode: plc_engine_init() and plc_engine_poll() must run from ONE task
+   * (see simple_plc/components/os/sx_os.h). Created before the scheduler starts. */
+  xTaskCreate(plc_task, "plc", PLC_TASK_STACK_WORDS, NULL, PLC_TASK_PRIORITY, NULL);
+  #else
   plc_engine_init();
+  #endif
   #endif
   /* USER CODE END 2 */
 
@@ -201,7 +214,7 @@ int main(void)
       read_states(state);
     }
     #else
-    plc_engine_poll();
+    // plc_engine_poll();
     #endif
   }
   /* USER CODE END 3 */
@@ -269,6 +282,18 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+#if SX_OS_USE_FREERTOS && !TEST_DI
+static void plc_task(void *arg)
+{
+  (void)arg;
+  plc_engine_init();
+  for (;;)
+  {
+    plc_engine_poll();
+    vTaskDelay(1);
+  }
+}
+#endif
 
 /* USER CODE END 4 */
 
