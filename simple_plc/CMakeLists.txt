@@ -41,7 +41,8 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/components)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/platforms/stm32/stm32h5)
 
 # --- Layer 0 - Platform: OS (platforms/freertos/) ------------------------
-# splc_platform_freertos is defined in platforms/freertos/CMakeLists.txt.
+# splc_platform_freertos (an OBJECT library, see below at the executable's
+# target_sources) is defined in platforms/freertos/CMakeLists.txt.
 # FreeRTOS implementation of components/os/sx_os.h; empty object unless
 # app/sx_os_config.h sets SX_OS_USE_FREERTOS = 1. Also owns the cache variable
 # SPLC_OS_INCLUDE_DIRS, so it must come before board/ (which reads it).
@@ -118,8 +119,12 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     splc_services
     splc_board
     splc_app
-    splc_platform_freertos   # last: earlier libs call sx_os_*() (static-lib link order)
 )
+
+# sx_os_*() implementation (Layer 0, platforms/freertos/): added as OBJECT files,
+# not as a static library, so it resolves for every caller regardless of the
+# static-library order on the link line. Empty unless SX_OS_USE_FREERTOS = 1.
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE $<TARGET_OBJECTS:splc_platform_freertos>)
 
 # RTC: keep the time across warm resets without editing CubeMX code.
 # The generated MX_RTC_Init() unconditionally writes 2000-01-01 at every

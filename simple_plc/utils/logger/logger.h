@@ -9,10 +9,6 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifndef FREE_RTOS
-#define FREE_RTOS 0
-#endif
-
 typedef enum {
 	LOGGER_OFF = 0,
 	LOGGER_ERROR,

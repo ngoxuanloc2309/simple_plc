@@ -1,5 +1,8 @@
 #include "logger.h"
+#include "sx_os_config.h"
 
+/* Single source of truth: the RTOS switch lives in app/sx_os_config.h. */
+#define FREE_RTOS SX_OS_USE_FREERTOS
 
 #if FREE_RTOS
 
@@ -7,6 +10,26 @@
 #include <semphr.h>
 
 static SemaphoreHandle_t logger_mutex = NULL;
+
+/* The mutex exists only after logger_init(); before that (and before the
+ * scheduler starts) the logger is used by a single thread, so skipping the
+ * lock is safe. Never call the logger from an ISR when FREE_RTOS = 1. */
+static inline void logger_lock(void)
+{
+    if (logger_mutex != NULL) {
+        (void)xSemaphoreTake(logger_mutex, portMAX_DELAY);
+    }
+}
+
+static inline void logger_unlock(void)
+{
+    if (logger_mutex != NULL) {
+        (void)xSemaphoreGive(logger_mutex);
+    }
+}
+#else
+#define logger_lock()   ((void)0)
+#define logger_unlock() ((void)0)
 
 #endif
 
@@ -26,7 +49,7 @@ static p_log_func serial_write = serial_write_func;
 
 static void serial_write_func(const char *s)
 {
-    printf(s);
+    fputs(s, stdout);
 }
 
 static const char *log_level_strings[] = {
@@ -73,32 +96,36 @@ void log_func(LOGGING_LEVELS level, const char *TAG, const char *frmt, ...)
     {
         return;
     }
-#if FREE_RTOS
-    xSemaphoreTake(logger_mutex, portMAX_DELAY);
-#endif
-    char *format = buff;
-    sprintf(format, "%s%s%s : ", colors[level], log_level_strings[level], TAG);
-    va_list argp;
-    va_start(argp, frmt);
-    vsprintf(format + strlen(format), frmt, argp);
-    va_end(argp);
-    //    serial_write(colors[level]);
-    //    serial_write(log_level_strings[level]);
-    //    serial_write(TAG);
-    //    serial_write(" : ");
-    //    format[strlen(format)] = '\n';
-    strcat(format, colors[LOGGER_OFF]);
-    strcat(format, "\r\n");
     if (serial_write == NULL)
     {
         return;
     }
-    serial_write(format);
 
-#if FREE_RTOS
-    xSemaphoreGive(logger_mutex);
-#endif
+    logger_lock();
 
+    /* buff is shared by every caller; the lock covers format + write. */
+    int n = snprintf(buff, sizeof(buff), "%s%s%s : ", colors[level], log_level_strings[level], TAG);
+    if (n < 0 || (size_t)n >= sizeof(buff))
+    {
+        n = 0;
+        buff[0] = '\0';
+    }
+    va_list argp;
+    va_start(argp, frmt);
+    vsnprintf(buff + n, sizeof(buff) - (size_t)n, frmt, argp);
+    va_end(argp);
+
+    /* Trailer: colour reset + CRLF. Room is guaranteed by the reserve. */
+    size_t len = strlen(buff);
+    if (len > sizeof(buff) - 16U)
+    {
+        len = sizeof(buff) - 16U;
+    }
+    snprintf(buff + len, sizeof(buff) - len, "%s\r\n", colors[LOGGER_OFF]);
+
+    serial_write(buff);
+
+    logger_unlock();
 #endif
 }
 void logger_set_level(LOGGING_LEVELS level)
@@ -112,31 +139,45 @@ void log_print_hex(LOGGING_LEVELS level, const char *TAG, uint8_t *hex_buff, uin
     {
         return;
     }
-    char *format = buff;
-    memset(buff, 0, 2048);
-    sprintf(format, "%s%s%s : ", colors[level], log_level_strings[level], TAG);
-    char hex[6];
-    hex[5] = 0;
-    for (uint16_t i = 0; i < length; i++)
-    {
-        sprintf(hex, "%02X ", hex_buff[i]);
-        strcat(format, hex);
-    }
-    strcat(format, "\r\n");
     if (serial_write == NULL)
     {
         return;
     }
-    serial_write(format);
+
+    logger_lock();
+
+    int n = snprintf(buff, sizeof(buff), "%s%s%s : ", colors[level], log_level_strings[level], TAG);
+    size_t len = (n < 0 || (size_t)n >= sizeof(buff)) ? 0U : (size_t)n;
+    buff[len] = '\0';
+    for (uint16_t i = 0; i < length; i++)
+    {
+        /* 3 chars per byte + CRLF + NUL */
+        if (len + 3U + 3U > sizeof(buff))
+        {
+            break;
+        }
+        len += (size_t)snprintf(buff + len, sizeof(buff) - len, "%02X ", hex_buff[i]);
+    }
+    snprintf(buff + len, sizeof(buff) - len, "\r\n");
+
+    serial_write(buff);
+
+    logger_unlock();
 #endif
 }
 void logger_init(LOGGING_LEVELS level, p_log_func p_func)
 {
 #if FREE_RTOS
-    logger_mutex = xSemaphoreCreateMutex();
+    if (logger_mutex == NULL)   /* tolerate a second logger_init() */
+    {
+        logger_mutex = xSemaphoreCreateMutex();
+    }
 #endif
     LOG_LEVEL = level;
-    serial_write = p_func;
+    if (p_func != NULL)
+    {
+        serial_write = p_func;
+    }
     serial_write(colors[LOGGER_DEBUG]);
     serial_write("\r\n\r\n");
     serial_write(banner);
