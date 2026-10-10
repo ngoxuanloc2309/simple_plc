@@ -1,4 +1,9 @@
 #ifndef ETHERNET_WIFI_GATEWAY_H
 #define ETHERNET_WIFI_GATEWAY_H
 
+#define GATEWAY_FAKE_IO_DI_NUM    4
+#define GATEWAY_FAKE_IO_DO_NUM    4
+
+
+
 #endif

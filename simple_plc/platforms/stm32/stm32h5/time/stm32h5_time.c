@@ -1,10 +1,15 @@
 #include "stm32h5_time.h"
+#include "sx_os_config.h"
 
 #if STM32H5_PLATFORM
 
 void sx_delay_ms(uint32_t ms)
 {
+#if SX_NO_OS
     HAL_Delay(ms);
+#else
+
+#endif
 }
 
 void sx_delay_s(uint32_t s)
