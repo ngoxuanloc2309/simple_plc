@@ -14,6 +14,7 @@
 #include "sx_usb_cdc.h"
 #include "modbus_usb.h"
 #include "logger.h"
+#include "sx_os.h"
 #include "tusb.h"    /* tud_int_handler (macro for dcd_int_handler), used by
                        * USB_DRD_FS_IRQHandler() below -- declared in
                        * libs/tinyusb/src/device/usbd.h, pulled in
@@ -310,6 +311,7 @@ void board_hw_init(void)
         uint32_t t0 = HAL_GetTick();
         while ((HAL_GetTick() - t0) < 500U) {
             sx_usb_tiny_process(&s_board.usb);
+            sx_os_yield_wait();   /* no-op bare-metal; 1-tick sleep under FreeRTOS */
         }
     }
 }

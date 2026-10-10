@@ -1,6 +1,7 @@
 #include "sx_usb_cdc.h"
 #include "sx_platform_config.h"
 #include "logger.h"
+#include "sx_os.h"
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -26,8 +27,10 @@ void sx_usb_tiny_init(sx_usb_tiny_t *_usb, sx_usb_tiny_config_t *_config)
     cqueue_init_static(&_usb->txQueue, _usb->txBuffer,
                         _config->tx_buf_size, 1);
 
-    /* No mutex here -- this project is bare-metal single-threaded
-     * (no RTOS), unlike the WS_v1 reference this was ported from. */
+    /* No mutex here, in either mode: the whole library is single-threaded.
+     * With SX_OS_USE_FREERTOS = 1 only ONE task (the one that runs
+     * plc_engine_poll()) may touch this driver; the busy waits below give the
+     * CPU away through sx_os_yield_wait() instead of spinning. */
 
 #if STM32H5_PLATFORM
     //dcd_fs_msp_init(0);
@@ -126,8 +129,10 @@ void sx_usb_tiny_write(sx_usb_tiny_t *_usb, const uint8_t *_data, uint32_t _len)
         uint32_t written = tud_cdc_write(_data + sent, _len - sent);
         sent += written;
         tud_cdc_write_flush();
-        if(written == 0)
+        if(written == 0){
             tud_task();
+            sx_os_yield_wait();   /* TX FIFO full: let the USB ISR/host drain it */
+        }
     }
 #endif
 }
@@ -184,6 +189,12 @@ int sx_usb_tiny_read(sx_usb_tiny_t *_usb, uint8_t *_data,
             break;
         }
 
+        /* Sleep first (RTOS only; no-op bare-metal), THEN pump TinyUSB and
+         * move whatever arrived meanwhile into rxQueue, so the next
+         * iteration sees it. The timeout above stays in HAL ticks, so a
+         * slow RTOS tick cannot stretch the byte timeout. Prefer
+         * configTICK_RATE_HZ = 1000: with 100 Hz one sleep is 10 ms. */
+        sx_os_yield_wait();
         tud_task();
         usb_rx_task(_usb);
 #else
