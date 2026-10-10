@@ -32,7 +32,11 @@ target_include_directories(splc_board PUBLIC
 
 target_include_directories(splc_board PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../utils/logger
+    ${CMAKE_CURRENT_SOURCE_DIR}/../app          # logger.h -> sx_os_config.h
 )
+if(SPLC_OS_INCLUDE_DIRS)                          # defined in platforms/freertos/CMakeLists.txt
+    target_include_directories(splc_board PRIVATE ${SPLC_OS_INCLUDE_DIRS})
+endif()
 
 # splc_services (Layer 3) supplies plc_io.h (plc_io_register_di/do/ai()),
 # which board_${SPLC_BOARD_SKU}.c calls directly.

@@ -40,6 +40,13 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/components)
 # of all 5 .c files against this exact include path, 0 errors.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/platforms/stm32/stm32h5)
 
+# --- Layer 0 - Platform: OS (platforms/freertos/) ------------------------
+# splc_platform_freertos is defined in platforms/freertos/CMakeLists.txt.
+# FreeRTOS implementation of components/os/sx_os.h; empty object unless
+# app/sx_os_config.h sets SX_OS_USE_FREERTOS = 1. Also owns the cache variable
+# SPLC_OS_INCLUDE_DIRS, so it must come before board/ (which reads it).
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/platforms/freertos)
+
 # --- Library - nanoMODBUS (libs/) ---------------------------------------
 # nanomodbus is defined in libs/CMakeLists.txt. Portable, builds cleanly
 # standalone (verified independently), no platform dependency.
@@ -111,6 +118,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     splc_services
     splc_board
     splc_app
+    splc_platform_freertos   # last: earlier libs call sx_os_*() (static-lib link order)
 )
 
 # RTC: keep the time across warm resets without editing CubeMX code.

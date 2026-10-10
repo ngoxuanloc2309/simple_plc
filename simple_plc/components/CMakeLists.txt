@@ -49,6 +49,7 @@ set(SPLC_COMPONENTS_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/flash
     ${CMAKE_CURRENT_SOURCE_DIR}/uart
     ${CMAKE_CURRENT_SOURCE_DIR}/time
+    ${CMAKE_CURRENT_SOURCE_DIR}/os
     ${CMAKE_CURRENT_SOURCE_DIR}/usb_cdc
     ${CMAKE_CURRENT_SOURCE_DIR}/system
     ${CMAKE_CURRENT_SOURCE_DIR}/rtc
@@ -56,6 +57,10 @@ set(SPLC_COMPONENTS_INCLUDE_DIRS
 )
 
 target_include_directories(splc_components PUBLIC ${SPLC_COMPONENTS_INCLUDE_DIRS})
+
+# sx_os.h (components/os/) is only the contract; its FreeRTOS implementation
+# and the RTOS include dirs (SPLC_OS_INCLUDE_DIRS) live in Layer 0:
+# platforms/freertos/CMakeLists.txt.
 
 # sx_uart.h (and sx_usb_cdc.c, via cqueue-backed RX/TX buffers) depend on
 # cqueue.h (Layer U, utils/cqueue/). Re-exported here so nothing above
