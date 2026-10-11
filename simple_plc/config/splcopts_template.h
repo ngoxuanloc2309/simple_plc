@@ -35,9 +35,8 @@
 /* #define RETAIN_EMERGENCY_MIN_INTERVAL_MS 5000U */
 
 /* --- App <-> device link --------------------------------------------- */
+/* #define SPLC_PORT_USB_CDC             1 */      /* 1 = SimplePLC owns USB (TinyUSB + CDC port module); 0 = host owns it (default) */
 /* #define SPLC_MODBUS_UNIT_ID           1 */
-/* #define SPLC_USB_RX_BUF_SIZE          256 */
-/* #define SPLC_USB_TX_BUF_SIZE          256 */
 /* #define SPLC_LINK_RX_BUF_SIZE         512 */   /* power of two, >= 256 */
 
 /* --- Remote I/O (Gateway) -------------------------------------------- */

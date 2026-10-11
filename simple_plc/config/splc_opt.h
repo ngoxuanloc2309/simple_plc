@@ -137,14 +137,33 @@
 #endif
 
 /* ======================================================================
- * App <-> device link (Modbus RTU over USB-CDC)
+ * App <-> device link (Modbus RTU)
  * ==================================================================== */
+/* 1 = build the optional USB-CDC port module (port/usb/): TinyUSB, the CDC
+ *     descriptors, and splc_usb_cdc_init(), which registers the USB-CDC pipe
+ *     with the App link (port/modbus_link). SimplePLC then OWNS the USB
+ *     peripheral and its interrupt: the board file calls splc_usb_cdc_init()
+ *     and forwards USB_DRD_FS_IRQHandler to splc_usb_irq(). Needed by the
+ *     Zigbee-IO board.
+ * 0 = no USB code at all (no TinyUSB, no descriptors). Use this when the host
+ *     firmware already owns the USB peripheral: it then feeds the link with
+ *     splc_link_input() and installs output() itself (port/modbus_link).
+ * USB, UART and interrupts have exactly one owner, so a firmware that already
+ * contains TinyUSB must leave this at 0. CMake reads this option from
+ * splcopts.h. */
+#ifndef SPLC_PORT_USB_CDC
+#define SPLC_PORT_USB_CDC                0
+#endif
+
 /* Modbus slave address the device answers to (1..247). */
 #ifndef SPLC_MODBUS_UNIT_ID
 #define SPLC_MODBUS_UNIT_ID              1
 #endif
 
-/* Byte queues between TinyUSB and nanoMODBUS. 256 is the tested value. */
+/* LEGACY: byte queues of the old USB path (components/usb_cdc/sx_usb_cdc.c,
+ * port/modbus_usb). No board uses them any more: the USB-CDC port module
+ * feeds the link ring (SPLC_LINK_RX_BUF_SIZE) instead. They go away together
+ * with the old path (docs/handoff.md section 4.A, step A4). */
 #ifndef SPLC_USB_RX_BUF_SIZE
 #define SPLC_USB_RX_BUF_SIZE             256
 #endif
@@ -219,6 +238,9 @@
  * ==================================================================== */
 #if (SX_OS_USE_FREERTOS != 0) && (SX_OS_USE_FREERTOS != 1)
 #error "SX_OS_USE_FREERTOS must be 0 or 1"
+#endif
+#if (SPLC_PORT_USB_CDC != 0) && (SPLC_PORT_USB_CDC != 1)
+#error "SPLC_PORT_USB_CDC must be 0 or 1"
 #endif
 #if (PLC_PVD_EMERGENCY_SAVE_ENABLE != 0) && (PLC_PVD_EMERGENCY_SAVE_ENABLE != 1)
 #error "PLC_PVD_EMERGENCY_SAVE_ENABLE must be 0 or 1"

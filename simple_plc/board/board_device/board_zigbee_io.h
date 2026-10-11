@@ -44,11 +44,10 @@
 #define ZIGBEE_TIM1 htim1
 
 /* USB CDC (App<->MCU Modbus channel, per docs/architecture.md section 0
- * -- USB, not RS485). Buffer sizes are a starting point, not yet tuned
- * against real Modbus RTU frame sizes/throughput. */
+ * -- USB, not RS485) is the optional port module port/usb/; its byte
+ * buffering is the link ring (SPLC_LINK_RX_BUF_SIZE, splcopts.h), not a board
+ * constant. */
 #include "splc_opt.h"
-#define USB_RX_BUF_SIZE   SPLC_USB_RX_BUF_SIZE   /* product option, splcopts.h */
-#define USB_TX_BUF_SIZE   SPLC_USB_TX_BUF_SIZE
 
 /* Modbus RTU unit ID (slave address) this board answers to. MUST be
  * 1..247: nanoMODBUS's nmbs_server_create() rejects 0 (broadcast) and

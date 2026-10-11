@@ -132,7 +132,15 @@ static int32_t link_read(uint8_t *buf, uint16_t count, int32_t timeout_ms, void 
 }
 
 /* nanoMODBUS platform.write contract: return count on success, fewer than
- * count on timeout, negative on a hard error. */
+ * count on timeout, negative on a hard error.
+ *
+ * The timeout is an IDLE timeout: it restarts every time output() accepts at
+ * least one byte, and only a link that takes nothing for timeout_ms ends the
+ * write. nanoMODBUS passes its BYTE timeout (5 ms in plc_modbus_cfg) for the
+ * whole reply, and a reply of up to 255 bytes leaves a 64-byte-FIFO USB link in
+ * several pieces, each waiting for the host to collect the previous one. A total
+ * budget of 5 ms would cut such a reply short; a stalled link still aborts after
+ * one idle timeout. timeout_ms == 0 stays "accept what fits right now". */
 static int32_t link_write(const uint8_t *buf, uint16_t count, int32_t timeout_ms, void *ctx)
 {
     (void)ctx;
@@ -155,8 +163,12 @@ static int32_t link_write(const uint8_t *buf, uint16_t count, int32_t timeout_ms
         if (sent >= count) {
             break;
         }
+        if (n > 0) {
+            start = sx_get_tick_ms();        /* progress: restart the idle clock */
+        }
 
-        /* Partial or zero accept: the link is busy. Retry until the timeout. */
+        /* Partial or zero accept: the link is busy. Retry until it has made no
+         * progress for the whole timeout. */
         if (timeout_ms >= 0 &&
             (uint32_t)(sx_get_tick_ms() - start) >= (uint32_t)timeout_ms) {
             break;

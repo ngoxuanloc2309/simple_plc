@@ -18,7 +18,9 @@
  * What the core owns (so that no port has to get it right):
  *   - the RX byte ring (SPLC_LINK_RX_BUF_SIZE),
  *   - every timeout: read() waits in real milliseconds, write() retries a
- *     partial output() until the timeout. A frame longer than one USB packet
+ *     partial output() until the link has made no progress for the timeout
+ *     (an idle timeout: a long reply that a USB link takes piece by piece is
+ *     not cut short by one small total budget). A frame longer than one USB packet
  *     (e.g. an FC16 of 73 bytes) arrives in several pieces; waiting for the
  *     next piece is done here, once, not in each port.
  *
@@ -64,7 +66,8 @@ typedef struct {
      * Core -> peer. Hand up to len bytes to the physical link without
      * blocking.
      *   return n, 0 <= n <= len : n bytes were accepted (0 = link busy, the
-     *                             core retries until its write timeout);
+     *                             core retries until the link has made no
+     *                             progress for its write timeout);
      *   return < 0              : hard error (e.g. USB not connected); the
      *                             core aborts the write.
      * A value greater than len is treated as a hard error.

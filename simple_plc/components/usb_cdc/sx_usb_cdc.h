@@ -5,10 +5,17 @@
 extern "C" {
 #endif
 
+/*
+ * LEGACY (removed in step A4, docs/handoff.md section 4.A): the old USB path,
+ * with its own RX/TX queues and timeouts, used through port/modbus_usb. Since
+ * step A3 no board calls it: the App link is the USB-CDC port module
+ * (port/usb/splc_usb_cdc.h) feeding port/modbus_link, which owns the RX ring
+ * and every timeout. This header includes no TinyUSB header any more, and the
+ * tud_*_cb callbacks moved to that module.
+ */
 #include <stdint.h>
 #include <stdbool.h>
 #include "cqueue.h"
-#include "tusb_types.h"
   
 /*  Config  */
 typedef struct sx_usb_tiny_config {
@@ -46,11 +53,6 @@ bool sx_usb_tiny_connected(sx_usb_tiny_t *_usb);
 int sx_usb_tiny_available(sx_usb_tiny_t *_usb);
 int sx_usb_tiny_read(sx_usb_tiny_t *_usb, uint8_t *_data, uint32_t _len, uint32_t _timeoutMS);
 void sx_usb_tiny_printf(sx_usb_tiny_t *_usb, const char *fmt, ...);
-
-void tud_mount_cb(void);
-void tud_umount_cb(void);
-void tud_suspend_cb(bool remote_wakeup_en);
-void tud_resume_cb(void);
 
 #ifdef __cplusplus
 }

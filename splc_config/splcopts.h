@@ -23,6 +23,10 @@
  *     1 = FreeRTOS (one task calls plc_engine_poll()). */
 #define SX_OS_USE_FREERTOS            1
 
+/* App <-> device link: this board talks to the App over USB-CDC, and
+ * SimplePLC owns the USB peripheral (TinyUSB + CDC port module, port/usb/). */
+#define SPLC_PORT_USB_CDC             1
+
 /* Engine */
 #define PLC_SCAN_INTERVAL_MS          10U
 

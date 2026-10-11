@@ -5,6 +5,16 @@
 #include "board_config.h"
 SPLC_BOARD_CHECK_SELECTED(BOARD_ZIGBEE_IO_4DI_4DO);
 
+#include "splc_opt.h"
+/* App link: this board talks to the App over USB-CDC and SimplePLC owns the USB
+ * peripheral, through the optional port module port/usb/ (SPLC_PORT_USB_CDC = 1
+ * in splcopts.h). The module registers the USB pipe with port/modbus_link; this
+ * file only starts it, forwards the USB interrupt to it and asks the link for
+ * its transport. It includes nothing from TinyUSB. */
+#if !SPLC_PORT_USB_CDC
+#error "board_zigbee_io.c talks to the App over USB-CDC: set SPLC_PORT_USB_CDC to 1 in splcopts.h"
+#endif
+
 #include "main.h"    /* CubeMX-generated: GPIOA/GPIOB, GPIO_PIN_x macros used
                        * by board_zigbee_io.h's DI*_PORT/DI*_PIN/DO*_PORT/
                        * DO*_PIN definitions -- board_zigbee_io.h does not
@@ -13,18 +23,14 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_ZIGBEE_IO_4DI_4DO);
 
 #include "sx_gpio.h"
 #include "sx_uart.h"
-#include "sx_usb_cdc.h"
-#include "modbus_usb.h"
+#include "splc_usb_cdc.h"   /* optional USB-CDC port module: splc_usb_cdc_init(), splc_usb_irq() */
+#include "modbus_link.h"    /* splc_link_get_transport() */
 #include "splc_log.h"
 #include "logger.h"     /* logger_init(): this board always uses the built-in logger */
 #if !SPLC_LOGGER_BUILTIN
 #error "board_zigbee_io.c initialises the built-in logger: SPLC_LOGGER_BUILTIN must be 1"
 #endif
 #include "sx_os.h"
-#include "tusb.h"    /* tud_int_handler (macro for dcd_int_handler), used by
-                       * USB_DRD_FS_IRQHandler() below -- declared in
-                       * libs/tinyusb/src/device/usbd.h, pulled in
-                       * transitively via tusb.h. */
 
 #include "plc_io.h"
 #include "plc_tag.h"        /* tag_di_base_index()/tag_do_base_index() */
@@ -85,9 +91,6 @@ typedef struct {
 
     sx_uart_t         log_uart;
     sx_uart_config_t  log_uart_cfg;
-
-    sx_usb_tiny_t        usb;
-    sx_usb_tiny_config_t usb_cfg;
 } zigbee_io_board_t;
 
 static zigbee_io_board_t s_board;
@@ -99,10 +102,8 @@ static zigbee_io_board_t s_board;
 static uint8_t s_log_rx_buf[128];
 static uint8_t s_log_tx_buf[128];
 
-/* USB CDC RX/TX buffers -- caller-owned per sx_usb_cdc.h's doc-comment,
- * sized via board_zigbee_io.h's USB_RX_BUF_SIZE/USB_TX_BUF_SIZE. */
-static uint8_t s_usb_rx_buf[USB_RX_BUF_SIZE];
-static uint8_t s_usb_tx_buf[USB_TX_BUF_SIZE];
+/* True once splc_usb_cdc_init() has registered the App link and started USB. */
+static bool s_usb_ok;
 
 /*
  * logger_init() takes a p_log_func (void (*)(const char *s)) -- adapts
@@ -281,13 +282,15 @@ static void board_log_uart_init(void)
 
 static void board_usb_init(void)
 {
-    s_board.usb_cfg.rx_buf_size = USB_RX_BUF_SIZE;
-    s_board.usb_cfg.tx_buf_size = USB_TX_BUF_SIZE;
-
-    s_board.usb.rxBuffer = s_usb_rx_buf;
-    s_board.usb.txBuffer = s_usb_tx_buf;
-
-    sx_usb_tiny_init(&s_board.usb, &s_board.usb_cfg);
+    /* Registers the USB-CDC pipe with the App link and starts TinyUSB. A
+     * failure is logged and the board still runs (rules, retain, I/O); only the
+     * App cannot reach it, and board_get_modbus_transport() then hands out an
+     * idle transport. */
+    splc_link_err_t err = splc_usb_cdc_init();
+    s_usb_ok = (err == SPLC_LINK_OK);
+    if (!s_usb_ok) {
+        log_error(TAG, "USB-CDC App link init FAILED (%d)", (int)err);
+    }
 }
 
 void board_hw_init(void)
@@ -314,29 +317,56 @@ void board_hw_init(void)
     }
 
     board_usb_init();
-    log_info(TAG, "USB CDC initialized");
+    if (s_usb_ok) {
+        log_info(TAG, "USB CDC initialized");
 
-    {
+        /* Let the host enumerate the device before the engine starts scanning. */
         uint32_t t0 = HAL_GetTick();
         while ((HAL_GetTick() - t0) < 500U) {
-            sx_usb_tiny_process(&s_board.usb);
+            splc_usb_cdc_process();
             sx_os_yield_wait();   /* no-op bare-metal; 1-tick sleep under FreeRTOS */
         }
     }
 }
 
-modbus_transport_t board_get_modbus_transport(void)
+/* Transport handed to plc_modbus_cfg when no App link exists: no byte ever
+ * arrives and everything written is swallowed, so the Modbus server stays idle
+ * instead of jumping through a NULL read pointer. */
+static int32_t idle_read(uint8_t *buf, uint16_t count, int32_t timeout_ms, void *ctx)
 {
-    /* Zigbee-IO's App<->MCU config channel is USB-CDC (see
-     * docs/architecture.md section 0: USB, not RS485, for App<->MCU on
-     * every SKU) -- s_board.usb was already initialized by
-     * board_usb_init() above, which board_hw_init() guarantees ran
-     * before this function is ever called (see board.h's doc-comment on
-     * calling order). */
-    return modbus_transport_usb_create(&s_board.usb, MODBUS_UNIT_ID);
+    (void)buf; (void)count; (void)timeout_ms; (void)ctx;
+    return 0;
 }
 
+static int32_t idle_write(const uint8_t *buf, uint16_t count, int32_t timeout_ms, void *ctx)
+{
+    (void)buf; (void)timeout_ms; (void)ctx;
+    return (int32_t)count;
+}
+
+modbus_transport_t board_get_modbus_transport(void)
+{
+    /* Zigbee-IO's App<->MCU config channel is USB-CDC: board_usb_init() (run by
+     * board_hw_init(), which board.h guarantees happens before this function)
+     * registered the USB pipe with the App link, so the transport is the
+     * link's. */
+    modbus_transport_t t;
+    if (splc_link_get_transport(&t)) {
+        return t;
+    }
+
+    log_error(TAG, "no App link registered -- Modbus config server stays idle");
+    t.ctx     = NULL;
+    t.read    = idle_read;
+    t.write   = idle_write;
+    t.process = NULL;
+    t.kind    = MODBUS_TRANSPORT_KIND_RTU;
+    t.unit_id = MODBUS_UNIT_ID;
+    return t;
+}
+
+/* USB interrupt: forwarded to the USB-CDC port module (TinyUSB stays inside it). */
 void USB_DRD_FS_IRQHandler(void)
 {
-    tud_int_handler(0);
+    splc_usb_irq();
 }

@@ -1,17 +1,21 @@
 #include "sx_usb_cdc.h"
-#include "sx_platform_config.h"
+#include "tusb.h"
 #include "splc_log.h"
 #include "sx_os.h"
+#include "sx_time.h"
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
-static const char *TAG = "SX_USB_TINY";
 
-#if STM32H5_PLATFORM
-    #include "stm32h5xx_hal.h"
-    #include "tusb.h"
-    #include "usb.h"
-#endif
+/*
+ * LEGACY (removed in step A4, docs/handoff.md section 4.A): the old USB path.
+ * Since step A3 no board calls it: the App link is the USB-CDC port module
+ * (port/usb/splc_usb_cdc.h) feeding port/modbus_link. It is still compiled
+ * (into splc_port_usb_cdc, and dropped by the linker) until the regression of
+ * the new link on the Zigbee-IO board has passed. The tud_*_cb callbacks that
+ * used to live here are now in port/usb/splc_usb_cdc.c.
+ */
+static const char *TAG = "SX_USB_TINY";
 
 void sx_usb_tiny_init(sx_usb_tiny_t *_usb, sx_usb_tiny_config_t *_config)
 {
@@ -32,9 +36,6 @@ void sx_usb_tiny_init(sx_usb_tiny_t *_usb, sx_usb_tiny_config_t *_config)
      * plc_engine_poll()) may touch this driver; the busy waits below give the
      * CPU away through sx_os_yield_wait() instead of spinning. */
 
-#if STM32H5_PLATFORM
-    //dcd_fs_msp_init(0);
-
     tusb_rhport_init_t dev_init = {
         .role  = TUSB_ROLE_DEVICE,
         /* USB_DRD_FS (stm32_fsdev) is Full-Speed only on STM32H5 --
@@ -44,7 +45,6 @@ void sx_usb_tiny_init(sx_usb_tiny_t *_usb, sx_usb_tiny_config_t *_config)
         .speed = TUSB_SPEED_FULL,
     };
     tusb_init(BOARD_TUD_RHPORT, &dev_init);
-#endif
 
     log_info(TAG, "CDC initialized, rx_buf=%lu tx_buf=%lu",
              _config->rx_buf_size, _config->tx_buf_size);
@@ -87,7 +87,6 @@ void sx_usb_tiny_init(sx_usb_tiny_t *_usb, sx_usb_tiny_config_t *_config)
  */
 static void usb_rx_task(sx_usb_tiny_t *_usb)
 {
-#if STM32H5_PLATFORM
     if(!tud_cdc_connected()) return;
 
     uint8_t buf[64];
@@ -107,15 +106,12 @@ static void usb_rx_task(sx_usb_tiny_t *_usb)
             }
         }
     }
-#endif
 }
 
 void sx_usb_tiny_process(sx_usb_tiny_t *_usb){
-#if STM32H5_PLATFORM
     tud_task();
     _usb->connected = sx_usb_tiny_connected(_usb);
     usb_rx_task(_usb);
-#endif
 }
 
 void sx_usb_tiny_write(sx_usb_tiny_t *_usb, const uint8_t *_data, uint32_t _len){
@@ -123,7 +119,6 @@ void sx_usb_tiny_write(sx_usb_tiny_t *_usb, const uint8_t *_data, uint32_t _len)
         return;
     // log_debug(TAG, "USB write: %lu bytes", _len);
 
-#if STM32H5_PLATFORM
     uint32_t sent = 0;
     while(sent < _len){
         uint32_t written = tud_cdc_write(_data + sent, _len - sent);
@@ -134,7 +129,6 @@ void sx_usb_tiny_write(sx_usb_tiny_t *_usb, const uint8_t *_data, uint32_t _len)
             sx_os_yield_wait();   /* TX FIFO full: let the USB ISR/host drain it */
         }
     }
-#endif
 }
 
 int sx_usb_tiny_read(sx_usb_tiny_t *_usb, uint8_t *_data,
@@ -142,9 +136,7 @@ int sx_usb_tiny_read(sx_usb_tiny_t *_usb, uint8_t *_data,
 {
     uint32_t len = 0;
 
-#if STM32H5_PLATFORM
-    uint32_t start_ms = HAL_GetTick();
-#endif
+    uint32_t start_ms = sx_get_tick_ms();
 
     /*
      * Bytes ALREADY sitting in rxQueue are always returned, regardless of
@@ -182,35 +174,27 @@ int sx_usb_tiny_read(sx_usb_tiny_t *_usb, uint8_t *_data,
             continue;
         }
 
-#if STM32H5_PLATFORM
         /* Queue is empty. Give up if the caller does not want to wait, or
          * the wait budget (real milliseconds) is used up. */
-        if ((uint32_t)(HAL_GetTick() - start_ms) >= _timeoutMS) {
+        if ((uint32_t)(sx_get_tick_ms() - start_ms) >= _timeoutMS) {
             break;
         }
 
         /* Sleep first (RTOS only; no-op bare-metal), THEN pump TinyUSB and
          * move whatever arrived meanwhile into rxQueue, so the next
-         * iteration sees it. The timeout above stays in HAL ticks, so a
+         * iteration sees it. The timeout above is real milliseconds, so a
          * slow RTOS tick cannot stretch the byte timeout. Prefer
          * configTICK_RATE_HZ = 1000: with 100 Hz one sleep is 10 ms. */
         sx_os_yield_wait();
         tud_task();
         usb_rx_task(_usb);
-#else
-        break;
-#endif
     }
     return (int)len;
 }
 
 bool sx_usb_tiny_connected(sx_usb_tiny_t *_usb){
     (void)_usb;
-#if STM32H5_PLATFORM
     return tud_cdc_connected();
-#else
-    return false;
-#endif
 }
 
 int sx_usb_tiny_available(sx_usb_tiny_t *_usb){
@@ -226,25 +210,4 @@ void sx_usb_tiny_printf(sx_usb_tiny_t *_usb, const char *fmt, ...){
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     sx_usb_tiny_write(_usb, (uint8_t *)buf, strlen(buf));
-}
-
-void tud_mount_cb(void)
-{
-  log_debug(TAG, "USB Mounted!\r\n");
-}
-
-void tud_umount_cb(void)
-{
-  log_debug(TAG, "USB Unmounted!\r\n");
-}
-
-void tud_suspend_cb(bool remote_wakeup_en)
-{
-  (void)remote_wakeup_en;
-  log_debug(TAG, "USB Suspended\r\n");
-}
-
-void tud_resume_cb(void)
-{
-    log_debug(TAG, "USB Resumed\r\n");
 }
