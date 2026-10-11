@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-#include "nanomodbus.h"
+#include "splc_nmbs.h"
 #include "plc_tag.h"
 #include "plc_diag.h"
 #include "plc_rule.h"

@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-#include "nanomodbus.h"   /* nmbs_crc_calc() only */
+#include "splc_nmbs.h"   /* nmbs_crc_calc() only (renamed splc_nmbs_crc_calc) */
 #include "sx_time.h"
 
 #define FC_READ_HOLDING    0x03U

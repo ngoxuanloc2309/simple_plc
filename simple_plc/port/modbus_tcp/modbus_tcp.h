@@ -3,6 +3,6 @@
 
 #include "stdint.h"
 #include "stdbool.h"
-#include "nanomodbus.h"
+#include "splc_nmbs.h"
 
 #endif    // MODBUS_TCP_H

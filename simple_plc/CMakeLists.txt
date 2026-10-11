@@ -85,8 +85,9 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/platforms/${SPLC_PLATFORM_DIR})
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/platforms/freertos)
 
 # --- Library - nanoMODBUS (libs/) ---------------------------------------
-# nanomodbus is defined in libs/CMakeLists.txt. Portable, builds cleanly
-# standalone (verified independently), no platform dependency.
+# splc_nanomodbus is defined in libs/CMakeLists.txt: SimplePLC's private copy
+# of nanoMODBUS with every global symbol renamed splc_*, so it coexists with a
+# host firmware's own nanoMODBUS. Portable, no platform dependency.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/libs)
 
 # --- Layer 3.5 - Protocol / Library Porting (port/) ---------------------
@@ -151,7 +152,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     splc_core
     splc_components
     ${SPLC_PLATFORM_TARGET}
-    nanomodbus
+    splc_nanomodbus
     splc_port
     splc_services
     splc_board

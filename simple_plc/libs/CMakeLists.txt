@@ -8,45 +8,58 @@
 # and .../modbus_tcp/ all exist to adapt what gets built here to this
 # project's own Layer 1 components.
 
-# --- nanoMODBUS -----------------------------------------------------------
+# --- nanoMODBUS (SimplePLC's private, renamed copy) -----------------------
 #
 # Vendored directly (not a git submodule -- unlike tinyusb below, the
-# source is committed straight into libs/nanomodbus/), so it is always
-# present. nanomodbus.c (~2460 lines) uses only <stdbool.h>/<stdint.h>/
-# <string.h> and has no platform-specific code of its own -- correctness
-# verified by inspection of its top #include block; it is nanoMODBUS's
-# whole design that all of GPIO/UART/USB access is pushed out to the
-# nmbs_platform_conf function pointers the *caller* supplies (see
-# port/modbus_usb/modbus_usb.c for this project's USB-CDC one), not
-# anything nanoMODBUS itself needs to know about the MCU it's running on.
-# That means this target builds identically for the real STM32H5 firmware
-# and for a plain-PC unit test binary, same as splc_core
-# (core/CMakeLists.txt).
+# source is committed straight into libs/nanomodbus/ and is NOT modified).
+# nanomodbus.c uses only <stdbool.h>/<stdint.h>/<string.h> and has no
+# platform-specific code and no global data: all GPIO/UART/USB access is
+# pushed out to the nmbs_platform_conf function pointers the *caller*
+# supplies (see port/modbus_link and port/modbus_usb). That is exactly what
+# makes it safe to keep TWO copies in one firmware, and that is what
+# SimplePLC does: a host firmware that embeds SimplePLC usually has its own
+# nanoMODBUS (same names, maybe another version or other compile flags), and
+# sharing it would tie SimplePLC's reliability to things it does not control.
 #
-# None of nanoMODBUS's NMBS_*_DISABLED / NMBS_BITFIELD_MAX / etc. compile-
-# time config macros are defined here -- every one of them is guarded by
-# #ifndef in nanomodbus.h with a workable default (e.g. server AND client
-# code both included, NMBS_BITFIELD_MAX 2000), so no PUBLIC compile
-# definitions are needed for a first working build. If a future memory
-# budget needs e.g. NMBS_SERVER_DISABLED (this device is Modbus Slave/
-# Server only, per docs/architecture.md's App<->MCU channel -- it never
-# acts as a Modbus Client on that link), add it via
-# target_compile_definitions(nanomodbus PUBLIC NMBS_SERVER_DISABLED)
-# rather than editing nanomodbus.h directly, to keep the vendored file
-# unmodified.
-add_library(nanomodbus STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/nanomodbus/nanomodbus.c
+# libs/splc_nanomodbus/ is the wrapper that makes the two coexist:
+#   - splc_nmbs.h renames every global function to splc_<name> (including the
+#     recv_*_res ones, which have no nmbs_ prefix), #undef's every NMBS_*
+#     compile-time option so a host's -DNMBS_SERVER_DISABLED cannot leak in,
+#     and includes the vendored header by relative path;
+#   - splc_nmbs.c compiles the vendored nanomodbus.c through that header.
+# All SimplePLC code includes "splc_nmbs.h", never "nanomodbus.h". The target
+# is named splc_nanomodbus (not "nanomodbus") so it cannot clash with a
+# host's own CMake target either, and only libs/splc_nanomodbus/ is put on the
+# include path: the vendored directory is deliberately NOT exported, so a
+# stray #include "nanomodbus.h" cannot resolve to it and shadow the host's.
+#
+# This target builds identically for the real STM32H5 firmware and for a
+# plain-PC test binary, same as splc_core (core/CMakeLists.txt).
+add_library(splc_nanomodbus STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/splc_nanomodbus/splc_nmbs.c
 )
 
-# PUBLIC: any caller (port/modbus_usb/modbus_usb.c today; eventually
-# services/plc_modbus_cfg.c, Layer 3, which actually calls
-# nmbs_client_create()/nmbs_server_create()) needs nanomodbus.h
-# resolvable too.
-target_include_directories(nanomodbus PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/nanomodbus
+target_include_directories(splc_nanomodbus PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/splc_nanomodbus
 )
 
-target_compile_features(nanomodbus PUBLIC c_std_11)
+target_compile_features(splc_nanomodbus PUBLIC c_std_11)
+
+# Fail the build if the renaming is incomplete (new nanoMODBUS version, typo):
+# otherwise it would only surface later as a duplicate symbol at the host's
+# link. Skipped, with a warning, when no `nm` is known to CMake.
+if(CMAKE_NM)
+    add_custom_command(TARGET splc_nanomodbus POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+                -DNM=${CMAKE_NM}
+                -DLIB=$<TARGET_FILE:splc_nanomodbus>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/../cmake_modules/splc_check_symbols.cmake
+        COMMENT "Checking splc_nanomodbus exports only splc_-prefixed symbols"
+        VERBATIM
+    )
+else()
+    message(WARNING "CMAKE_NM not set: splc_nanomodbus symbol-prefix check skipped")
+endif()
 
 # --- TinyUSB ----------------------------------------------------------
 #

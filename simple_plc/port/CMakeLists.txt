@@ -83,12 +83,12 @@ target_link_libraries(splc_port PUBLIC
     splc_components
 )
 
-# modbus_serial.c calls nmbs_crc_calc() (libs/nanomodbus), so splc_port links
-# the nanomodbus target (libs/ is added before port/ in the root CMakeLists).
-# modbus_usb.c/.h still do not include nanomodbus.h themselves.
+# modbus_serial.c calls nmbs_crc_calc() (libs/splc_nanomodbus), so splc_port
+# links the splc_nanomodbus target (libs/ is added before port/ in the root
+# CMakeLists). modbus_usb.c/.h still do not include splc_nmbs.h themselves.
 # sx_time.h (Layer 1) comes from splc_components.
 target_link_libraries(splc_port PUBLIC
-    nanomodbus
+    splc_nanomodbus
 )
 
 target_compile_features(splc_port PUBLIC c_std_11)

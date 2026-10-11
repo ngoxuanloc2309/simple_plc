@@ -72,7 +72,8 @@ simple_plc/
 ├── platforms/  Layer 0: stm32/stm32h5/{gpio,adc,flash,flash_define,uart,time,timer,rtc,pwd,
 │               system}, freertos/ (hiện thực sx_os cho FreeRTOS, không gắn chip)
 ├── utils/      Layer U: cqueue, epoch, logger, filter/*
-├── libs/       nanomodbus, tinyusb (git submodule)
+├── libs/       nanomodbus (vendored, KHÔNG sửa), splc_nanomodbus (wrapper: bản riêng đổi tên
+│               symbol, mục 3.1), tinyusb (git submodule)
 ├── config/     splc_opt.h (mặc định + kiểm tra), splcopts_template.h, splc_log.h (log)
 └── docs/
 splc_config/splcopts.h   (gốc repo) — file cấu hình của sản phẩm hiện tại
@@ -159,7 +160,7 @@ chỉ lúc khởi tạo. Byte vào trước khi đăng ký bị bỏ.
 |---|---|
 | Log: `config/splc_log.h` (`log_*` → `SPLC_LOG_OUTPUT`), `SPLC_LOGGER_BUILTIN=0` = logger của host | xong |
 | `port/modbus_link` (A1) | xong: PC test + TSan + build ARM; chưa ai gọi, chưa chạy board |
-| nanoMODBUS bản riêng đổi tên symbol (A2) | chưa |
+| nanoMODBUS bản riêng đổi tên symbol (A2) | xong: 37 symbol, kiểm tự động sau build, test cùng tồn tại trên PC; chưa thử với `wg_ue` thật |
 | Module USB port tùy chọn + dọn layer (A3) | chưa — hiện `sx_usb_cdc.c`/`port/usb` luôn build, Layer 1 còn include `tusb_types.h` và có `#if STM32H5_PLATFORM` |
 | Hồi quy Zigbee-IO trên board rồi xoá đường USB cũ (A4) | chưa |
 | Port mẫu vào `wg_ue`, board Gateway H563 thật (A5) | chưa |
@@ -178,7 +179,10 @@ kiện kiểm và rủi ro: `docs/handoff.md` mục 3 (quyết định 13/15/16)
 epoch ↔ lịch, giờ địa phương), `logger` (cùng API với `libs/logger` của firmware gateway; buffer dùng chung cỡ
 `SPLC_LOG_BUFFER_SIZE`, `snprintf` có giới hạn, mutex khi RTOS; chỉ build khi
 `SPLC_LOGGER_BUILTIN=1`; code SimplePLC gọi qua `config/splc_log.h`), `filter/*` (IIR, Kalman, MA, Median — chưa dùng).
-`libs/nanomodbus` (Modbus RTU; sẽ luôn là bản riêng đổi tên symbol, mục 3.1), `libs/tinyusb`.
+`libs/nanomodbus` (Modbus RTU, vendored, giữ nguyên) được build qua `libs/splc_nanomodbus`
+(target `splc_nanomodbus`): mọi hàm toàn cục đổi thành `splc_*`, mọi macro cấu hình `NMBS_*` bị
+`#undef` (bản riêng cố định cấu hình mặc định), nên cùng tồn tại được với nanoMODBUS của host;
+code SimplePLC chỉ `#include "splc_nmbs.h"`. `libs/tinyusb`.
 
 ### Layer 0 / 1
 Hợp đồng `sx_*.h` ở Layer 1; hiện thực STM32H5 ở Layer 0 (HAL). USB CDC dùng driver
@@ -368,6 +372,8 @@ nối tiếp theo thứ tự hàng (DI trước, DO sau, base lấy từ `tag_di
       không an toàn luồng; mọi timeout nằm trong core, port không tự chờ.
 - [ ] Không thêm bản thứ hai của tài nguyên có trạng thái (USB/UART/ngắt); thư viện thuần dùng
       bản riêng đổi tên symbol.
+- [ ] Chỉ `#include "splc_nmbs.h"`, không bao giờ `"nanomodbus.h"`; nâng cấp nanoMODBUS mà build
+      báo symbol thiếu tiền tố `splc_` thì thêm `#define` vào `libs/splc_nanomodbus/splc_nmbs.h`.
 - [ ] Remote I/O không chặn: `plc_io_remote_*` chỉ chạy trong `input_scan/output_scan`, một
       request mỗi scan; chỉ board file `#include "tusb.h"`/gọi `logger_init`.
 

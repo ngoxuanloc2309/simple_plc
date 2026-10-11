@@ -43,8 +43,12 @@ phải đọc CẢ HAI repo (`RuleCompiler.cs`, `RuleTableWriter.cs`,
   4. **Ống byte App link kiểu lwIP — bước A1 xong:** `port/modbus_link/` (`splc_link_register`,
      `splc_link_input`, `output()`; quyết định 13/16), option `SPLC_LINK_RX_BUF_SIZE`.
      Kiểm trên PC (1523 check, ThreadSanitizer sạch) + build ARM sạch. **CHƯA có code nào gọi
-     nó** (board vẫn dùng `modbus_transport_usb_create()`), nên firmware không đổi và chưa
-     có gì để chạy trên board. Các bước còn lại ở mục 4.A.
+     nó** (board vẫn dùng `modbus_transport_usb_create()`), nên chưa có gì để chạy trên board.
+  5. **nanoMODBUS bản riêng đổi tên symbol — bước A2 xong:** `libs/splc_nanomodbus/`
+     (`splc_nmbs.h/.c`), target CMake `splc_nanomodbus` (thay target `nanomodbus` cũ), script
+     `cmake_modules/splc_check_symbols.cmake` chạy sau build (quyết định 15). Mọi file SimplePLC
+     include `splc_nmbs.h`, KHÔNG BAO GIỜ `nanomodbus.h`. Build ARM sạch cả Zigbee-IO và Gateway,
+     FLASH/RAM không đổi so với trước A2. Các bước còn lại ở mục 4.A.
 - **Số đo build (Release, linker):** Zigbee-IO FLASH 79 256 B / RAM 77 696 B (số này giữ
   nguyên sau khi thêm `modbus_link`, vì linker loại bỏ nó khi chưa ai gọi); SKU Gateway
   FLASH 69 760 B / RAM 76 696 B (`main` cũ: 76 948 / 76 840). `modbus_link.c.obj` riêng:
@@ -92,6 +96,12 @@ phải đọc CẢ HAI repo (`RuleCompiler.cs`, `RuleTableWriter.cs`,
   `output()`. Hợp đồng luồng: `splc_link_input()` từ đúng MỘT ngữ cảnh (task hoặc ISR, ISR-safe,
   không chặn); `output()/process()/transport` chạy ở ngữ cảnh engine; `register/unregister` chỉ
   lúc khởi tạo. Chi tiết: `docs/architecture.md` mục 3.1.
+- **nanoMODBUS riêng (`libs/splc_nanomodbus`):** `splc_nmbs.h` đổi tên 37 hàm toàn cục của
+  `nanomodbus.c` (30 `nmbs_*` + 7 `recv_*_res`; các hàm sau KHÔNG có tiền tố `nmbs_`), `#undef`
+  mọi macro cấu hình `NMBS_*` (cờ `-D` của host không lọt vào được), và include header vendored
+  bằng đường dẫn tương đối; `splc_nmbs.c` biên dịch `nanomodbus.c` qua header đó.
+  `libs/nanomodbus/` GIỮ NGUYÊN và không nằm trong include path. Nâng cấp thư viện mà có hàm
+  toàn cục mới thì build fail (script kiểm symbol) → thêm một dòng `#define` vào `splc_nmbs.h`.
 - **Multi-board:** `SPLC_TagLayout` truyền qua tham số; board chọn bằng `SPLC_BOARD` trong
   `splcopts.h` (CMake đọc, bảng ở `cmake_modules/splc_select.cmake`); thêm board = 1 file
   `board_<sku>.c` + 1 hàng bảng. `MAX_TAGS` ở `board/board_tag_define.h` (authoritative);
@@ -207,15 +217,18 @@ executable bằng `$<TARGET_OBJECTS:splc_platform_freertos>`, KHÔNG dùng stati
     `utils/logger` cùng dòng với `libs/logger` của `wg_ue` (cùng API; macro `LOGD/LOGI/LOGW/
     LOGE`) nhưng an toàn hơn (`snprintf`, kiểm tra tràn, mutex NULL-an-toàn).
 15. **nanoMODBUS: luôn là bản riêng của SimplePLC, đổi tên symbol** (người dùng xác nhận):
-    header wrapper đổi các hàm công khai `nmbs_*` → `splc_nmbs_*`, KHÔNG sửa file vendored
-    `libs/nanomodbus/nanomodbus.c/.h`; include path của nó chỉ PRIVATE. Lý do: nanoMODBUS là
+    header wrapper `libs/splc_nanomodbus/splc_nmbs.h` đổi MỌI hàm toàn cục (37: 30 `nmbs_*`
+    + 7 `recv_*_res` — kế hoạch đầu chỉ nói `nmbs_*`, đo bằng `nm` mới thấy thiếu), KHÔNG sửa file
+    vendored `libs/nanomodbus/`, và thư mục vendored không nằm trong include path. Lý do: nanoMODBUS là
     logic thuần (không có ngoại vi), nên hai bản cùng tồn tại không tranh chấp gì; dùng chung
     bản của host làm độ tin cậy phụ thuộc phiên bản và cờ biên dịch của host (host làm master
     có thể đã tắt server) và phải kiểm lại ở mỗi lần port. Giá: ~7,5 KB Flash (số đo
-    `nanomodbus.c.obj` = 7 507 B). Điều kiện phải kiểm bằng build (bước A2) và báo ngay nếu
-    không đạt, KHÔNG tự đổi hướng: không có symbol dữ liệu toàn cục trùng (`nm`), header của
-    host không lọt vào TU của SimplePLC. TinyUSB thì KHÔNG đổi tên được (ISR, descriptor,
-    ngoại vi duy nhất) — chỉ một chủ.
+    `nanomodbus.c.obj` = 7 507 B; bản riêng 7 491 B). Hai điều kiện đã kiểm ở bước A2 (đạt):
+    không có symbol dữ liệu toàn cục (`nm`: chỉ có một bảng hằng cục bộ), và header của host
+    không lọt vào TU của SimplePLC. Bản SimplePLC cố định cấu hình mặc định (`#undef` mọi
+    `NMBS_*`: server + client, `NMBS_BITFIELD_MAX` 2000), nên cờ của host không đổi được nó.
+    Muốn rút Flash sau này phải làm có chủ đích trong `splc_nmbs.h`. TinyUSB thì KHÔNG đổi tên
+    được (ISR, descriptor, ngoại vi duy nhất) — chỉ một chủ.
 16. **Đăng ký ống: tường minh (kiểu `netif_add`), không dùng hàm `weak`** (người dùng xác
     nhận). `splc_link_register(&ops)` trước `plc_engine_init()`; quên đăng ký thì
     `splc_link_get_transport()` trả `false` và phải báo lỗi rõ, thay vì firmware chạy mà App
@@ -233,11 +246,17 @@ executable bằng `$<TARGET_OBJECTS:splc_platform_freertos>`, KHÔNG dùng stati
    khung 73 byte đến 64 + 9 byte; kiểm bằng đột biến: phá code 3 kiểu thì test đỏ) và `test_mt.c`
    (2 thread thật, 3 triệu byte, ThreadSanitizer sạch; hạ `acquire/release` xuống `relaxed` thì
    TSan báo race). Harness CHƯA nằm trong repo (xem mục 6, 7). Chưa nối vào board nào.
-2. **nanoMODBUS bản riêng đổi tên symbol** (quyết định 15): header wrapper
-   `nmbs_* → splc_nmbs_*` (vài chục dòng, include trước `nanomodbus.h`), include path PRIVATE.
-   Kiểm: `nm` không còn `nmbs_*` tên cũ và không có symbol dữ liệu toàn cục; dựng một TU/target
-   giả lập "host có `nanomodbus.h` riêng" link chung để chắc không trùng symbol và không lẫn
-   include; build ARM đủ cả hai board.
+2. ✅ **nanoMODBUS bản riêng đổi tên symbol** (xong, quyết định 15): `libs/splc_nanomodbus/`,
+   target `splc_nanomodbus`, 4 file include đổi sang `splc_nmbs.h`, 3 chỗ link đổi tên target.
+   Đã kiểm: (a) `nm`: 37 symbol toàn cục đều `splc_*`, không symbol dữ liệu; (b) script
+   `splc_check_symbols.cmake` chạy sau build và fail đúng tên symbol khi cố ý xoá một dòng
+   `#define`; (c) test PC: bản "host" (cố ý khác mặc định) + bản SimplePLC link chung một binary
+   và CẢ HAI trả lời đúng FC03, kể cả khi include path của host đứng trước, khi host truyền
+   `-DNMBS_BITFIELD_MAX=128 -DNMBS_STRERROR_DISABLED` cho mọi TU, và khi `-DNMBS_SERVER_DISABLED`
+   lọt vào TU của SimplePLC; đối chứng: cách cũ (hai bản cùng tên) báo `multiple definition`;
+   (d) build ARM Release sạch: Zigbee-IO 79 256 B / 77 696 B, Gateway 69 760 B / 76 696 B (không
+   đổi). **CHƯA kiểm với nanoMODBUS thật của `wg_ue`** (mới mô phỏng bằng một bản sao đã sửa) —
+   làm ở bước A5.
 3. **Module USB port tùy chọn:** gom `components/usb_cdc/sx_usb_cdc.c`, `port/usb/`,
    `port/modbus_usb`, phần TinyUSB của `libs/CMakeLists.txt` thành một module build khi cờ
    (đề xuất `SPLC_PORT_USB_CDC`) = 1, đọc từ `splcopts.h` như `SPLC_LOGGER_BUILTIN`. Dọn layer:
@@ -319,6 +338,9 @@ khi biết lỗi; `ACT_WRITE_REMOTE/LOG_EVENT/SEND_ALARM` chưa implement; khôn
     với đa luồng, hạ memory order xuống `relaxed` rồi xem ThreadSanitizer có báo race không.
 14. Đo trước khi ghi con số vào comment/tài liệu (đã ghi "~400 byte" cho `modbus_link`, đo ra
     955 byte). Khẳng định về host ("API giống hệt") phải nêu đã so cái gì và CHƯA so cái gì.
+15. Kế hoạch đổi tên symbol phải dựa trên `nm`, không dựa trên quy ước đặt tên: kế hoạch "đổi
+    `nmbs_*`" bỏ sót 7 hàm `recv_*_res` toàn cục; sai một hàm là host link lỗi trùng. Cần một bước
+    kiểm TỰ ĐỘNG (script sau build) chứ không dựa vào trí nhớ khi nâng cấp thư viện.
 
 ## 6. Quy trình làm việc
 
@@ -370,10 +392,18 @@ thiểu cho test (`SX_OS_USE_FREERTOS 0`, `SPLC_LOG_OUTPUT` rỗng/`printf`) và
 -I<port/modbus_transport> test_det.c port/modbus_link/modbus_link.c`; bản đa luồng thêm
 `-D_POSIX_C_SOURCE=200809L -fsanitize=thread -lpthread`. Nói rõ đó là mô hình giả, chưa phải board.
 
+**nanoMODBUS cùng tồn tại với bản của host (đã chạy, harness ở `/tmp`, KHÔNG trong repo):**
+`libs/splc_nanomodbus/splc_nmbs.c` + một bản sao `nanomodbus.c/.h` giả làm "của host" (đã sửa mặc
+định `NMBS_BITFIELD_MAX` để phân biệt), hai TU dùng chung một thân test (server FC03 qua transport
+trong bộ nhớ, CRC tính độc lập) và một `main`; kiểm giá trị `NMBS_BITFIELD_MAX`/server nhìn thấy
+trong từng TU. Mô hình giả, chưa phải `wg_ue` thật.
+
 **Ranh giới layer** (`nm -u <file>.o`): Layer 3 không có symbol `sx_usb_*`; Layer 2 không
 có `sx_flash_*`/`sx_usb_*`; `plc_rule_flash.c` PHẢI có `sx_flash_*`; `sx_system_reset` chỉ
 được gọi từ `plc_system_cmd_service.c` (Layer 4); chỉ board file được `#include "tusb.h"`
-(sau bước A3: chỉ module USB port); `modbus_link.c` không có symbol `sx_usb_*`/`tud_*`.
+(sau bước A3: chỉ module USB port); `modbus_link.c` không có symbol `sx_usb_*`/`tud_*`; không file nào ngoài `libs/splc_nanomodbus/`
+được `#include "nanomodbus.h"` (dùng `splc_nmbs.h`); `nm` trên `libsplc_nanomodbus.a` không có
+symbol toàn cục nào thiếu tiền tố `splc_`.
 
 **Kiểm cấu hình (build ARM):** mặc định (Zigbee-IO); `SPLC_BOARD_GATEWAY` qua
 `-DSPLC_OPTS_DIR`; `SPLC_FLASH_SIZE_KB` 128/256/512/… (sai phải `#error`/`_Static_assert`);

@@ -74,14 +74,14 @@ target_link_libraries(splc_services PUBLIC
     ${SPLC_PLATFORM_TARGET}
 )
 
-# nanomodbus (libs/CMakeLists.txt) supplies nanomodbus.h, which
+# splc_nanomodbus (libs/CMakeLists.txt) supplies splc_nmbs.h, which
 # plc_retain.c includes directly (for nmbs_crc_calc(), reused as the
 # CRC-16/MODBUS implementation for retain records rather than
 # maintaining a second hand-written copy of the same algorithm -- see
 # plc_retain.h's header comment). PUBLIC for the same transitive reason
 # as the other dependencies here.
 target_link_libraries(splc_services PUBLIC
-    nanomodbus
+    splc_nanomodbus
 )
 
 # splc_port (Layer 3.5, port/CMakeLists.txt) supplies modbus_usb.h /

@@ -45,7 +45,7 @@
 #include "splc_flash_define.h"
 #include "sx_flash.h"
 #include "sx_time.h"
-#include "nanomodbus.h"
+#include "splc_nmbs.h"
 #include "plc_tag.h"
 
 #define RETAIN_RECORD_SEQ_OFFSET    0U
