@@ -29,7 +29,18 @@
 set(SPLC_PORT_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/modbus_usb/modbus_usb.c
     ${CMAKE_CURRENT_SOURCE_DIR}/modbus_serial/modbus_serial.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/modbus_link/modbus_link.c
 )
+
+# modbus_link (Layer 3.5): the generic App<->device byte pipe, lwIP-netif
+# style (splc_link_register / splc_link_input / output()). The core owns the
+# RX ring and every timeout; the product's port file only moves bytes. It has
+# no dependency on any transport driver or third-party library (only
+# sx_time.h / sx_os.h from splc_components), so it is compiled into every
+# build (measured on ARM Release: ~950 bytes of code, ~30 bytes of RAM plus the
+# SPLC_LINK_RX_BUF_SIZE ring; the linker drops all of it while nothing calls
+# it). Nothing uses it yet: boards still build their transport with
+# modbus_transport_usb_create().
 
 # modbus_serial (Layer 3.5): non-blocking Modbus RTU MASTER over sx_uart_t
 # (RS485), used by the Gateway's Remote I/O channel (services/plc_io/
@@ -58,6 +69,7 @@ add_library(splc_port STATIC ${SPLC_PORT_SRC})
 target_include_directories(splc_port PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/modbus_usb
     ${CMAKE_CURRENT_SOURCE_DIR}/modbus_serial
+    ${CMAKE_CURRENT_SOURCE_DIR}/modbus_link
     ${CMAKE_CURRENT_SOURCE_DIR}/modbus_transport
 )
 

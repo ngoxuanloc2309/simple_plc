@@ -38,6 +38,7 @@
 /* #define SPLC_MODBUS_UNIT_ID           1 */
 /* #define SPLC_USB_RX_BUF_SIZE          256 */
 /* #define SPLC_USB_TX_BUF_SIZE          256 */
+/* #define SPLC_LINK_RX_BUF_SIZE         512 */   /* power of two, >= 256 */
 
 /* --- Remote I/O (Gateway) -------------------------------------------- */
 /* #define SPLC_REMOTE_MAX_NODES         8 */       /* 1..32 I/O boards on RS485 */
