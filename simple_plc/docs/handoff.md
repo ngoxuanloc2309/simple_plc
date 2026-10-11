@@ -19,6 +19,8 @@ thì Wire Contract thắng; về struct/memory map thì Structs thắng:
 phải đọc CẢ HAI repo (`RuleCompiler.cs`, `RuleTableWriter.cs`,
 `FunctionBlockGateway.cs`). Đối chiếu câu trả lời của team App với code App.
 
+**Repo firmware board gateway đang chạy, chưa tích hợp rule engine**: https://github.com/ngoxuanloc2309/wg_ue.git
+
 ## 0. Trạng thái hiện tại (nhánh `board_dev_gw`, tách từ `main` = `board_dev_add_select_os`)
 
 - **Board đã chạy trên phần cứng: Zigbee-IO** (`board_zigbee_io.c`): 4 DI / 4 DO / 0 AI /
