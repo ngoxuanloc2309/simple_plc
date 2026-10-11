@@ -47,11 +47,25 @@ target_link_libraries(splc_board PUBLIC
     splc_services
 )
 
-# splc_components (Layer 1) supplies sx_gpio.h/sx_uart.h/sx_usb_cdc.h,
-# which board_${SPLC_BOARD_SKU}.c includes directly.
+# splc_components (Layer 1) supplies sx_gpio.h/sx_uart.h, which
+# board_${SPLC_BOARD_SKU}.c includes directly.
 target_link_libraries(splc_board PUBLIC
     splc_components
 )
+
+# splc_port (Layer 3.5) supplies modbus_link.h (splc_link_get_transport()).
+target_link_libraries(splc_board PUBLIC
+    splc_port
+)
+
+# Optional USB-CDC port module (SPLC_PORT_USB_CDC = 1, splcopts.h): supplies
+# splc_usb_cdc.h (splc_usb_cdc_init(), splc_usb_irq()) and brings TinyUSB in.
+# Linked from here so it reaches the final executable through splc_board.
+if(SPLC_PORT_USB_CDC)
+    target_link_libraries(splc_board PUBLIC
+        splc_port_usb_cdc
+    )
+endif()
 
 # splc_core (Layer 2) supplies plc_tag.h (SPLC_TagLayout,
 # tag_table_load_from_flash()), which board_${SPLC_BOARD_SKU}.c uses

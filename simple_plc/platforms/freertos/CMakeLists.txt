@@ -26,4 +26,10 @@ target_link_libraries(splc_platform_freertos PRIVATE splc_components)
 
 if(SPLC_OS_INCLUDE_DIRS)
     target_include_directories(splc_platform_freertos PRIVATE ${SPLC_OS_INCLUDE_DIRS})
+elseif(TARGET stm32cubemx)
+    # No host-supplied RTOS include dirs: this project's own CubeMX FreeRTOS
+    # (stm32cubemx INTERFACE target) provides FreeRTOS.h / task.h /
+    # FreeRTOSConfig.h. (Before step A3 this arrived by accident, through
+    # splc_components -> tinyusb -> stm32cubemx; Layer 1 no longer links either.)
+    target_link_libraries(splc_platform_freertos PRIVATE stm32cubemx)
 endif()

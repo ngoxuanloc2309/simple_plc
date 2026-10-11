@@ -10,6 +10,8 @@
 # Sets    SPLC_BOARD_SKU          -> board/board_device/board_<sku>.c
 #         SPLC_PLATFORM_DIR       -> platforms/<dir> (holds a CMakeLists.txt)
 #         SPLC_PLATFORM_TARGET    -> Layer 0 library target name
+#         SPLC_LOGGER_*           -> built-in logger source / include dir
+#         SPLC_PORT_USB_CDC       -> 1 when the optional USB-CDC port module is built
 #
 # Adding a board : add one row to SPLC_BOARD_TABLE (and the selector in
 #                  config/splc_opt.h + board_config.h), then write board_<sku>.c/.h.
@@ -129,3 +131,10 @@ else()
     set(SPLC_LOGGER_INCLUDE_DIR  "")
 endif()
 message(STATUS "SimplePLC logger   : ${SPLC_LOGGER_BUILTIN} (1 = built-in utils/logger, 0 = host firmware's)")
+
+# --- USB-CDC port module ------------------------------------------------
+# SPLC_PORT_USB_CDC 1: build the optional USB-CDC module (port/usb/ + TinyUSB
+# in libs/). 0 (default): no USB code at all -- the host firmware owns the USB
+# peripheral (see config/splc_opt.h and docs/architecture.md section 3.1).
+splc_read_flag(SPLC_PORT_USB_CDC SPLC_PORT_USB_CDC)
+message(STATUS "SimplePLC USB-CDC  : ${SPLC_PORT_USB_CDC} (1 = SimplePLC owns USB: TinyUSB + port/usb, 0 = host's)")
