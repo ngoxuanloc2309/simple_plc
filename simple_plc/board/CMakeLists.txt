@@ -6,7 +6,8 @@
 # #ifdef inside a shared file (see docs/handoff.md section 1.11's
 # rationale against #ifdef-based SKU selection).
 #
-# NOTE: utils/logger/logger.c is included directly in this target's
+# NOTE: with SPLC_LOGGER_BUILTIN=1 (default, cmake_modules/splc_select.cmake)
+# utils/logger/logger.c is included directly in this target's
 # sources rather than getting its own utils/CMakeLists.txt target yet --
 # board_<sku>.c is currently its only caller. Verified by direct gcc
 # compile with FREE_RTOS unset (defaults to 0 per logger.h): 0 errors,
@@ -15,13 +16,15 @@
 # #if FREE_RTOS and never reached when building bare-metal. The root
 # CMakeLists.txt's older comment claiming this file "still needs the
 # FreeRTOS mutex stripped" is stale; no code change was needed here.
+# With SPLC_LOGGER_BUILTIN=0 no logger.c is compiled and the host firmware
+# supplies logger.h/logger (config/splc_log.h).
 
 # SPLC_BOARD_SKU is set by cmake/splc_select.cmake from SPLC_BOARD in splcopts.h.
 
 set(SPLC_BOARD_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/board.c
     ${CMAKE_CURRENT_SOURCE_DIR}/board_device/board_${SPLC_BOARD_SKU}.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../utils/logger/logger.c
+    ${SPLC_LOGGER_SRC}      # empty when the host firmware supplies the logger (SPLC_LOGGER_BUILTIN=0)
 )
 
 add_library(splc_board STATIC ${SPLC_BOARD_SRC})
@@ -31,8 +34,8 @@ target_include_directories(splc_board PUBLIC
 )
 
 target_include_directories(splc_board PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../utils/logger
-    ${CMAKE_CURRENT_SOURCE_DIR}/../app          # logger.h -> sx_os_config.h
+    ${SPLC_LOGGER_INCLUDE_DIR}                  # empty when the host supplies logger.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/../app          # logger.c -> sx_os_config.h
 )
 if(SPLC_OS_INCLUDE_DIRS)                          # defined in platforms/freertos/CMakeLists.txt
     target_include_directories(splc_board PRIVATE ${SPLC_OS_INCLUDE_DIRS})

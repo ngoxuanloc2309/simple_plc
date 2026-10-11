@@ -10,7 +10,10 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_GATEWAY);
 
 #include "sx_gpio.h"
 #include "sx_uart.h"
-#include "logger.h"
+#include "splc_log.h"
+#if SPLC_LOGGER_BUILTIN
+#include "logger.h"   /* logger_init(); with SPLC_LOGGER_BUILTIN=0 the host firmware owns the logger */
+#endif
 
 #include "plc_tag.h"
 #include "plc_device.h"
@@ -71,8 +74,10 @@ SPLC_TagLayout board_get_tag_layout(void)
 /* --- peripherals ------------------------------------------------------- */
 
 typedef struct {
+#if SPLC_LOGGER_BUILTIN
     sx_uart_t           log_uart;
     sx_uart_config_t    log_uart_cfg;
+#endif
     sx_uart_t           rs485_uart;
     sx_uart_config_t    rs485_uart_cfg;
     sx_gpio_pin_t       rs485_de;
@@ -81,13 +86,16 @@ typedef struct {
 
 static gateway_board_t s_board;
 
+#if SPLC_LOGGER_BUILTIN
 static uint8_t s_log_rx_buf[128];
 static uint8_t s_log_tx_buf[128];
+#endif
 /* RS485 RX: the longest answer is 37 bytes (16 registers); 128 leaves room
  * for a burst between two scan cycles. */
 static uint8_t s_rs485_rx_buf[128];
 static uint8_t s_rs485_tx_buf[64];
 
+#if SPLC_LOGGER_BUILTIN
 static void board_log_write(const char *s)
 {
     sx_uart_write(&s_board.log_uart, (const uint8_t *)s, (int)strlen(s), 100);
@@ -111,6 +119,11 @@ static void board_log_uart_init(void)
     logger_init((LOGGING_LEVELS)SPLC_LOG_LEVEL, board_log_write);
     log_info(TAG, "Ethernet/WiFi gateway board init start");
 }
+#else
+/* The host firmware initialises its own logger; SimplePLC's log goes there via
+ * SPLC_LOG_OUTPUT (config/splc_log.h). No log UART is used by this board. */
+static void board_log_uart_init(void) {}
+#endif
 
 static void board_rs485_init(void)
 {

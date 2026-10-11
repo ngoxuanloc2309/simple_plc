@@ -185,6 +185,16 @@
 /* ======================================================================
  * Logging
  * ==================================================================== */
+/* 1 = SimplePLC builds and uses its own logger (utils/logger/logger.c) and the
+ *     board file calls logger_init(). The default.
+ * 0 = the host firmware provides "logger.h" + the logger itself and calls
+ *     logger_init() on its own (SimplePLC compiles no logger.c and does not
+ *     put utils/logger on the include path). CMake reads this option from
+ *     splcopts.h. See config/splc_log.h. */
+#ifndef SPLC_LOGGER_BUILTIN
+#define SPLC_LOGGER_BUILTIN              1
+#endif
+
 /* Initial log level: 0 OFF, 1 ERROR, 2 WARNING, 3 INFO, 4 DEBUG. */
 #ifndef SPLC_LOG_LEVEL
 #define SPLC_LOG_LEVEL                   4
@@ -239,6 +249,9 @@
 #endif
 #if (SPLC_REMOTE_RETRY_MS < 100)
 #error "SPLC_REMOTE_RETRY_MS below 100 ms would flood a dead RS485 link"
+#endif
+#if (SPLC_LOGGER_BUILTIN != 0) && (SPLC_LOGGER_BUILTIN != 1)
+#error "SPLC_LOGGER_BUILTIN must be 0 or 1"
 #endif
 #if (SPLC_LOG_LEVEL < 0) || (SPLC_LOG_LEVEL > 4)
 #error "SPLC_LOG_LEVEL must be 0..4"

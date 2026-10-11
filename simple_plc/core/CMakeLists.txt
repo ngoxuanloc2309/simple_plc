@@ -37,9 +37,11 @@ add_library(splc_core STATIC
 # (or a test stub providing the same symbols) is linked in alongside it
 # -- exactly the same situation plc_tag.c/plc_rule.c already have with
 # any other Layer U utility they might someday call.
-target_include_directories(splc_core PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../utils/logger
-)
+# (SPLC_LOGGER_INCLUDE_DIR is empty when the host firmware supplies logger.h,
+# SPLC_LOGGER_BUILTIN=0 -- see cmake_modules/splc_select.cmake.)
+if(SPLC_LOGGER_INCLUDE_DIR)
+    target_include_directories(splc_core PRIVATE ${SPLC_LOGGER_INCLUDE_DIR})
+endif()
 
 # plc_device/, plc_error/, plc_system_cmd/, plc_diag/ are each header-only (struct/enum
 # type definitions, no matching .c -- see each header's own comment for why).

@@ -113,7 +113,7 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/services)
 # splc_board is defined in board/CMakeLists.txt. Builds board.c +
 # board_<SPLC_BOARD_SKU>.c (default "zigbee_io") -- board_hw_init()'s
 # DI/DO registration + UART log + USB CDC init for that SKU. Also builds
-# utils/logger/logger.c here (see board/CMakeLists.txt's own comment on
+# utils/logger/logger.c here when SPLC_LOGGER_BUILTIN=1 (see board/CMakeLists.txt's own comment on
 # why: it compiles clean bare-metal, the FreeRTOS mutex code is already
 # guarded out via #if FREE_RTOS).
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/board)

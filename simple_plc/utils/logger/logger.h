@@ -1,6 +1,14 @@
 #ifndef LOGGER_H
 #define LOGGER_H
 
+/*
+ * logger.h - Layer U. Same API and macro names (LOGD/LOGI/LOGW/LOGE) as the
+ * GatewayV2 libs/logger, so the two are interchangeable. SimplePLC code does
+ * not call these macros directly: it uses log_debug/info/warn/error from
+ * config/splc_log.h, which route to log_func() here by default or to the host
+ * firmware's own logging when the product overrides SPLC_LOG_OUTPUT.
+ */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -85,7 +93,7 @@ void log_print_hex(LOGGING_LEVELS level,const char *TAG,uint8_t *hex_buff,uint16
  *
  * @note The variadic arguments are passed directly to log_func.
  */
-#define log_debug(TAG,...) log_func(LOGGER_DEBUG,TAG,  __VA_ARGS__)
+#define LOGD(TAG,...) log_func(LOGGER_DEBUG,TAG,  __VA_ARGS__)
 /**
  * @brief Logs an informational message with the specified tag.
  *
@@ -97,9 +105,9 @@ void log_print_hex(LOGGING_LEVELS level,const char *TAG,uint8_t *hex_buff,uint16
  *
  * @note The variadic arguments are passed directly to log_func.
  * @example
- *     log_info("NETWORK", "Connected to server: %s", server_address);
+ *     LOGI("NETWORK", "Connected to server: %s", server_address);
  */
-#define log_info(TAG,...)  log_func(LOGGER_INFO,TAG,__VA_ARGS__)
+#define LOGI(TAG,...)  log_func(LOGGER_INFO,TAG,__VA_ARGS__)
 /**
  * @brief Logs a warning message with the specified tag and formatted message.
  *
@@ -112,7 +120,7 @@ void log_print_hex(LOGGING_LEVELS level,const char *TAG,uint8_t *hex_buff,uint16
  *
  * @note The macro expands to a call to log_func with LOGGER_WARNING as the log level.
  */
-#define log_warn(TAG,...)  log_func(LOGGER_WARNING,TAG,__VA_ARGS__)
+#define LOGW(TAG,...)  log_func(LOGGER_WARNING,TAG,__VA_ARGS__)
 /**
  * @brief Logs an error message with the specified tag and formatted message.
  *
@@ -122,9 +130,9 @@ void log_print_hex(LOGGING_LEVELS level,const char *TAG,uint8_t *hex_buff,uint16
  * @param ... The format string and additional arguments, similar to printf.
  *
  * @note Usage example:
- *       log_error("NETWORK", "Failed to connect: %d", error_code);
+ *       LOGE("NETWORK", "Failed to connect: %d", error_code);
  */
-#define log_error(TAG,...) log_func(LOGGER_ERROR,TAG,__VA_ARGS__)
+#define LOGE(TAG,...) log_func(LOGGER_ERROR,TAG,__VA_ARGS__)
 
 
 #ifdef __cplusplus

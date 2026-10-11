@@ -51,6 +51,22 @@ function(splc_read_option option prefix out_var)
         "${SPLC_OPTS_DIR}/splcopts.h or ${SPLC_LIB_DIR}/config/splc_opt.h")
 endfunction()
 
+# splc_read_flag(<option name> <out var>)
+# Same lookup for a numeric 0/1 option ("#define <option> 1"); result is 0 or 1.
+function(splc_read_flag option out_var)
+    foreach(f "${SPLC_OPTS_DIR}/splcopts.h" "${SPLC_LIB_DIR}/config/splc_opt.h")
+        file(STRINGS "${f}" lines
+             REGEX "^[ \t]*#[ \t]*define[ \t]+${option}[ \t]+[01]([^A-Za-z0-9_]|$)")
+        if(lines)
+            list(GET lines 0 first)
+            string(REGEX REPLACE "^.*[ \t]([01])([^A-Za-z0-9_].*)?$" "\\1" value "${first}")
+            set(${out_var} "${value}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+    message(FATAL_ERROR "SimplePLC: cannot find '#define ${option} 0|1' in splcopts.h or splc_opt.h")
+endfunction()
+
 # splc_lookup(<table var> <selector> <out var> <field count>)
 function(splc_lookup table selector out_var what)
     foreach(row IN LISTS ${table})
@@ -99,3 +115,17 @@ endif()
 
 message(STATUS "SimplePLC board    : ${_splc_board_sel} -> board_${SPLC_BOARD_SKU}.c")
 message(STATUS "SimplePLC platform : ${_splc_plat_sel} -> platforms/${SPLC_PLATFORM_DIR} (${SPLC_PLATFORM_TARGET})")
+# --- Logger --------------------------------------------------------------
+# SPLC_LOGGER_BUILTIN 1 (default): build utils/logger/logger.c and expose its
+# logger.h. 0: the host firmware supplies logger.h and the logger (see
+# config/splc_log.h) -- SimplePLC then compiles no logger.c and must not put
+# its own logger.h on any include path (same file name as the host's).
+splc_read_flag(SPLC_LOGGER_BUILTIN SPLC_LOGGER_BUILTIN)
+if(SPLC_LOGGER_BUILTIN)
+    set(SPLC_LOGGER_SRC          "${SPLC_LIB_DIR}/utils/logger/logger.c")
+    set(SPLC_LOGGER_INCLUDE_DIR  "${SPLC_LIB_DIR}/utils/logger")
+else()
+    set(SPLC_LOGGER_SRC          "")
+    set(SPLC_LOGGER_INCLUDE_DIR  "")
+endif()
+message(STATUS "SimplePLC logger   : ${SPLC_LOGGER_BUILTIN} (1 = built-in utils/logger, 0 = host firmware's)")

@@ -15,7 +15,11 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_ZIGBEE_IO_4DI_4DO);
 #include "sx_uart.h"
 #include "sx_usb_cdc.h"
 #include "modbus_usb.h"
-#include "logger.h"
+#include "splc_log.h"
+#include "logger.h"     /* logger_init(): this board always uses the built-in logger */
+#if !SPLC_LOGGER_BUILTIN
+#error "board_zigbee_io.c initialises the built-in logger: SPLC_LOGGER_BUILTIN must be 1"
+#endif
 #include "sx_os.h"
 #include "tusb.h"    /* tud_int_handler (macro for dcd_int_handler), used by
                        * USB_DRD_FS_IRQHandler() below -- declared in

@@ -70,10 +70,12 @@ target_include_directories(splc_components PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../utils/cqueue
 )
 
-# sx_usb_cdc.c #includes "logger.h" (Layer U, utils/logger/) directly.
-target_include_directories(splc_components PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/../utils/logger
-)
+# sx_usb_cdc.c logs through config/splc_log.h, which includes "logger.h". Built-in
+# logger: utils/logger. SPLC_LOGGER_BUILTIN=0: the host firmware supplies logger.h
+# and this directory is NOT added (same file name as the host's).
+if(SPLC_LOGGER_INCLUDE_DIR)
+    target_include_directories(splc_components PUBLIC ${SPLC_LOGGER_INCLUDE_DIR})
+endif()
 
 # sx_usb_cdc.c #includes "sx_platform_config.h" (currently app/, Layer 4
 # -- see the same TODO already flagged in
