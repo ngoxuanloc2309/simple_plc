@@ -2,7 +2,7 @@
 
 #include "sx_rtc.h"
 #include "splc_epoch.h"
-#include "logger.h"
+#include "splc_log.h"
 
 static const char *TAG = "PLC_RTC";
 

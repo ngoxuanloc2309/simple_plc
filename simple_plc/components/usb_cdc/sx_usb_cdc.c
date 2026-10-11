@@ -1,6 +1,6 @@
 #include "sx_usb_cdc.h"
 #include "sx_platform_config.h"
-#include "logger.h"
+#include "splc_log.h"
 #include "sx_os.h"
 #include <string.h>
 #include <stdarg.h>

@@ -5,7 +5,7 @@
 #include "plc_tag.h"
 #include "sx_time.h"
 #include "splc_opt.h"
-#include "logger.h"
+#include "splc_log.h"
 
 static const char *TAG = "PLC_IO_REMOTE";
 

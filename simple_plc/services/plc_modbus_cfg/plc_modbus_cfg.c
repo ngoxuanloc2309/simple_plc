@@ -11,7 +11,7 @@
 #include "plc_rtc.h"        /* RTC block 0x0810..0x0813, see cb_write_multiple_registers() */
 #include "plc_fb.h"         /* FB block 0x0B00..0x0B7F, see cb_write_multiple_registers() */
 #include "sx_time.h"
-#include "logger.h"
+#include "splc_log.h"
 
 static const char *TAG = "PLC_MODBUS_CFG";
 

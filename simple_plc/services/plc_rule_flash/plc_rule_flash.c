@@ -17,7 +17,7 @@
 #include "plc_modbus_cfg.h" /* rule_record_to_wire(), rule_table_wire_crc16(), crc16_modbus_update() */
 #include "plc_fb.h"         /* plc_fb_export()/plc_fb_import(): Function Block config image */
 #include "plc_retain.h"     /* retain_flash_op_begin()/end(): keeps the PVD write off the Flash during this one */
-#include "logger.h"
+#include "splc_log.h"
 
 static const char *TAG = "PLC_RULE_FLASH";
 

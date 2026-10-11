@@ -4,7 +4,7 @@
 #include "plc_rule_eval.h"   /* check_trigger_edge(), compare_ok(), trigger_timing_ok() */
 #include "plc_rule_action.h" /* execute_action() */
 #include "plc_tag.h"
-#include "logger.h"
+#include "splc_log.h"
 
 static const char *TAG = "PLC_RULE";
 

@@ -4,7 +4,7 @@
 
 #include <string.h>
 
-#include "logger.h"
+#include "splc_log.h"
 
 static const char *TAG = "SX_FLASH";
 

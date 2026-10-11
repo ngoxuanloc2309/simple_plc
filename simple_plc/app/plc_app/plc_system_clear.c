@@ -9,7 +9,7 @@
 #include "plc_rule_flash.h"
 #include "plc_retain.h"
 #include "plc_fb.h"
-#include "logger.h"
+#include "splc_log.h"
 
 /*
  * plc_system_clear.c - Layer 4 (Engine & Application entry)
