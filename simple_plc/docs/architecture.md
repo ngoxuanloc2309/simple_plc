@@ -1,6 +1,6 @@
 # SimplePLC — Kiến trúc Firmware
 
-> Tài liệu tham chiếu kiến trúc, **đồng bộ với code nhánh `board_dev_add_select_os` và
+> Tài liệu tham chiếu kiến trúc, **đồng bộ với code nhánh `board_dev_gw` và
 > Wire Profile V2.0**. Trạng thái/việc đang làm: `docs/handoff.md`. Nguồn sự thật cho
 > wire format: `SimplePLC_App_MCU_Structs_v2.0_Self_Describing_Profile.md` (struct, memory
 > map) và `SimplePLC_Wire_Contract_V2_Draft.md` (hành vi). Khi file này mâu thuẫn với
@@ -10,16 +10,20 @@
 ## 0. Bối cảnh
 
 SimplePLC là thư viện firmware lõi cho họ sản phẩm IIoT (Remote I/O, Datalogger, Gateway,
-Controller) — dùng lại như lwIP: người dùng thư viện chỉ viết một file board + một file
-cấu hình, không sửa bên trong thư viện. Board hiện có: **Zigbee-IO** (4DI/4DO) trên
-STM32H523CCU6 (Cortex-M33, 250 MHz, 256 KB Flash, 272 KB SRAM). Nguyên tắc bắt buộc:
-**không heap động, struct kích thước cố định, tách lớp rõ ràng** (để port xuống MCU nhỏ).
+Controller) — dùng lại như lwIP: người dùng thư viện chỉ viết một file board + một file cấu
+hình (`splcopts.h`), không sửa bên trong thư viện. Board hiện có: **Zigbee-IO** (4DI/4DO)
+trên STM32H523CCU6 (Cortex-M33, 250 MHz, 256 KB Flash, 272 KB SRAM) — đã chạy trên phần
+cứng; **Gateway** (DI/DO ảo qua RS485, mục 5.1) — mới build, chưa chạy phần cứng. Nguyên
+tắc bắt buộc: **không heap động, struct kích thước cố định, tách lớp rõ ràng** (để port
+xuống MCU nhỏ).
 
 - Thiết bị chạy bảng rule `IF trigger THEN action` trên một bảng "tag" phẳng; App
-  (SimplePLC.Studio) cấu hình rule và FB qua **Modbus RTU trên USB-CDC** (TinyUSB +
-  nanoMODBUS). RS485 chỉ dành cho Gateway (Modbus Master, chưa làm), không phải kênh App↔MCU.
-- Mô hình **kéo (poll)**: ghi một giá trị chỉ ghi RAM rồi dừng; bước khác, lên lịch
-  riêng, đọc lại sau. Không có cascade/sự kiện đẩy.
+  (SimplePLC.Studio) cấu hình rule và FB qua **Modbus RTU** (nanoMODBUS) trên một
+  `modbus_transport_t` — hiện là USB-CDC (TinyUSB). RS485 dùng cho Gateway làm Modbus
+  Master tới các board IO (mục 5.1), không phải kênh App↔MCU.
+- Mô hình **kéo (poll)**: ghi một giá trị chỉ ghi RAM rồi dừng; bước khác, lên lịch riêng,
+  đọc lại sau. Không có cascade/sự kiện đẩy.
+- **Nhúng vào firmware chủ** (đã có TinyUSB/nanoMODBUS/logger/FreeRTOS): xem mục 3.1.
 
 ## 1. Bảy layer
 
@@ -54,9 +58,11 @@ simple_plc/
 │               plc_system_clear; sx_os_config.h / sx_platform_config.h (chỉ SUY RA cờ)
 ├── board/      Layer 4: board.{c,h} (hooks), board_config.h, board_tag_define.h (MAX_TAGS),
 │               board_device/board_<sku>.{c,h} — pin wiring, SPLC_TagLayout, descriptor
-├── services/   Layer 3: plc_io, plc_retain, plc_rule_flash, plc_modbus_cfg, plc_fb, plc_rtc
-├── port/       Layer 3.5: modbus_usb (đang dùng), modbus_serial / modbus_tcp (stub, Gateway),
-│               modbus_transport (giao diện), usb (tusb_config.h, usb_descriptors.c)
+├── services/   Layer 3: plc_io (+ plc_io_remote: DI/DO ảo của Gateway), plc_retain,
+│               plc_rule_flash, plc_modbus_cfg, plc_fb, plc_rtc
+├── port/       Layer 3.5: modbus_usb (App link), modbus_serial (RS485 master, Gateway),
+│               modbus_tcp (stub rỗng), modbus_transport (giao diện), usb (tusb_config.h,
+│               usb_descriptors.c)
 ├── core/       Layer 2: plc_tag, plc_rule (+ state machine), plc_internal_rule (eval, action),
 │               plc_device, plc_diag, plc_error, plc_system_cmd
 ├── components/ Layer 1: sx_gpio, sx_adc, sx_flash, sx_uart, sx_time, sx_rtc, sx_pwd,
@@ -65,7 +71,7 @@ simple_plc/
 │               system}, freertos/ (hiện thực sx_os cho FreeRTOS, không gắn chip)
 ├── utils/      Layer U: cqueue, epoch, logger, filter/*
 ├── libs/       nanomodbus, tinyusb (git submodule)
-├── config/     splc_opt.h (mặc định + kiểm tra), splcopts_template.h
+├── config/     splc_opt.h (mặc định + kiểm tra), splcopts_template.h, splc_log.h (log)
 └── docs/
 splc_config/splcopts.h   (gốc repo) — file cấu hình của sản phẩm hiện tại
 ```
@@ -78,11 +84,16 @@ splc_config/splcopts.h   (gốc repo) — file cấu hình của sản phẩm hi
   thiếu file → lỗi ngay lúc configure. Thư mục này và `config/` được thêm vào include path
   của mọi layer.
 - Option: target (`SPLC_PLATFORM`, `SPLC_BOARD`), OS (`SX_OS_USE_FREERTOS`), engine
-  (`PLC_SCAN_INTERVAL_MS`, `MAX_RULES` ≤ 100, `PLC_REBOOT_DELAY_MS`), retain
-  (`RETAIN_SNAPSHOT_PERIOD_MS`, `PLC_PVD_EMERGENCY_SAVE_ENABLE`,
-  `RETAIN_EMERGENCY_MIN_INTERVAL_MS`), link App (`SPLC_MODBUS_UNIT_ID`,
-  `SPLC_USB_RX/TX_BUF_SIZE`), log (`SPLC_LOG_LEVEL`, `SPLC_LOG_BUFFER_SIZE`).
-- Không phải option: hằng wire, layout Flash của chip, tag layout của board.
+  (`PLC_SCAN_INTERVAL_MS`, `MAX_RULES` ≤ 100, `PLC_REBOOT_DELAY_MS`), Flash
+  (`SPLC_FLASH_SIZE_KB`), retain (`RETAIN_SNAPSHOT_PERIOD_MS`,
+  `PLC_PVD_EMERGENCY_SAVE_ENABLE`, `RETAIN_EMERGENCY_MIN_INTERVAL_MS`), link App
+  (`SPLC_MODBUS_UNIT_ID`, `SPLC_USB_RX/TX_BUF_SIZE`), Remote I/O (`SPLC_REMOTE_MAX_NODES`,
+  `_TIMEOUT_MS`, `_POLL_MS`, `_OFFLINE_AFTER`, `_RETRY_MS`), log (`SPLC_LOG_LEVEL`,
+  `SPLC_LOG_BUFFER_SIZE`, `SPLC_LOGGER_BUILTIN`, macro `SPLC_LOG_OUTPUT`).
+- CMake đọc `SPLC_BOARD`, `SPLC_PLATFORM`, `SPLC_LOGGER_BUILTIN` thẳng từ `splcopts.h`
+  (`cmake_modules/splc_select.cmake`).
+- Không phải option: hằng wire, sector size và vị trí 5 sector dữ liệu (chỉ phụ thuộc
+  `SPLC_FLASH_SIZE_KB`), tag layout của board.
 - Cờ `STM32H5_PLATFORM`, `BOARD_*`, `SX_NO_OS` được SUY RA từ option trong
   `sx_platform_config.h`, `board_config.h`, `sx_os_config.h`.
 
@@ -94,14 +105,36 @@ task và đơn luồng, không khóa (tag, bảng rule, nháp FB/Modbus, retain)
 được đụng vào. Chỉ đổi: `sx_delay_*` ngủ qua scheduler, vòng chờ USB gọi
 `sx_os_yield_wait()`, logger dùng mutex. `sx_get_tick_ms()` luôn là `HAL_GetTick()`.
 Hợp đồng Layer 1: `components/os/sx_os.h`; Layer 0: `platforms/freertos/sx_os_freertos.c`
-(OBJECT library). Yêu cầu host: xem `sx_os.h`.
+(OBJECT library, object đưa vào executable bằng `$<TARGET_OBJECTS:splc_platform_freertos>`).
+Yêu cầu host khi `= 1`: header FreeRTOS qua `-DSPLC_OS_INCLUDE_DIRS=...`; `FreeRTOSConfig.h`
+có `INCLUDE_vTaskDelay`, `INCLUDE_xTaskGetSchedulerState`, `configSUPPORT_DYNAMIC_ALLOCATION`
+(`configTICK_RATE_HZ=1000` nên dùng); HAL timebase chuyển sang TIM (`sx_get_tick_ms()` vẫn
+là `HAL_GetTick()`, an toàn trong ISR PVD); không log từ ISR; TinyUSB giữ `OPT_OS_NONE`.
+
+### 3.1 Nhúng vào firmware chủ (định hướng, đang làm)
+
+Firmware chủ thường đã có TinyUSB, nanoMODBUS, logger, FreeRTOS. SimplePLC làm "khách", điểm
+nối kiểu lwIP: `modbus_transport_t` (`read/write/connected`, như `netif input/output`) và
+macro `SPLC_LOG_OUTPUT` (như `LWIP_PLATFORM_DIAG`).
+
+| Việc | Trạng thái |
+|---|---|
+| Log: `config/splc_log.h` (`log_*` → `SPLC_LOG_OUTPUT`), `SPLC_LOGGER_BUILTIN=0` = dùng logger của host | xong |
+| Dùng chung target `nanomodbus`/`tinyusb`/`cqueue` (`if(NOT TARGET ...)`) | chưa |
+| `SPLC_USB_EXTERNAL`: không build `sx_usb_cdc.c`/`port/usb`, host giữ `tusb_init`/`tud_task`/`tud_*_cb` | chưa |
+| Transport ngoài: board điền `read/write/connected`; `read` trả ngay khi chưa có dữ liệu | chưa |
+| File board nằm ngoài thư viện; vị trí vùng Flash dữ liệu do host khai | chưa |
+
+Lõi (core/services/app) không bao giờ `#include "tusb.h"`; chỉ board file được phép.
+Chi tiết firmware gateway thật và kế hoạch từng bước: `docs/handoff.md` mục 4.
 
 ## 4. Chi tiết layer
 
 ### Layer U
 `cqueue` (hàng đợi vòng cho USB/UART, dùng `cqueue_init_static`), `splc_epoch` (đổi
-epoch ↔ lịch, giờ địa phương), `logger` (buffer dùng chung cỡ `SPLC_LOG_BUFFER_SIZE`,
-`snprintf` có giới hạn, mutex khi RTOS), `filter/*` (IIR, Kalman, MA, Median — chưa dùng).
+epoch ↔ lịch, giờ địa phương), `logger` (cùng API với `libs/logger` của firmware gateway; buffer dùng chung cỡ
+`SPLC_LOG_BUFFER_SIZE`, `snprintf` có giới hạn, mutex khi RTOS; chỉ build khi
+`SPLC_LOGGER_BUILTIN=1`; code SimplePLC gọi qua `config/splc_log.h`), `filter/*` (IIR, Kalman, MA, Median — chưa dùng).
 `libs/nanomodbus` (Modbus RTU), `libs/tinyusb`.
 
 ### Layer 0 / 1
@@ -159,13 +192,18 @@ datasheet khi dùng chip mới: hai bank bằng nhau.
   CLEAR_RULES, CLEAR_RETAIN).
 
 ### Layer 3.5
-`port/modbus_usb`: `modbus_usb_read/write` nối nanoMODBUS với `sx_usb_tiny_*` qua giao
-diện `modbus_transport_t`. Biết hạn chế: `modbus_usb_write()` bỏ qua `timeout_ms`.
-`modbus_serial`, `modbus_tcp` là stub cho Gateway.
+`port/modbus_usb`: `modbus_usb_read/write` nối nanoMODBUS với `sx_usb_tiny_*` qua giao diện
+`modbus_transport_t`. Hạn chế: `modbus_usb_write()` bỏ qua `timeout_ms`.
+`port/modbus_serial`: **Modbus RTU master không chặn** trên `sx_uart_t` (FC03 + FC16, một
+request đang chạy mỗi master). `modbus_rtu_master_read/write()` gửi (TX ~1,5 ms), rồi
+`modbus_rtu_master_poll()` mỗi scan gom byte; khung hoàn tất khi đủ độ dài theo function code,
+timeout bằng tick thật, CRC bằng `nmbs_crc_calc()` (byte-swapped, ghi big-endian). Chân DE
+(nếu có) kéo cao quanh lúc gửi; echo của transceiver bị bỏ. `modbus_tcp` là file rỗng.
 
 ### Layer 3 — Services
-- **`plc_io`**: đăng ký kênh (`plc_io_register_di/do/ai(tag_idx, hw)`) thay cho mảng song
-  song; `input_scan()` (DI 0/1, AI mã ADC thô) và `output_scan()` (DO từ tag).
+- **`plc_io`**: đăng ký kênh (`plc_io_register_di/do/ai(tag_idx, hw)`); `input_scan()` (DI
+  0/1, AI mã ADC thô) và `output_scan()` (DO từ tag). Cuối mỗi hàm gọi hook của
+  **`plc_io_remote`** (DI/DO ảo của Gateway, mục 5.1; không làm gì khi chưa có node).
 - **`plc_modbus_cfg`**: nanoMODBUS server + register map (mục 5), State Machine #2 nạp
   rule (staging → verify CRC16 → commit nguyên tử), Diag Control (ENTER/HEARTBEAT/EXIT,
   lease, ghi tag trong diag, retain draft), RTC, FB, System Command.
@@ -226,6 +264,35 @@ FC16 an toàn ≤ 16 thanh ghi = 1 rule = 41 byte vì gói USB FS 64 byte) → �
 → ghi `0xA5A5` → đọc version. CRC = CRC-16/MODBUS trên **byte wire**. Exception: `0x02`
 địa chỉ sai, `0x03` giá trị sai. Giới hạn: FC03 ≤ 125 reg, FC16 ≤ 123 reg.
 
+### 5.1 Remote I/O của Gateway (link RS485 tới board IO)
+
+Gateway là master; board IO (chân DI/DO thật) là **slave thuần** cài khối thanh ghi dưới đây
+bằng nanoMODBUS (FC03/FC16), KHÔNG chạy SimplePLC. Lease/SAFE nằm ở slave.
+
+| Địa chỉ | R/W | Ý nghĩa |
+|---|---|---|
+| `0x0C00` | R | DI (bit i = DI i) |
+| `0x0C01` | R | DO đọc lại |
+| `0x0C02` | R | STATUS: bit0 LEASE_ALIVE, bit2 FAILSAFE, bit3 RESET |
+| `0x0C03/0x0C04` | W | MASK, VALUE: `do = (do & ~mask) \| (value & mask)`, ghi cùng lúc |
+| `0x0C05` | R/W | LEASE ms (0 = tắt, hoặc 1000..60000) |
+| `0x0C06` | R/W | SAFE: bit DO ép về khi lease hết hạn |
+
+`plc_io_remote` (một request đang chạy trong toàn bộ, tối đa 1 request mới mỗi scan), ưu
+tiên: **SYNC** (FC16 4 reg: mask=all, value, lease, safe — lúc đầu, khi node online lại, khi
+STATUS báo RESET/FAILSAFE) > **WRITE** (FC16 2 reg khi tag DO khác giá trị đã báo, mask =
+bit đổi) > **REFRESH** (ghi lại mọi bit DO mỗi lease/3, giữ lease sống và tự sửa lệch) >
+**POLL** (FC03 3 reg mỗi `SPLC_REMOTE_POLL_MS`: DI + STATUS). Sau `SPLC_REMOTE_OFFLINE_AFTER`
+request lỗi liên tiếp node thành offline (`plc_io_remote_node_online()`), thử lại mỗi
+`SPLC_REMOTE_RETRY_MS`, rồi SYNC lại; khi offline tag DI GIỮ giá trị cuối (không tạo sườn
+xuống giả cho rule `ON_FALL`).
+
+Khai báo ở file board, bằng dữ liệu: `GATEWAY_IO_NODES(X)` với `X(unit_id, di_count,
+do_count)` mỗi hàng một board IO (≤ 16 DI + ≤ 16 DO, ≤ `SPLC_REMOTE_MAX_NODES` hàng). Tag ảo
+nối tiếp theo thứ tự hàng (DI trước, DO sau, base lấy từ `tag_di_base_index()`/
+`tag_do_base_index()`); tag layout suy từ bảng và kiểm lúc biên dịch (`_Static_assert`,
+`MAX_TAGS` = 128 cho SKU này). 4DI/4DO → 8DI/8DO = sửa một hàng.
+
 ## 6. Mảng dữ liệu chính
 
 | Mảng | Chứa | Ai ghi | Ai đọc |
@@ -237,18 +304,7 @@ FC16 an toàn ≤ 16 thanh ghi = 1 rule = 41 byte vì gói USB FS 64 byte) → �
 | `s_staging_rule_table[]` | RAM đệm nạp rule | Modbus | commit |
 | `g_device_descriptor/health/resource_info` | nhận dạng, sức khoẻ | hằng/Layer 3-4 | Modbus |
 
-## 7. Ví dụ luồng
-
-**Nạp rule:** App → USB (Modbus RTU) → `tud_task()` đẩy byte vào `cqueue` → `sx_usb_tiny_read()`
-→ `modbus_usb_read()` → nanoMODBUS parse → callback staging → CRC16 → commit
-(`rule_table_commit()` đổi bảng nguyên tử, `plc_fb_commit_draft()`, `plc_rule_flash_save()`).
-
-**Rule "DI1 rise → bật DO2" (không dwell):** `input_scan()` ghi tag DI1 → `rule_scan()`: IDLE
-→ TRIGGERED → COMPARED → GUARD_CHECK (guard = `GUARD_TAG_NONE`, mở) → FIRE: `execute_action()`
-ghi tag DO2 → `output_scan()` kéo chân. Tất cả trong một scan; có `for_ms > 0` thì dừng ở
-DWELLING qua nhiều scan.
-
-## 8. Checklist khi code
+## 7. Checklist khi code
 
 - [ ] `sizeof(SPLC_RuleRecord) == 32`; không thêm `rule_id`; `reserved[6]` = 0 trước khi tính CRC.
 - [ ] Mọi CRC dùng CRC-16/MODBUS trên byte wire; không dùng CRC32.
@@ -261,10 +317,11 @@ DWELLING qua nhiều scan.
 - [ ] Option mới: thêm vào `config/splc_opt.h` (mặc định + check) và template; không rải
       `#define` cấu hình vào header layer.
 - [ ] Không phụ thuộc `configTICK_RATE_HZ` cho thời gian scan (dùng `sx_get_tick_ms()`).
-- [ ] `modbus_master_poll()` (Gateway, chưa có) phải chạy TRƯỚC `rule_scan()`.
+- [ ] Remote I/O không chặn: `plc_io_remote_*` chỉ chạy trong `input_scan/output_scan`, một
+      request mỗi scan; chỉ board file `#include "tusb.h"`/gọi `logger_init`.
 
-## 9. Còn mở
+## 8. Còn mở
 
-Modbus Master + Gateway; Event Log (`ACT_LOG_EVENT`) và Alarm (`ACT_SEND_ALARM`) chưa thiết
-kế; validate index tag khi nạp rule; TinyUSB đã chạy, `modbus_serial`/`modbus_tcp` còn stub;
-PVD chưa test trên phần cứng. Danh sách đầy đủ và cập nhật nằm ở `docs/handoff.md` mục 4.
+Nhúng vào firmware chủ (bảng mục 3.1); board Gateway thật (H563) và firmware slave cho board
+IO; Event Log (`ACT_LOG_EVENT`) và Alarm (`ACT_SEND_ALARM`) chưa thiết kế; validate index tag
+khi nạp rule; `modbus_tcp` còn rỗng. Danh sách đầy đủ: `docs/handoff.md` mục 4.

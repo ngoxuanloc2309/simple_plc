@@ -19,35 +19,33 @@ thì Wire Contract thắng; về struct/memory map thì Structs thắng:
 phải đọc CẢ HAI repo (`RuleCompiler.cs`, `RuleTableWriter.cs`,
 `FunctionBlockGateway.cs`). Đối chiếu câu trả lời của team App với code App.
 
-## 0. Trạng thái hiện tại (nhánh `board_dev_add_select_os`)
+## 0. Trạng thái hiện tại (nhánh `board_dev_gw`, tách từ `main` = `board_dev_add_select_os`)
 
-- Board: **Zigbee-IO SKU** (`board/board_device/board_zigbee_io.c`): 4 DI / 4 DO /
-  0 AI / 32 VFLAG / 32 VREG / 32 VREG_RETAIN / 8 COUNTER = 112 tag (DENSE:
-  DI 0-3, DO 4-7, VFLAG 8-39, VREG 40-71, RETAIN 72-103, COUNTER 104-111).
-  MCU STM32H523CCU6 (256 KB Flash thật).
-- **Wire Profile V2.0 đã xong và verify trên board:** Diag Control `0x0A20`, ghi tag
-  trong diag, retain draft/COMMIT, 3 lệnh xoá + REBOOT, RTC `0x0810` + Time Window,
-  khối FB `0x0B00..0x0B7F` (Counter CV/Q, Timer chạy thật qua `rule_ref`, cấu hình FB
-  lưu Flash chung bản ghi Rule Table), retain + PVD khẩn cấp (phần retain/Flash
-  verify trên board; **đường PVD thật chưa test**, chưa có phần cứng giữ điện).
-- **Việc của nhánh này — chọn OS + file cấu hình kiểu lwIP (xong, build ARM OK, CHƯA
-  chạy trên board):**
-  - `config/splc_opt.h` (mặc định + kiểm tra giá trị) và `splc_config/splcopts.h`
-    (file của sản phẩm). Chi tiết mục 2.
-  - `SX_OS_USE_FREERTOS` (0 = bare-metal, 1 = FreeRTOS một task) — mục 2.
-  - Build ARM Release (arm-none-eabi-gcc 13): `.text+.data` ≈ 69 KB (< `0x08036000`
-    = 216 KB), RAM 37,4 KB. `MAX_RULES=50` build được (RAM 28,6 KB). Bản
-    `SX_OS_USE_FREERTOS=1` với FreeRTOS-Kernel thật + `FreeRTOSConfig.h` giả: mọi file
-    của thư viện biên dịch không warning, link chỉ thiếu đúng 5 API kernel
-    (`vTaskDelay`, `xTaskGetSchedulerState`, `xQueueCreateMutex`,
-    `xQueueSemaphoreTake`, `xQueueGenericSend`) — host cung cấp.
-- **Chưa verify (không chặn việc tiếp theo):**
-  - Firmware mới (config + OS) chưa nạp/chạy lại trên board; chạy lại `test_plc.py`,
-    `test_fb.py`, `test_retain.py` để chắc không hồi quy.
-  - Link + chạy với kernel FreeRTOS thật và task thật; HAL timebase phải chuyển sang
-    TIM; đo độ trễ task khác khi erase/ghi Flash (HAL Flash chặn lúc erase).
-  - PVD thật, mất điện thật giữa lúc ghi Flash, `test_rtc.py --reboot`, tz/giờ qua
-    mất điện.
+- **Board đã chạy trên phần cứng: Zigbee-IO** (`board_zigbee_io.c`): 4 DI / 4 DO / 0 AI /
+  32 VFLAG / 32 VREG / 32 VREG_RETAIN / 8 COUNTER = 112 tag (DENSE: DI 0-3, DO 4-7,
+  VFLAG 8-39, VREG 40-71, RETAIN 72-103, COUNTER 104-111). MCU STM32H523CCU6 (256 KB).
+- **Wire Profile V2.0 xong và verify trên board** (Diag `0x0A20`, ghi tag trong diag, retain
+  draft/COMMIT, 3 lệnh xoá + REBOOT, RTC + Time Window, khối FB `0x0B00..0x0B7F`, retain +
+  PVD; **đường PVD thật chưa test**).
+- **Cấu hình kiểu lwIP + chế độ OS** (nhánh trước): xong, build ARM OK, chưa chạy lại trên board.
+- **Việc của nhánh này — build ARM Release OK (arm-none-eabi-gcc 13), CHƯA nạp/chạy trên
+  board; logic Remote I/O mới chỉ test trên PC với slave RS485 giả:**
+  1. **Flash tính ngược từ cuối** bằng option `SPLC_FLASH_SIZE_KB` (quyết định 11).
+  2. **Gateway: DI/DO ảo qua RS485** — `port/modbus_serial` (Modbus RTU master không chặn),
+     `services/plc_io/plc_io_remote.*`, SKU `board_ethernet_wifi_gateway.*`, mục
+     `BOARD_GATEWAY` trong `board_tag_define.h`, option `SPLC_REMOTE_*` (quyết định 12).
+     **File board này là bản mẫu viết cho dự án CubeMX H523 (`huart1`, `hlpuart1`,
+     `USART1_DE`), KHÔNG đúng với board gateway thật (H563) — phải viết lại** (mục 4).
+  3. **Logger của firmware chủ:** `config/splc_log.h`, `SPLC_LOGGER_BUILTIN`,
+     `SPLC_LOG_OUTPUT` (quyết định 14).
+- **Số đo build (Release, linker):** Zigbee-IO FLASH 79 256 B / RAM 77 696 B; SKU Gateway
+  FLASH 69 760 B / RAM 76 696 B (`main` cũ: 76 948 / 76 840). Mọi số trong tài liệu cũ
+  (69 KB / 37,4 KB) đã lỗi thời.
+- **Chưa verify (không chặn việc tiếp theo):** chạy lại `test_plc.py`, `test_fb.py`,
+  `test_retain.py` với firmware mới (config + OS + Flash + logger + hook `plc_io_remote`
+  trong `input_scan/output_scan`); Remote I/O với board IO thật (timing RS485, nhả chân DE);
+  FreeRTOS kernel thật (đo độ trễ task khác lúc erase Flash; HAL timebase chuyển sang TIM);
+  PVD thật, mất điện giữa lúc ghi Flash, `test_rtc.py --reboot`.
 
 ## 1. Cơ chế cần biết (đã làm, không sửa lại trừ khi có lý do mới)
 
@@ -78,10 +76,14 @@ phải đọc CẢ HAI repo (`RuleCompiler.cs`, `RuleTableWriter.cs`,
 - **USB/Modbus:** FC16 tối đa 123 reg, FC03 tối đa 125; gói USB FS 64 byte nên App
   chia 1 rule (41 byte)/lệnh. `sx_usb_tiny_read()` đo timeout bằng tick thật và bơm
   byte FIFO TinyUSB → `rxQueue` trong lúc chờ (khung > 64 byte được trả lời).
-- **Multi-board:** `SPLC_TagLayout` truyền qua tham số; đổi board = 1 file
-  `board_<sku>.c` + `-DSPLC_BOARD_SKU`. `MAX_TAGS` ở `board/board_tag_define.h`
-  (authoritative); các macro `TAG_DI0...` trong đó chỉ là bảng tham chiếu, KHÔNG board
-  .c nào include.
+- **Multi-board:** `SPLC_TagLayout` truyền qua tham số; board chọn bằng `SPLC_BOARD` trong
+  `splcopts.h` (CMake đọc, bảng ở `cmake_modules/splc_select.cmake`); thêm board = 1 file
+  `board_<sku>.c` + 1 hàng bảng. `MAX_TAGS` ở `board/board_tag_define.h` (authoritative);
+  các macro `TAG_DI0...` trong đó chỉ là bảng tham chiếu, KHÔNG board .c nào include.
+- **Remote I/O (Gateway):** `plc_io.c` gọi `plc_io_remote_input_scan()` (cache DI → tag) ở
+  cuối `input_scan()` và `plc_io_remote_output_scan()` (thu kết quả + bắn tối đa 1 request
+  RS485 mới/scan) ở cuối `output_scan()`. Không có node nào được thêm → không làm gì
+  (board Zigbee-IO không bị ảnh hưởng). Không bao giờ chặn vòng scan.
 
 ## 2. Hệ thống cấu hình & chế độ OS (nhánh này)
 
@@ -96,10 +98,13 @@ phải đọc CẢ HAI repo (`RuleCompiler.cs`, `RuleTableWriter.cs`,
   `MAX_RULES` (chỉ GIẢM, 1..100), `PLC_REBOOT_DELAY_MS`, `RETAIN_SNAPSHOT_PERIOD_MS`,
   `PLC_PVD_EMERGENCY_SAVE_ENABLE`, `RETAIN_EMERGENCY_MIN_INTERVAL_MS`,
   `SPLC_MODBUS_UNIT_ID`, `SPLC_USB_RX/TX_BUF_SIZE`, `SPLC_LOG_LEVEL`,
-  `SPLC_LOG_BUFFER_SIZE`. Thêm option: thêm vào `splc_opt.h` (mặc định + check) và
+  `SPLC_LOG_BUFFER_SIZE`, `SPLC_LOGGER_BUILTIN`, `SPLC_LOG_OUTPUT` (macro, không có mặc
+  định số), `SPLC_FLASH_SIZE_KB`, `SPLC_REMOTE_MAX_NODES/TIMEOUT_MS/POLL_MS/OFFLINE_AFTER/
+  RETRY_MS` (xem `splc_opt.h`). CMake cũng ĐỌC `SPLC_BOARD`, `SPLC_PLATFORM`,
+  `SPLC_LOGGER_BUILTIN` thẳng từ `splcopts.h` (`splc_select.cmake`). Thêm option: thêm vào `splc_opt.h` (mặc định + check) và
   template.
-- KHÔNG phải option: hằng wire (địa chỉ thanh ghi, kích thước struct, lease diag),
-  layout Flash chip (`splc_flash_define.h`), tag layout board.
+- KHÔNG phải option: hằng wire (địa chỉ thanh ghi, kích thước struct, lease diag), kích
+  thước sector và 5 sector dữ liệu (`splc_flash_define.h`), tag layout board.
 - `app/sx_platform_config.h`, `board/board_config.h`, `app/sx_os_config.h` giờ chỉ
   SUY RA cờ (`STM32H5_PLATFORM`, `BOARD_*`, `SX_NO_OS`) từ option; đừng định nghĩa tay.
 - CMake: `include_directories()` phạm vi thư mục (mọi layer thấy `splc_opt.h`) +
@@ -107,121 +112,153 @@ phải đọc CẢ HAI repo (`RuleCompiler.cs`, `RuleTableWriter.cs`,
 - Override bằng `-D` trên dòng lệnh chỉ có tác dụng khi `splcopts.h` không định nghĩa
   trùng option đó (hoặc bọc `#ifndef`).
 
-**Chế độ OS.** `SX_OS_USE_FREERTOS = 0`: bare-metal, `main()` gọi `plc_engine_init()` rồi
-`plc_engine_poll()`. `= 1`: host gọi cả hai từ MỘT task (`for(;;){ plc_engine_poll();
-vTaskDelay(1); }`); thư viện không tạo task, mọi thứ phía sau đơn luồng không khóa —
-task khác KHÔNG được đụng tag/rule/draft/retain. Macro = 1 chỉ đổi 3 thứ: (a)
-`sx_delay_ms/_s` ngủ qua scheduler khi đã chạy; (b) vòng chờ bận (USB read/write,
-vòng bơm USB lúc boot) gọi `sx_os_yield_wait()`; (c) logger dùng mutex. Yêu cầu host:
-header FreeRTOS qua `-DSPLC_OS_INCLUDE_DIRS=...`, `FreeRTOSConfig.h` có
-`INCLUDE_vTaskDelay`, `INCLUDE_xTaskGetSchedulerState`,
-`configSUPPORT_DYNAMIC_ALLOCATION`; `configTICK_RATE_HZ=1000` nên dùng. `sx_get_tick_ms()`
-GIỮ `HAL_GetTick()` (an toàn trong ISR PVD; host phải để HAL timebase chạy, khi dùng
-FreeRTOS đặt timebase sang TIM). TinyUSB giữ `OPT_OS_NONE`. Không log từ ISR khi = 1.
-Phần RTOS ở `platforms/freertos/` (OBJECT library, object đưa thẳng vào executable
-bằng `$<TARGET_OBJECTS:splc_platform_freertos>` — KHÔNG dùng static lib, phụ thuộc
-thứ tự link). `components/os/sx_os.h` là hợp đồng Layer 1; RTOS khác = thêm
-`platforms/<rtos>/`.
+**Chế độ OS.** `SX_OS_USE_FREERTOS = 0`: bare-metal. `= 1`: host gọi `plc_engine_init()` rồi
+`plc_engine_poll()` từ MỘT task; thư viện không tạo task, mọi thứ đơn luồng không khóa —
+task khác KHÔNG được đụng tag/rule/draft/retain. Đổi đúng 3 thứ (sleep qua scheduler, vòng
+chờ bận gọi `sx_os_yield_wait()`, logger dùng mutex). Yêu cầu host và chi tiết:
+`docs/architecture.md` mục 3. `sx_get_tick_ms()` giữ `HAL_GetTick()` (an toàn trong ISR PVD).
+Không log từ ISR khi = 1. Phần RTOS ở `platforms/freertos/` (OBJECT library, object đưa vào
+executable bằng `$<TARGET_OBJECTS:splc_platform_freertos>`, KHÔNG dùng static lib).
 
 ## 3. Quyết định đã chốt (người dùng xác nhận — ĐỪNG tự đổi, hỏi lại nếu nghi)
 
-1. `protocol_version = 2` (dòng "Protocol Version: 1" trong Wire Contract là lỗi đánh máy).
-2. RTC dùng RTC nội STM32H5, clock **LSI**, không VBAT/pin, không LSE. Mất điện → RTC
-   về chưa đồng bộ; reset mềm giữ giờ + `SYNCED`. CubeMX: Async 127 / Sync 249;
-   linker `--wrap=HAL_RTC_SetTime/SetDate` để `MX_RTC_Init()` không xoá giờ.
-3. `status_flags` (`0x0813`) RO, firmware tự tính. `tz_offset_min` chỉ trong RAM: sau
-   REBOOT tz về 0 và Time Window im lặng đến khi Studio ghi lại `0x0810`.
-4. Time Window theo Structs v2.0 mục 7: `Lo<=Hi` khung trong ngày, `Lo>Hi` qua nửa đêm
-   (bắn mỗi scan khi đúng); `compare_op==EQ` và `Lo==Hi` = mốc phút (bắn 1 lần ở sườn
-   lên). `trigger_tag` bị bỏ qua. Không có lớp tương thích v0.1: App phải sinh rule
-   "đúng giờ" dạng `EQ, Lo=Hi`.
-5. SYSTEM_COMMAND luôn chạy ngay; dirty interlock chỉ áp dụng cho `CMD_EXIT_DIAG`.
-   Trong diag, trước SYSTEM_COMMAND, tag host đã ghi về 0 (baseline 0, theo bitmap).
-6. Thoát diag (EXIT hoặc hết lease): `rule_runtime_reset()` mọi rule như vừa nạp; bảng
-   rule giữ nguyên. Hệ quả: input đang cao → rule `ON_RISE` bắn ngay lượt đầu.
-7. `DISCARD_RETAIN` bỏ bản nháp, KHÔNG reload Flash. Retain lưu bằng `plc_retain.c`
-   (không làm ping-pong Appendix A — lệch tài liệu CÓ CHỦ ĐÍCH, App không thấy).
-8. **FB — "dual generation":** App vẫn sinh macro rule (Timer/Counter chạy bằng Rule
-   Engine) VÀ ghi bảng FB; firmware chỉ lưu cấu hình và BÁO CÁO. Vùng `0x0B00..0x0B7F`
-   R/W; Host sở hữu `mode`, `pt_ms`/`preset`, thanh ghi `+6`; firmware sở hữu
-   `status_bits`, `et_ms`/`current_value`, `reserved` (Host ghi kèm thì bị bỏ qua).
-   Mode: Timer 1=TON 2=TOF 3=TP; Counter 1=CTU 2=CTD; 0 = không dùng. Không CTUD/HSC.
-9. **Counter:** `+6` = index toàn cục của tag chứa CV (VFLAG/VREG/VREG_RETAIN/COUNTER,
-   `0xFFFF` = không có; DI/DO/AI/Modbus bị từ chối `0x03`, không hai counter trùng
-   tag). Firmware chỉ ĐỌC tag đó: `CV` = giá trị tag, `Q`: CTU `CV>=PV`, CTD `CV<=0`.
-   Counter `i` KHÔNG gắn với tag `COUNTER[i]`. Counter retain không cần code riêng:
-   CV là `VREG_RETAIN` thì `plc_retain.c` lưu như mọi tag retain; CLEAR_RETAIN đưa về 0.
-10. **Timer:** `+6` = `rule_ref` (rule index + 1, 0 = chưa gắn). `plc_fb_scan()` đọc
-    runtime của rule đó + tag Q (`action_tag`) để báo IN/Q/RUNNING/ET. `rule_ref`
-    không kiểm với số rule lúc ghi (rule commit sau).
-11. **FB qua bản nháp:** ghi FB vào nháp (validate ngay, all-or-nothing, `0x02/0x03`),
-    đọc `0x0B00..` luôn trả cấu hình ĐANG CHẠY. COMMIT: khối có cờ nhận nháp, khối
-    không ghi → DISABLED, rồi lưu Flash cùng Rule Table. Nháp bị xoá sau COMMIT (kể cả
-    lỗi), `CLEAR_RULES`/`FACTORY_RESET`, và khi boot ⇒ mỗi Deploy App phải ghi lại FB
-    từ đầu. Trùng cv_tag chỉ so giữa các khối trong nháp.
-12. **Không sửa file CubeMX tự sinh, kể cả khối `USER CODE`.** Cần hành vi khác → chặn ở
-    lớp thấp (linker `--wrap`, lớp `sx_*`) và giữ ở Layer 0 + CMake. Báo người dùng nếu
-    thấy bug thật trong file sinh (vd. `STM32H523xx_FLASH.ld` khai `LENGTH=512K`, chip
-    thật 256 KB — nên đặt ≤ 216K để linker bắt tràn vào vùng dữ liệu `0x08036000+`;
-    HỎI trước khi sửa).
-13. Quyết định `0x0A20` đọc trả lệnh cuối đã ghi (khớp GV-005), dù Wire Contract ghi WO.
-    Layout tag board này DENSE, khác bảng cố định Structs mục 4 — code validate theo
-    KIND nên đúng cho cả hai; test script tính index từ `DeviceResourceInfo`.
+1. `protocol_version = 2` ("Protocol Version: 1" trong Wire Contract là lỗi đánh máy).
+2. RTC = RTC nội STM32H5, clock **LSI**, không VBAT/LSE; mất điện → chưa đồng bộ, reset mềm
+   giữ giờ. CubeMX Async 127 / Sync 249; linker `--wrap=HAL_RTC_SetTime/SetDate` để
+   `MX_RTC_Init()` không xoá giờ. `status_flags` (`0x0813`) RO do firmware tính;
+   `tz_offset_min` chỉ trong RAM (sau REBOOT về 0, Time Window im đến khi Studio ghi lại).
+3. Time Window theo Structs v2.0 mục 7: `Lo<=Hi` khung trong ngày, `Lo>Hi` qua nửa đêm
+   (bắn mỗi scan khi đúng); `compare_op==EQ` và `Lo==Hi` = mốc phút (bắn 1 lần ở sườn lên);
+   `trigger_tag` bị bỏ qua. Không có lớp tương thích v0.1.
+4. SYSTEM_COMMAND luôn chạy ngay; dirty interlock chỉ áp cho `CMD_EXIT_DIAG`. Trong diag,
+   trước SYSTEM_COMMAND, tag host đã ghi về 0. Thoát diag (EXIT/hết lease):
+   `rule_runtime_reset()` mọi rule như vừa nạp (input đang cao → `ON_RISE` bắn ngay).
+5. `DISCARD_RETAIN` bỏ bản nháp, KHÔNG reload Flash. Retain dùng `plc_retain.c` (không làm
+   ping-pong Appendix A — lệch tài liệu CÓ CHỦ ĐÍCH, App không thấy).
+6. **FB — "dual generation":** App vẫn sinh macro rule (Timer/Counter chạy bằng Rule Engine)
+   VÀ ghi bảng FB; firmware chỉ lưu cấu hình và BÁO CÁO. `0x0B00..0x0B7F` R/W; Host sở hữu
+   `mode`, `pt_ms`/`preset`, thanh ghi `+6`; firmware sở hữu `status_bits`, `et_ms`/
+   `current_value`, `reserved`. Mode: Timer 1=TON 2=TOF 3=TP; Counter 1=CTU 2=CTD; 0 = không dùng.
+7. **Counter:** `+6` = index toàn cục tag chứa CV (VFLAG/VREG/VREG_RETAIN/COUNTER; `0xFFFF` =
+   không có; DI/DO/AI/Modbus bị từ chối `0x03`; không hai counter trùng tag). Firmware chỉ ĐỌC
+   tag: `CV` = giá trị tag, `Q`: CTU `CV>=PV`, CTD `CV<=0`. Counter `i` KHÔNG gắn tag
+   `COUNTER[i]`; CV là `VREG_RETAIN` thì retain như mọi tag retain. **Timer:** `+6` =
+   `rule_ref` (rule index + 1, 0 = chưa gắn); `plc_fb_scan()` đọc runtime rule đó + tag Q.
+8. **FB qua bản nháp:** ghi vào nháp (validate ngay, all-or-nothing, `0x02/0x03`), đọc
+   `0x0B00..` luôn trả cấu hình ĐANG CHẠY. COMMIT: khối có cờ nhận nháp, khối không ghi →
+   DISABLED, rồi lưu Flash cùng Rule Table. Nháp bị xoá sau COMMIT (kể cả lỗi), `CLEAR_RULES`/
+   `FACTORY_RESET`, và khi boot ⇒ mỗi Deploy App phải ghi lại FB từ đầu.
+9. **Không sửa file CubeMX tự sinh, kể cả khối `USER CODE`.** Cần hành vi khác → chặn ở lớp
+   thấp (linker `--wrap`, lớp `sx_*`), giữ ở Layer 0 + CMake. Thấy bug thật trong file sinh
+   (vd. `STM32H523xx_FLASH.ld` khai `LENGTH=512K` trên chip 256 KB) → báo người dùng, HỎI
+   trước khi sửa.
+10. `0x0A20` đọc trả lệnh cuối đã ghi (khớp GV-005) dù Wire Contract ghi WO. Layout tag
+    board này DENSE, khác bảng cố định Structs mục 4 — code validate theo KIND nên đúng cho
+    cả hai; test script tính index từ `DeviceResourceInfo`.
+11. **Flash:** vùng dữ liệu (Rule A/B + Retain) LUÔN là 5 sector cuối, tính ngược từ
+    `END = FLASH_BASE + SPLC_FLASH_SIZE_KB*1024`. Người dùng chỉ khai size; sector 8 KB là
+    hằng của họ H5 (không phải option, vì sai thì xoá nhầm code); giả định H5 dual-bank chia
+    đôi (đối chiếu datasheet khi dùng chip mới). Kiểm lúc biên dịch: bội số 16 KB, 128..2048,
+    5 sector nằm trong bank 2. Bản đồ Flash/bootloader của firmware gateway (`wg_ue`) hiện
+    KHÔNG xét (người dùng quyết định); khi nhúng sẽ xung đột (mục 4).
+12. **Gateway:** SimplePLC chạy trên gateway; board IO có chân thật là **slave RS485 thuần**
+    (nhận lệnh bật/tắt DO, được hỏi thì trả DI) — KHÔNG chạy SimplePLC/Rule Engine/Flash
+    rule. DI/DO ảo ↔ (cổng RS485, unit ID, bit) khai CỨNG lúc biên dịch trong file board
+    (`GATEWAY_IO_NODES`), thiết kế theo dữ liệu: 4DI/4DO → 8DI/8DO là sửa một dòng bảng,
+    thêm board IO là thêm một dòng. Gateway chỉ khai UART log + UART RS485 (không ngoại vi
+    khác). Giao thức link: khối `0x0C00..0x0C06` (architecture mục 5.1).
+13. **Nhúng vào firmware chủ (kiểu lwIP):** firmware chủ đã có TinyUSB + nanoMODBUS + logger
+    (+ FreeRTOS/CubeMX). SimplePLC làm "khách", không làm chủ: điểm nối là `modbus_transport_t`
+    (`read`/`write`/`connected`, như `netif input/output`) và macro `SPLC_LOG_OUTPUT` (như
+    `LWIP_PLATFORM_DIAG`); dùng chung target `nanomodbus`/`tinyusb`/`cqueue` của host. Cuối
+    cùng sản phẩm chỉ cần `splcopts.h` + một file board (kế hoạch ở mục 4).
+14. **Logger:** SimplePLC code chỉ gọi `log_error/warn/info/debug` (`config/splc_log.h`) →
+    `SPLC_LOG_OUTPUT(level, tag, ...)`. Mặc định gọi `log_func()` của `logger.h`;
+    `SPLC_LOGGER_BUILTIN=1` (mặc định) dùng `utils/logger` + board gọi `logger_init`;
+    `=0` host cung cấp `logger.h`/logger và gọi `logger_init`, SimplePLC không build
+    `logger.c` và không đưa `utils/logger` vào include path (trùng tên `logger.h`).
+    `utils/logger` cùng dòng với `libs/logger` của `wg_ue` (cùng API; macro `LOGD/LOGI/LOGW/
+    LOGE`) nhưng an toàn hơn (`snprintf`, kiểm tra tràn, mutex NULL-an-toàn).
 
 ## 4. Việc còn lại / tồn đọng
 
-**App + spec (không gấp):**
-- `RuleCompiler.cs` (~dòng 260): `retainTagIndex` chỉ gửi khi CV là VREG_RETAIN; sửa gửi
-  `CvTagIndex` cho mọi tag CV hợp lệ. Giá trị dự phòng 84 ở Studio sai trên board này
-  (VREG_RETAIN bắt đầu ở tag 72).
-- Đọc `0x0B00..0x0B7F` một FC03 128 reg bị từ chối (tối đa 125): App phải tách (64+64).
-- Spec cần sửa: Structs 3.6/3.7 và Wire Contract 9.3 (quyền R/W, ý nghĩa `+6`, thêm
-  `rule_ref`). Báo team App khi sửa.
-- Đội App sinh rule "đúng giờ" `EQ, Lo=Hi` (quyết định 4).
+**A. Nhúng vào firmware chủ (ưu tiên, theo thứ tự — mỗi bước kiểm được riêng):**
+1. CMake dùng target của host nếu có: `if(NOT TARGET nanomodbus/tinyusb/...)` trong
+   `libs/CMakeLists.txt` (hiện luôn tạo bản riêng); rà cqueue, FreeRTOS, `stm32cubemx` ở
+   `CMakeLists.txt` gốc.
+2. Option `SPLC_USB_EXTERNAL` (đọc từ `splcopts.h` như `SPLC_LOGGER_BUILTIN`): bằng 1 thì
+   không build `components/usb_cdc/sx_usb_cdc.c` và `port/usb/` (chúng gọi `tusb_init`,
+   `tud_task` và định nghĩa `tud_mount/umount/suspend/resume_cb`), `components` không link
+   `tinyusb`, `tusb_config.h` do host cung cấp.
+3. Helper transport ngoài: board điền `read/write/connected` (vd. `tud_cdc_n_read/write`);
+   QUY ƯỚC: `read` trả NGAY khi chưa có dữ liệu (không chặn đủ timeout) vì vòng quét 10 ms.
+   Chưa kiểm: an toàn luồng khi task engine và task USB cùng chạm FIFO CDC.
+4. Cho phép file board nằm NGOÀI thư viện (không phải sửa `splc_select.cmake`/`board_config.h`).
+5. Viết lại `board_ethernet_wifi_gateway.c` cho board thật (xem dưới); trên host firmware
+   không gọi `logger_init`/không khởi UART log (`SPLC_LOGGER_BUILTIN=0`, đã hỗ trợ).
+6. Flash cho host: `SPLC_FLASH_SIZE_KB` chưa đủ nếu host đã dùng hết bản đồ Flash — cần
+   option địa chỉ bắt đầu vùng dữ liệu hoặc để host khai vị trí.
+7. Linker `STM32H523xx_FLASH.ld` khai `LENGTH=512K` (chip 256 KB): nên đặt
+   `SPLC_FLASH_SIZE_KB − 40 KB`. File CubeMX sinh — HỎI người dùng trước khi sửa.
 
-**Firmware:**
-- Validate `guard_tag`/`trigger_tag`/`action_tag` ∈ `0..MAX_TAGS-1` (hoặc `GUARD_TAG_NONE`)
-  khi nạp rule — hiện index sai chỉ vô hiệu hoá rule âm thầm.
-- `modbus_usb_write()` bỏ qua `timeout_ms` (đo scan_time tới 83 ms với 100 rule dưới tải).
-- Chưa ghi snapshot retain ngay trước REBOOT.
-- Lỗi Flash không-lập-trình-được trong lúc erase: bước copy A→B huỷ bản cũ trước khi
-  biết lỗi (có từ trước, áp dụng cả COMMIT thường và CLEAR_RULES).
-- `ACT_WRITE_REMOTE` / `ACT_LOG_EVENT` / `ACT_SEND_ALARM` chưa implement (ngoài V2.0;
-  Event Log và Alarm chưa thiết kế). Modbus Master cho Gateway chưa có.
-- Sai số LSI: cần chính xác hơn thì thêm LSE (đổi CubeMX + prescaler 127/255).
-- Lỗi trước `logger_init` không có log: ba lệnh đọc Flash trong `plc_engine_init()` chạy
-  TRƯỚC `board_init()`; treo ở đó thì màn hình log trống.
-- Utils chưa soát kỹ: `utils/cqueue` (`cqueue_init()` dùng malloc, đang là code chết),
-  `utils/filter/*`.
-- Comment cũ còn nhắc `FREE_RTOS` mặc định ở `board/CMakeLists.txt`, `components/
-  CMakeLists.txt`, `CMakeLists.txt` gốc — dọn khi đụng tới.
+**B. Firmware gateway thật (`ngoxuanloc2309/wg_ue`) — những gì đã đọc (chưa đối chiếu hết):**
+STM32H563, FreeRTOS + lwIP. TinyUSB do `usb_netif_task` sở hữu (`tusb_init`, `tud_task_ext`,
+các `tud_*_cb` trong `usb_netif.c`, `USB_DRD_FS_IRQHandler` → `tud_int_handler`); descriptor
+composite RNDIS/ECM (192.168.7.1) + một CDC ACM chưa có code nào dùng; `CFG_TUSB_OS=FREERTOS`,
+`CFG_TUD_CDC=2` nhưng chỉ 1 ACM trong descriptor. `middleware/nanomodbus` có API giống hệt
+`libs/nanomodbus` của SimplePLC (so từng hàm `nmbs_*`). `libs/logger` cùng dòng với
+`utils/logger`. Theo tài liệu pinout của repo: 3 cổng RS485 (USART3/6/10, mỗi cổng có DE)
+do `modbus_manager`/`mmb_serial` quản lý → SimplePLC cần một cổng riêng. Bản đồ Flash/
+bootloader `libs/bootloader/flash_define.h` dùng hết Flash (bỏ qua theo quyết định 11).
+
+**C. Remote I/O:**
+- Chưa có firmware slave cho board IO (cài khối `0x0C00..0x0C06` bằng nanoMODBUS; lease/SAFE
+  nằm ở slave). Chưa thử trên phần cứng.
+- Chưa phát hiện trùng `unit_id` giữa hai hàng bảng trên cùng bus.
+- Node offline mà DI giữ giá trị cuối: rule cần biết trạng thái dùng `plc_io_remote_node_online()`;
+  chưa có tag báo "node offline" cho App.
+
+**D. App + spec (không gấp):** `RuleCompiler.cs` (~dòng 260) chỉ gửi `retainTagIndex` khi CV là
+VREG_RETAIN (giá trị dự phòng 84 sai trên board này, RETAIN bắt đầu ở tag 72); đọc
+`0x0B00..0x0B7F` một FC03 128 reg bị từ chối (tối đa 125) → App tách 64+64; sửa Structs
+3.6/3.7 và Wire Contract 9.3 (quyền R/W, `+6`, `rule_ref`); App sinh rule "đúng giờ" `EQ, Lo=Hi`.
+
+**E. Firmware khác:** validate `guard/trigger/action_tag` ∈ `0..MAX_TAGS-1` khi nạp rule (hiện
+index sai chỉ vô hiệu hoá rule âm thầm); `modbus_usb_write()` bỏ qua `timeout_ms`; chưa ghi
+snapshot retain ngay trước REBOOT; lỗi Flash lúc erase trong bước copy A→B huỷ bản cũ trước
+khi biết lỗi; `ACT_WRITE_REMOTE/LOG_EVENT/SEND_ALARM` chưa implement; không có log trước
+`logger_init` (đọc Flash trong `plc_engine_init()` chạy TRƯỚC `board_init()`); `utils/cqueue`
+(`cqueue_init()` dùng malloc, code chết) và `utils/filter/*` chưa soát; comment cũ nhắc
+`FREE_RTOS` còn ở vài CMakeLists.
 
 ## 5. Bài học
 
 1. Đọc file định nghĩa trước khi thêm hằng số/enum/mã lỗi mới.
-2. Bằng chứng trước khi kết luận: log là dấu vân tay của phiên bản code; lọc theo từ
-   khoá trước khi nghi code không chạy (poll sinh nhiều DEBUG làm trôi log).
-3. Test chỉ có nghĩa nếu trạng thái đầu xác định (reset board, kiểm `DO0=0` trước rule
-   thử; test persistence phải kiểm dữ liệu sống sót qua reboot TRƯỚC khi xoá).
+2. Bằng chứng trước khi kết luận: log là dấu vân tay của phiên bản code; lọc theo từ khoá.
+3. Test chỉ có nghĩa nếu trạng thái đầu xác định (reset board, kiểm `DO0=0` trước rule thử;
+   test persistence phải kiểm dữ liệu sống sót qua reboot TRƯỚC khi xoá).
 4. Timeout đếm bằng vòng lặp không phải timeout: đo bằng tick thật.
-5. Đừng suy ngữ nghĩa field từ tên hay từ một phía; đọc UI/compiler của App và hỏi
-   người dùng.
-6. `switch/case` + fallthrough không tự an toàn hơn `if/continue` — test thực nghiệm.
-7. Flash giả mô phỏng mất điện: sau mất điện mọi erase/program tiếp theo phải bị BỎ QUA.
-8. Việc chưa giao thì mất khi phiên kết thúc (container không giữ, repo chỉ có cái đã
-   push): sau mỗi mốc present nguyên file ngay. Khi code trong repo lệch handoff
-   (đã gặp với chế độ OS) thì tin code và sửa handoff.
-9. Không code hành động phá huỷ dữ liệu khi spec mơ hồ — hỏi phạm vi trước.
-10. Đổi giá trị mặc định/cấu hình: kiểm cả bản `-D`/override, giá trị sai (`#error`) và
-    thiếu file `splcopts.h`, không chỉ bản mặc định.
+5. Đừng suy ngữ nghĩa field từ tên hay từ một phía; đọc UI/compiler của App và hỏi người dùng.
+6. Flash giả mô phỏng mất điện: sau mất điện mọi erase/program tiếp theo phải bị BỎ QUA.
+7. Việc chưa giao thì mất khi phiên kết thúc (đã mất cả bản gateway một lần vì hết token
+   trước khi present): present nguyên file ngay sau mỗi mốc. Code trong repo lệch handoff
+   thì tin code và sửa handoff.
+8. Không code hành động phá huỷ dữ liệu khi spec mơ hồ — hỏi phạm vi trước.
+9. Đổi giá trị mặc định/cấu hình: kiểm cả bản `-D`/override, giá trị sai (`#error`), thiếu
+   `splcopts.h`, không chỉ bản mặc định.
+10. Hiểu kiến trúc trước khi code: một phiên đã nhét SimplePLC đầy đủ vào board IO trong khi
+    board IO chỉ cần là slave RS485 — hỏi "thiết bị này có cần chạy PLC không?" trước.
+11. Đừng tuyên bố môi trường thiếu công cụ khi chưa thử cài (`apt-get install` chạy được).
 
 ## 6. Quy trình làm việc
 
 - Trao đổi **tiếng Việt**, code/comment **tiếng Anh**.
 - Người dùng tự push; Claude không có quyền push. Đầu phiên hoặc khi người dùng báo đã
   push: `git pull`, rồi **build/compile verify thật** (không chỉ đọc diff). Claude có
-  thể `apt-get install gcc-arm-none-eabi cmake ninja-build` và
-  `git submodule update --init` (tinyusb) để build `cmake --preset Release`.
+  thể `apt-get install gcc-arm-none-eabi ninja-build`, `pip install cmake
+  --break-system-packages` và `git submodule update --init` (tinyusb) để build
+  (`cmake -S . -B <dir> -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake
+  -DCMAKE_BUILD_TYPE=Release [-DSPLC_OPTS_DIR=<dir>]`).
 - **Giao nguyên file** (present từng file để copy-paste), KHÔNG patch/zip/đoạn thay thế.
   Chỉ giao code dự án + script test Python; KHÔNG giao harness C chạy trên PC. Việc tự
   kiểm tra nội bộ (gcc host) vẫn làm nhưng nêu rõ là chạy trên mô hình giả. Tính năng
@@ -247,17 +284,18 @@ Python, dùng đúng interpreter). Các script ghi Flash/xoá rule — chỉ ch�
 
 Trước `test_diag.py manual`: reset board, xác nhận `DO0=0`.
 
-**Không cần toolchain ARM:** Layer 2 (`plc_tag.c`, `plc_rule.c`, `plc_internal_rule/*.c`)
-biên dịch bằng `gcc -std=c11` + stub `logger.h` (`sizeof(SPLC_RuleRecord)==32`).
-`plc_modbus_cfg.c` kiểm cú pháp được với include path đã dùng trước đây (thêm
-`-Isimple_plc/config -Isplc_config`). Kiểm cú pháp driver ARM trên PC: gcc host + HAL thật
-(`-DUSE_HAL_DRIVER -DSTM32H523xx ...`), bỏ qua cảnh báo `cast to pointer from integer` của
-header vendor.
+**Kiểm trên PC (không cần board):** Layer 2 (`plc_tag.c`, `plc_rule.c`, `plc_internal_rule/*.c`)
+biên dịch bằng `gcc -std=c11` + stub; `sizeof(SPLC_RuleRecord)==32`. Có thể kiểm cú pháp
+file Layer 0/4 bằng gcc host + header giả. Logic Remote I/O (`plc_io_remote.c`,
+`modbus_serial.c`) kiểm bằng gcc host + slave RS485 giả (10 kịch bản: sync, ghi DO, lease,
+DI, offline/online lại, slave reset, CRC sai, dữ liệu thừa); harness này KHÔNG nằm trong repo
+và không giao cho người dùng (xem mục 6). Nói rõ đó là mô hình giả.
 
 **Ranh giới layer** (`nm -u <file>.o`): Layer 3 không có symbol `sx_usb_*`; Layer 2 không
-có `sx_flash_*`/`sx_usb_*`; `plc_rule_flash.c` PHẢI có `sx_flash_*`; `sx_system_reset`
-chỉ được gọi từ `plc_system_cmd_service.c` (Layer 4).
+có `sx_flash_*`/`sx_usb_*`; `plc_rule_flash.c` PHẢI có `sx_flash_*`; `sx_system_reset` chỉ
+được gọi từ `plc_system_cmd_service.c` (Layer 4); chỉ board file được `#include "tusb.h"`.
 
-**Kiểm cấu hình:** build mặc định; build `SX_OS_USE_FREERTOS=1` (cần
-`-DSPLC_OS_INCLUDE_DIRS`); build `MAX_RULES=50`; giá trị sai phải `#error`; thiếu
-`splcopts.h` phải `FATAL_ERROR` ở bước configure.
+**Kiểm cấu hình (build ARM):** mặc định (Zigbee-IO); `SPLC_BOARD_GATEWAY` qua
+`-DSPLC_OPTS_DIR`; `SPLC_FLASH_SIZE_KB` 128/256/512/… (sai phải `#error`/`_Static_assert`);
+`SX_OS_USE_FREERTOS=1` (cần `-DSPLC_OS_INCLUDE_DIRS`); `MAX_RULES=50`; `SPLC_LOGGER_BUILTIN=0`
+(cần logger của host mới link được); thiếu `splcopts.h` phải `FATAL_ERROR` lúc configure.
