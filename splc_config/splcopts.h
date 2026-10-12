@@ -26,7 +26,7 @@
 /* App <-> device link: RS485 Modbus RTU slave on USART1 (DE = PB13), written in
  * board_zigbee_io.c. 0 = no USB code is built (no TinyUSB). Use the sibling
  * directory splc_config/ for the USB-CDC variant. */
-#define SPLC_PORT_USB_CDC             0
+#define SPLC_PORT_USB_CDC             1
 
 /* Engine */
 #define PLC_SCAN_INTERVAL_MS          10U
