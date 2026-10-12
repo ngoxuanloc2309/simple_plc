@@ -106,7 +106,7 @@ typedef struct {
  * Load the tag metadata table (g_tag_table[]) from Flash. Called exactly
  * once at boot, from plc_engine_init() (Layer 4), AFTER the caller has
  * already obtained this board's SPLC_TagLayout (e.g. via
- * board_get_tag_layout(), board/board.h) -- Layer 2 itself never decides
+ * board_get_tag_layout(), board/splc_board.h) -- Layer 2 itself never decides
  * how many DI/DO/AI/... slots exist, it only lays them out contiguously in
  * the fixed group order above, starting at index 0, according to what
  * `layout` says.

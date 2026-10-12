@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
-#include "cqueue.h"
+#include "splc_cqueue.h"
 
 typedef struct sx_uart_config {
     void     *pDriver;   /* points to the real HAL handle, e.g. &huart1 */
@@ -21,12 +21,12 @@ typedef struct sx_uart {
 
     /* RX: filled 1 byte at a time by HAL_UART_RxCpltCallback (Layer 0 ISR
      * context), drained by sx_uart_read() (Layer 1, normal context).
-     * rxQueue is initialized with cqueue_init_static() over rxBuffer --
+     * rxQueue is initialized with splc_cqueue_init_static() over rxBuffer --
      * no malloc, per the project's no-dynamic-heap rule (see
      * docs/architecture.md, Design principles). */
     uint8_t  *rxBuffer;
     int       rxBufferSize;
-    CQueue_t  rxQueue;
+    splc_cqueue_t  rxQueue;
 
     /* TX buffer is caller-owned scratch space; sx_uart_write() does not
      * queue -- it hands data directly to HAL_UART_Transmit_IT(). */

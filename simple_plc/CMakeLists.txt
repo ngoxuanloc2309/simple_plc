@@ -12,6 +12,17 @@
 # to the executable for now and will get their own CMakeLists.txt as they
 # gain real content.
 
+# --- How SimplePLC is consumed ------------------------------------------
+# OFF (default): standalone firmware. This file wires every layer into the
+#   top-level executable ${CMAKE_PROJECT_NAME} (the Zigbee-IO / CubeMX project).
+# ON: library mode, for a host firmware that embeds SimplePLC (like lwIP). The
+#   host does add_subdirectory(<this dir>) and links the INTERFACE target
+#   `splc`; nothing is attached to the host's executable, no source is added to
+#   it and no linker option is added. When SX_OS_USE_FREERTOS = 1 the host's own
+#   port file must add $<TARGET_OBJECTS:splc_platform_freertos> to one of ITS
+#   targets (an OBJECT library, see below).
+option(SPLC_AS_LIBRARY "Build SimplePLC as a library for a host firmware (target: splc)" OFF)
+
 # --- Product configuration (splcopts.h) --------------------------------
 # Same model as lwIP's lwipopts.h. The library supplies the defaults
 # (config/splc_opt.h); the PRODUCT supplies splcopts.h and says where it is:
@@ -53,6 +64,11 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules/splc_select.cmake)
 # Layer 0/1 target by design (build/port boundary, see
 # docs/architecture.md section 1, rule 3).
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/core)
+
+# --- Layer U - utils/ ----------------------------------------------------
+# splc_utils (splc_cqueue + epoch) is linked into splc_components, so it must
+# exist before it.
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/utils)
 
 # --- Layer 1 - SX Driver Core (components/) -----------------------------
 # splc_components is defined in components/CMakeLists.txt. STATIC library:
@@ -126,28 +142,8 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/board)
 # main.c's USER CODE BEGIN 2 / USER CODE BEGIN 3 blocks).
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/app)
 
-# --- Link everything into the top-level executable ----------------------
-#
-# IMPORTANT: this must be a single PLAIN-signature target_link_libraries()
-# call, not one PRIVATE-keyword call per library as this file used to
-# have. Root cause (found by actually building with the real ARM
-# toolchain on Windows -- this sandbox's own verification used a
-# hand-written INTERFACE stand-in for the stm32cubemx target and never
-# caught it): cmake/stm32cubemx/CMakeLists.txt (CubeMX-generated, not
-# ours to edit -- see its own "generated only once" header comment) does
-# `target_link_libraries(${CMAKE_PROJECT_NAME} ${MX_LINK_LIBS})` with NO
-# PRIVATE/PUBLIC/INTERFACE keyword -- the "plain" signature. CMake
-# forbids mixing plain and keyword target_link_libraries() calls on the
-# same target (RS485_IO_RF_V2 here): once any call on a target is plain,
-# every other call on that same target must also be plain, or configure
-# fails with "All uses of target_link_libraries with a target must be
-# either all-keyword or all-plain." Since cmake/stm32cubemx/CMakeLists.txt
-# runs first (root CMakeLists.txt's add_subdirectory(cmake/stm32cubemx)
-# comes before add_subdirectory(simple_plc)) and cannot be changed, this
-# file must use plain signature too -- PRIVATE/PUBLIC only make sense
-# between static libraries anyway; for the final top-level executable
-# they have no real effect beyond satisfying CMake's consistency check.
-target_link_libraries(${CMAKE_PROJECT_NAME}
+# --- Link everything ---------------------------------------------------
+set(SPLC_ALL_LAYERS
     splc_config
     splc_core
     splc_components
@@ -159,40 +155,46 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     splc_app
 )
 
-# sx_os_*() implementation (Layer 0, platforms/freertos/): added as OBJECT files,
-# not as a static library, so it resolves for every caller regardless of the
-# static-library order on the link line. Empty unless SX_OS_USE_FREERTOS = 1.
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE $<TARGET_OBJECTS:splc_platform_freertos>)
+if(SPLC_AS_LIBRARY)
+    # Library mode: one INTERFACE target for the host to link. The host decides
+    # how its own executable is linked (plain or keyword signature).
+    add_library(splc INTERFACE)
+    target_link_libraries(splc INTERFACE ${SPLC_ALL_LAYERS})
+    message(STATUS "SimplePLC mode     : library (link the INTERFACE target 'splc')")
+else()
+    # IMPORTANT: this must be a single PLAIN-signature target_link_libraries()
+    # call, not one PRIVATE-keyword call per library. Root cause (found by
+    # building with the real ARM toolchain): cmake/stm32cubemx/CMakeLists.txt
+    # (CubeMX-generated, not ours to edit) does
+    # `target_link_libraries(${CMAKE_PROJECT_NAME} ${MX_LINK_LIBS})` with NO
+    # PRIVATE/PUBLIC keyword -- the "plain" signature. CMake forbids mixing
+    # plain and keyword signatures on one target ("All uses of
+    # target_link_libraries with a target must be either all-keyword or
+    # all-plain"), and that file runs first.
+    target_link_libraries(${CMAKE_PROJECT_NAME} ${SPLC_ALL_LAYERS})
 
-# RTC: keep the time across warm resets without editing CubeMX code.
-# The generated MX_RTC_Init() unconditionally writes 2000-01-01 at every
-# boot; these options route HAL_RTC_SetTime/SetDate through the
-# __wrap_ filters in platforms/stm32/stm32h5/rtc/stm32h5_rtc.c, which skip
-# that write while the clock is synced. See the comment there. (Separate
-# from the target_link_libraries() call above, so the plain-vs-keyword
-# rule discussed there does not apply.)
-target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
-    -Wl,--wrap=HAL_RTC_SetTime
-    -Wl,--wrap=HAL_RTC_SetDate
-)
+    # sx_os_*() implementation (Layer 0, platforms/freertos/): added as OBJECT
+    # files, not as a static library, so it resolves for every caller regardless
+    # of the static-library order on the link line. Empty unless
+    # SX_OS_USE_FREERTOS = 1.
+    target_sources(${CMAKE_PROJECT_NAME} PRIVATE $<TARGET_OBJECTS:splc_platform_freertos>)
+    message(STATUS "SimplePLC mode     : standalone (attached to ${CMAKE_PROJECT_NAME})")
+endif()
 
-# --- Everything else: not yet split into its own CMakeLists.txt --------
-
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # Layer U - Utils (pure algorithms, no hardware dependency)
-    ${CMAKE_CURRENT_SOURCE_DIR}/utils/cqueue/cqueue.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/utils/epoch/splc_epoch.c
-    # NOTE: utils/logger/logger.c is built by board/CMakeLists.txt's
-    # splc_board target instead -- board_<sku>.c is its only caller
-    # today. See that file's comment.
-)
-
-target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # NOTE: every layer (core/, components/, platforms/, port/, libs/,
-    # services/, board/, app/) now exposes its own headers as PUBLIC
-    # include dirs automatically via target_link_libraries() above.
-    # Only Layer U (utils/cqueue/cqueue.c above) still has no
-    # CMakeLists.txt of its own, hence the one include dir left here.
-    ${CMAKE_CURRENT_SOURCE_DIR}/utils/cqueue
-    ${CMAKE_CURRENT_SOURCE_DIR}/utils/epoch
-)
+# RTC: keep the time across warm resets without editing CubeMX code. The
+# generated MX_RTC_Init() unconditionally writes 2000-01-01 at every boot; these
+# options route HAL_RTC_SetTime/SetDate through the __wrap_ filters in
+# platforms/stm32/stm32h5/rtc/stm32h5_rtc.c, which skip that write while the
+# clock is synced. Only meaningful with the built-in RTC driver, and only for the
+# standalone firmware: in library mode the host would have to add the same two
+# options itself (and would use a CubeMX RTC of its own).
+if(SPLC_RTC_BUILTIN AND NOT SPLC_AS_LIBRARY)
+    target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+        -Wl,--wrap=HAL_RTC_SetTime
+        -Wl,--wrap=HAL_RTC_SetDate
+    )
+elseif(SPLC_RTC_BUILTIN AND SPLC_AS_LIBRARY)
+    message(WARNING "SimplePLC: SPLC_RTC_BUILTIN = 1 in library mode. stm32h5_rtc.c needs "
+        "-Wl,--wrap=HAL_RTC_SetTime -Wl,--wrap=HAL_RTC_SetDate on the host's executable "
+        "(or the link fails with undefined __real_HAL_RTC_SetTime).")
+endif()

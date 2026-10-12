@@ -28,7 +28,7 @@
  * #include this header for the type definitions and then declare/populate
  * its own g_device_descriptor / g_device_health instances.
  *
- * This file replaces the earlier drafts left in app/app_config.h and
+ * This file replaces the earlier drafts left in app/splc_app_config.h and
  * board/board_family.h, which put device-identity data outside the Layer 2
  * porting boundary. Those drafts have been removed; this is the single
  * source for SPLC_DeviceClass / SPLC_*Variant / SPLC_DeviceDescriptor /

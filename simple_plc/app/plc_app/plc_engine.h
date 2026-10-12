@@ -6,7 +6,7 @@
  *
  * The single, SKU-agnostic entry point every board_*.c's firmware image
  * uses the same way. plc_engine.c never knows or checks which SKU it is
- * running on -- see board.h's doc-comment: board_init()/board_hw_init()/
+ * running on -- see splc_board.h's doc-comment: splc_board_init()/board_hw_init()/
  * board_get_modbus_transport() are the only per-SKU hooks it calls
  * through, and only one SKU's board_<n>.c is ever linked into a given
  * image (selected by SPLC_BOARD_SKU in board/CMakeLists.txt, not by any
@@ -28,7 +28,7 @@ extern "C" {
  * ordering, and the individual doc-comments on each function called
  * here for why this exact order matters):
  *   1. tag_table_load_from_flash()   -- g_tag_table[] must have real
- *      TAG_DI/TAG_DO/TAG_AI kinds before board_init() calls
+ *      TAG_DI/TAG_DO/TAG_AI kinds before splc_board_init() calls
  *      plc_io_register_di/do/ai(), which validate against it.
  *   2. rule_table_load_from_flash()  -- so DEVICE_RESOURCE_INFO's
  *      max_rules/RULE_TABLE_INFO's rule_count already reflect real data
@@ -36,13 +36,13 @@ extern "C" {
  *   3. retain_store_restore()        -- restores TAG_VREG_RETAIN values
  *      from their Flash snapshot before rule_scan() ever runs (step 5 of
  *      plc_engine_scan_once() below) reads a stale/zeroed value.
- *   4. board_init()                  -- per-SKU pin wiring
+ *   4. splc_board_init()                  -- per-SKU pin wiring
  *      (plc_io_register_di/do/ai()), plus initializing whatever driver
  *      instance (sx_usb_tiny_t, ...) board_get_modbus_transport() (step 5)
  *      will hand off.
  *   5. plc_modbus_cfg_init(board_get_modbus_transport()) -- must run
- *      after board_init(), since the transport's underlying driver
- *      instance is only initialized there (see board.h's doc-comment on
+ *      after splc_board_init(), since the transport's underlying driver
+ *      instance is only initialized there (see splc_board.h's doc-comment on
  *      board_get_modbus_transport()'s calling order requirement).
  */
 void plc_engine_init(void);

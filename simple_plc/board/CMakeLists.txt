@@ -1,6 +1,6 @@
 # board/CMakeLists.txt - Layer 4 (board bring-up)
 #
-# Builds board_init()/board_hw_init() as a static library target:
+# Builds splc_board_init()/board_hw_init() as a static library target:
 # splc_board. Only ONE SKU's board_<name>.c is compiled in at a time --
 # selected from SPLC_BOARD in splcopts.h (cmake/splc_select.cmake sets SPLC_BOARD_SKU), not via
 # #ifdef inside a shared file (see docs/handoff.md section 1.11's
@@ -22,7 +22,7 @@
 # SPLC_BOARD_SKU is set by cmake/splc_select.cmake from SPLC_BOARD in splcopts.h.
 
 set(SPLC_BOARD_SRC
-    ${CMAKE_CURRENT_SOURCE_DIR}/board.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/splc_board.c
     ${CMAKE_CURRENT_SOURCE_DIR}/board_device/board_${SPLC_BOARD_SKU}.c
     ${SPLC_LOGGER_SRC}      # empty when the host firmware supplies the logger (SPLC_LOGGER_BUILTIN=0)
 )

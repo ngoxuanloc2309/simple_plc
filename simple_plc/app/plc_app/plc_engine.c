@@ -9,7 +9,7 @@
 #include "plc_rtc.h"
 #include "plc_fb.h"
 #include "plc_system_cmd_service.h"
-#include "board.h"
+#include "splc_board.h"
 #include "sx_time.h"
 #include "sx_pwd.h"
 
@@ -19,7 +19,7 @@
  * See plc_engine.h for the full ordering rationale on both functions
  * below. Nothing in this file is SKU-specific -- every per-board detail
  * (pin wiring, which transport backs the config channel, DI/DO/AI
- * counts) lives behind board_init()/board_get_modbus_transport() and
+ * counts) lives behind splc_board_init()/board_get_modbus_transport() and
  * SPLC_DeviceResourceInfo, both set up by board_*.c before this file
  * ever runs.
  */
@@ -37,9 +37,9 @@ void plc_engine_init(void)
 {
     /*
      * board_get_tag_layout() is a plain data query (no GPIO/UART/USB touched
-     * -- see its doc-comment in board.h), so it is safe to call before
-     * board_init() brings up any real hardware. Its result must reach
-     * tag_table_load_from_flash() BEFORE board_init() runs: board_init()
+     * -- see its doc-comment in splc_board.h), so it is safe to call before
+     * splc_board_init() brings up any real hardware. Its result must reach
+     * tag_table_load_from_flash() BEFORE splc_board_init() runs: splc_board_init()
      * (via board_hw_init()) calls plc_io_register_di/do/ai(), which
      * validates each registration against g_tag_table[]'s kind -- that
      * table only has the right TAG_DI/TAG_DO/TAG_AI kinds once
@@ -65,7 +65,7 @@ void plc_engine_init(void)
     sx_power_register_low_voltage_callback(retain_emergency_snapshot);
 #endif
 
-    board_init();
+    splc_board_init();
 
     modbus_transport_t transport = board_get_modbus_transport();
     plc_modbus_cfg_init(&transport);

@@ -1,10 +1,10 @@
-#ifndef BOARD_H
-#define BOARD_H
+#ifndef SPLC_BOARD_H
+#define SPLC_BOARD_H
 
 /*
- * board.h - Layer 4 (Engine & Application entry)
+ * splc_board.h - Layer 4 (Engine & Application entry)
  *
- * board_init(): common entry point, same call for every SKU. Calls
+ * splc_board_init(): common entry point, same call for every SKU. Calls
  * board_hw_init() internally to do the SKU-specific pin wiring.
  *
  * board_hw_init(): implemented once per SKU (e.g. board_zigbee_io.c,
@@ -54,12 +54,12 @@ extern "C" {
 
 /*
  * Returns this SKU's tag counts (DI/DO/AI/VFLAG/VREG/VREG_RETAIN/COUNTER),
- * as a plain data query -- unlike board_init()/board_hw_init(), this touches
+ * as a plain data query -- unlike splc_board_init()/board_hw_init(), this touches
  * no GPIO/UART/USB/peripheral state at all, so it is safe to call before
  * any hardware is brought up.
  *
  * MUST be called, and its result passed to tag_table_load_from_flash()
- * (core/plc_tag/plc_tag.h, Layer 2), BEFORE board_init() -- board_init()
+ * (core/plc_tag/plc_tag.h, Layer 2), BEFORE splc_board_init() -- splc_board_init()
  * (via board_hw_init()) calls plc_io_register_di/do/ai(), which validates
  * against g_tag_table[]'s kinds; that table only has the right kinds once
  * tag_table_load_from_flash() has already run. See plc_engine_init()
@@ -73,7 +73,7 @@ extern "C" {
  */
 SPLC_TagLayout board_get_tag_layout(void);
 
-void board_init(void);
+void splc_board_init(void);
 void board_hw_init(void);
 
 /*
@@ -81,7 +81,7 @@ void board_hw_init(void);
  * runs over -- e.g. board_zigbee_io.c returns
  * modbus_transport_usb_create(&s_board.usb) over its own static USB
  * instance. plc_engine_init() (Layer 4) calls this once, after
- * board_init(), to feed plc_modbus_cfg_init() without ever needing to
+ * splc_board_init(), to feed plc_modbus_cfg_init() without ever needing to
  * know which concrete driver instance (sx_usb_tiny_t*, sx_uart_t*, ...)
  * backs it -- same "board owns the instance, caller only sees the
  * abstraction" split board_hw_init() already established for DI/DO via

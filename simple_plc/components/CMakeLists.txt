@@ -34,12 +34,10 @@ target_include_directories(splc_components INTERFACE
 # and the RTOS include dirs (SPLC_OS_INCLUDE_DIRS) live in Layer 0:
 # platforms/freertos/CMakeLists.txt.
 
-# sx_uart.h depends on cqueue.h (Layer U, utils/cqueue/). Re-exported here so
+# sx_uart.h depends on splc_cqueue.h (Layer U, utils/cqueue/). Re-exported here so
 # nothing above this layer needs to know that a Layer U dependency is hiding
 # inside a Layer 1 header.
-target_include_directories(splc_components INTERFACE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../utils/cqueue
-)
+target_link_libraries(splc_components INTERFACE splc_utils)
 
 # Layer 1 / Layer 0 code logs through config/splc_log.h, which includes
 # "logger.h". Built-in logger: utils/logger. SPLC_LOGGER_BUILTIN=0: the host

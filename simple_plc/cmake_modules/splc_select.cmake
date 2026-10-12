@@ -132,6 +132,15 @@ else()
 endif()
 message(STATUS "SimplePLC logger   : ${SPLC_LOGGER_BUILTIN} (1 = built-in utils/logger, 0 = host firmware's)")
 
+# --- RTC / ADC drivers --------------------------------------------------
+# SPLC_RTC_BUILTIN / SPLC_ADC_BUILTIN 1 (default): build the STM32H5 driver
+# (needs the CubeMX rtc.h / adc.h of the project). 0: the host firmware
+# supplies the sx_rtc_* / sx_adc_* functions itself (config/splc_opt.h).
+splc_read_flag(SPLC_RTC_BUILTIN SPLC_RTC_BUILTIN)
+splc_read_flag(SPLC_ADC_BUILTIN SPLC_ADC_BUILTIN)
+message(STATUS "SimplePLC RTC      : ${SPLC_RTC_BUILTIN} (1 = built-in STM32H5 RTC driver, 0 = host's sx_rtc_*)")
+message(STATUS "SimplePLC ADC      : ${SPLC_ADC_BUILTIN} (1 = built-in STM32H5 ADC driver, 0 = host's sx_adc_*)")
+
 # --- USB-CDC port module ------------------------------------------------
 # SPLC_PORT_USB_CDC 1: build the optional USB-CDC module (port/usb/ + TinyUSB
 # in libs/). 0 (default): no USB code at all -- the host firmware owns the USB

@@ -220,6 +220,25 @@
 #define SPLC_LOGGER_BUILTIN              1
 #endif
 
+/* ======================================================================
+ * Platform drivers that need a CubeMX peripheral the host may not have
+ * ==================================================================== */
+/* 1 (default) = SimplePLC builds its STM32H5 driver for that peripheral
+ *               (platforms/stm32/stm32h5/rtc, .../adc). It needs the CubeMX
+ *               rtc.h / hrtc, resp. adc.h / hadc1, in the project.
+ * 0           = the host firmware provides the Layer 1 contract itself
+ *               (components/rtc/sx_rtc.h: sx_rtc_set_epoch / sx_rtc_get_epoch /
+ *               sx_rtc_is_synced; components/adc/sx_adc.h: sx_adc_init /
+ *               sx_adc_read) and SimplePLC compiles no driver for it.
+ * CMake reads both options from splcopts.h. With SPLC_RTC_BUILTIN = 0 the
+ * linker options --wrap=HAL_RTC_SetTime/SetDate are not added either. */
+#ifndef SPLC_RTC_BUILTIN
+#define SPLC_RTC_BUILTIN                 1
+#endif
+#ifndef SPLC_ADC_BUILTIN
+#define SPLC_ADC_BUILTIN                 1
+#endif
+
 /* Initial log level: 0 OFF, 1 ERROR, 2 WARNING, 3 INFO, 4 DEBUG. */
 #ifndef SPLC_LOG_LEVEL
 #define SPLC_LOG_LEVEL                   4
@@ -280,6 +299,12 @@
 #endif
 #if (SPLC_LOGGER_BUILTIN != 0) && (SPLC_LOGGER_BUILTIN != 1)
 #error "SPLC_LOGGER_BUILTIN must be 0 or 1"
+#endif
+#if (SPLC_RTC_BUILTIN != 0) && (SPLC_RTC_BUILTIN != 1)
+#error "SPLC_RTC_BUILTIN must be 0 or 1"
+#endif
+#if (SPLC_ADC_BUILTIN != 0) && (SPLC_ADC_BUILTIN != 1)
+#error "SPLC_ADC_BUILTIN must be 0 or 1"
 #endif
 #if (SPLC_LOG_LEVEL < 0) || (SPLC_LOG_LEVEL > 4)
 #error "SPLC_LOG_LEVEL must be 0..4"

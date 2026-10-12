@@ -48,6 +48,8 @@
 /* #define SPLC_REMOTE_RETRY_MS          1000U */   /* retry period of an offline node */
 
 /* --- Logging --------------------------------------------------------- */
+/* #define SPLC_RTC_BUILTIN              1 */      /* 0 = host supplies sx_rtc_*() (no CubeMX RTC needed) */
+/* #define SPLC_ADC_BUILTIN              1 */      /* 0 = host supplies sx_adc_*() (no CubeMX ADC needed) */
 /* #define SPLC_LOG_LEVEL                4 */      /* 0 OFF .. 4 DEBUG */
 /* #define SPLC_LOG_BUFFER_SIZE          4096 */
 

@@ -4,7 +4,6 @@
 #include "sx_platform_config.h"
 #ifdef STM32H5_PLATFORM
 #include "stm32h5xx_hal.h"
-#include "stm32h523xx.h"
 #include "sx_flash.h"
 #endif // STM32H5_PLATFORM
 

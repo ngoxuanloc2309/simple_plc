@@ -42,7 +42,7 @@ void sx_uart_init(sx_uart_t *uart, sx_uart_config_t *config)
 
     /* rxBuffer/rxBufferSize must already be set by the caller -- this is
      * caller-owned static storage, not allocated here (no malloc). */
-    cqueue_init_static(&uart->rxQueue, uart->rxBuffer, (size_t)uart->rxBufferSize, sizeof(uint8_t));
+    splc_cqueue_init_static(&uart->rxQueue, uart->rxBuffer, (size_t)uart->rxBufferSize, sizeof(uint8_t));
 
     UART_HandleTypeDef *huart = (UART_HandleTypeDef *)config->pDriver;
 
@@ -61,10 +61,10 @@ void sx_uart_init(sx_uart_t *uart, sx_uart_config_t *config)
 int sx_uart_available(sx_uart_t *uart)
 {
     (void)uart;
-    /* CQueue_t does not expose a byte-count getter beyond is_empty/is_full,
+    /* splc_cqueue_t does not expose a byte-count getter beyond is_empty/is_full,
      * so this reports 0 (nothing) / 1 (something) only. Callers wanting an
      * exact count should read via sx_uart_read() and check the return. */
-    return cqueue_is_empty(&uart->rxQueue) ? 0 : 1;
+    return splc_cqueue_is_empty(&uart->rxQueue) ? 0 : 1;
 }
 
 int sx_uart_read(sx_uart_t *uart, uint8_t *data, int len)
@@ -73,7 +73,7 @@ int sx_uart_read(sx_uart_t *uart, uint8_t *data, int len)
 
     while (received < len) {
         uint8_t byte;
-        if (!cqueue_receive(&uart->rxQueue, &byte)) {
+        if (!splc_cqueue_receive(&uart->rxQueue, &byte)) {
             break; /* queue empty -- return what we have so far */
         }
         data[received++] = byte;
@@ -109,7 +109,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     /* Queue full is a silent drop here -- rxQueue sizing is a caller
      * concern (rxBufferSize), not something this driver can fix at
      * ISR time. */
-    (void)cqueue_send(&binding->uart->rxQueue, &binding->rx_byte);
+    (void)splc_cqueue_send(&binding->uart->rxQueue, &binding->rx_byte);
 
     arm_rx_byte(binding);
 }
