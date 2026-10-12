@@ -34,9 +34,20 @@ RTC + Time Window, FB `0x0B00..0x0B7F`), đường USB qua `modbus_link` + `port
 
 **Số đo build chuẩn** (ARM Release, arm-none-eabi-gcc 13.2.1) — dùng để bắt hồi quy:
 Zigbee-IO FLASH 80 200 B / RAM 77 664 B; Gateway (bare-metal) FLASH 55 356 B / RAM 72 624 B.
+Cả hai tái hiện lại đúng từng byte ở phiên sau khi sửa lỗi include và CMake (mục 5, bài học 19).
+Gateway chuẩn = `SPLC_BOARD_GATEWAY`, `SX_OS_USE_FREERTOS=0`, `SPLC_PORT_USB_CDC=0`, FLASH 256 KB,
+còn lại mặc định (`-DSPLC_OPTS_DIR`). Gateway có `splcopts.h` của `port_gw/` (FreeRTOS, logger của
+host, RTC/ADC=0) cần logger của host mới link, nên KHÔNG so được với số trên — đo lại trong build `wg_ue`.
 
-**Chưa làm (A5 còn lại):** `ports/splc_port/` trong `wg_ue`, nối CMake SimplePLC vào build
-`wg_ue`, sửa bản đồ Flash host, firmware slave cho board IO. Chi tiết ở mục 4.
+**Port cho `wg_ue` — bản nháp có sẵn ở `port_gw/`** (gốc repo: `splc_port.c/.h`, `splcopts.h`;
+sẽ chép sang `wg_ue/ports/splc_port/`). Đã kiểm: `splc_port.c` biên dịch sạch (`-Wall -Wextra`)
+với header THẬT của `wg_ue`; symbol còn thiếu chỉ là của host (`rs485_*`, `tud_cdc_n_*`, FreeRTOS,
+`log_func`, `g_usb_tusb_initialized`) hoặc của SimplePLC. Gateway link được ở cả hai ca:
+`SPLC_RTC/ADC_BUILTIN=0` KHÔNG stub → FAIL link (`sx_rtc_*`, `sx_adc_read`); có stub trong
+`splc_port.c` → link qua. **Chưa** link với `wg_ue` thật, chưa chạy trên board.
+
+**Chưa làm (A5 còn lại):** chép `port_gw/` vào `wg_ue/ports/splc_port/`, nối CMake SimplePLC vào
+build `wg_ue`, sửa bản đồ Flash host, firmware slave cho board IO. Chi tiết ở mục 4.
 
 **Chưa verify (không chặn việc tiếp):** chạy lại `test_plc/test_fb/test_retain` với firmware
 sau các thay đổi đổi-tên/config/OS/Flash/logger; Remote I/O với board IO thật (timing RS485,
@@ -204,6 +215,12 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
     CHƯA chốt:** NTP của host `ntp_get_unix_time()` trả giờ ĐỊA PHƯƠNG (đã cộng timezone host),
     SimplePLC nhận epoch UTC và tự áp `tz_offset_min`.
 
+24. **Board IO + cổng RS485 (người dùng xác nhận):** bus tới board IO là **115200 8N1**
+    (`SPLC_HOST_RS485_BAUD/PARITY`). Cổng dành cho SimplePLC mặc định USART6 (`SPLC_HOST_RS485_PORT=1`);
+    hiện host CHƯA dùng cổng đó cho dịch vụ nào. Host phải giữ như vậy: `modbus_master_init()` gọi
+    `rs485_port_reconfigure()` cho cả 3 cổng theo cấu hình host, và `splc_check_port()` đặt lại baud
+    mỗi giây — nếu sau này cổng được cấu hình cho dịch vụ khác, hai bên sẽ giành nhau.
+
 ## 3. Quy trình làm việc
 
 - Trao đổi **tiếng Việt**, code/comment **tiếng Anh**.
@@ -230,14 +247,21 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
    nếu chưa push).
 2. Đặt SimplePLC vào `wg_ue` dưới dạng submodule `libs/simple_plc` (cùng kiểu `tinyusb`/`logger`).
    Viết `ports/splc_port/`: `splc_port.c/.h`, `splc_port_cfg.h` (option riêng của port, vd.
-   `SPLC_HOST_RS485_PORT`, baud/parity), `splcopts.h`, `CMakeLists.txt`. Nội dung: task engine
+   `SPLC_HOST_RS485_PORT`, baud/parity), `splcopts.h`, `CMakeLists.txt`. **Đã có nháp ở `port_gw/`
+   (thiếu `CMakeLists.txt`)**, đã đối chiếu với `wg_ue` thật: owner `RS485_OWNER_MODBUS_GATEWAY` chưa ai
+   acquire; CDC instance 0 là ACM duy nhất (descriptor chỉ khai 1 ACM, mạng là ECM/RNDIS riêng; host
+   không gọi `tud_cdc_*`); `g_usb_tusb_initialized` có thật (`Core/Src/usb.c`); `rs485_send` tự điều khiển DE
+   và chờ TC nên `set_tx=NULL` đúng; host chưa có `hrtc`/ADC nên RTC/ADC=0 + stub. Nội dung: task engine
    (`plc_engine_init` rồi `plc_engine_poll`), bơm CDC0 → `splc_link_input()`, `output()` qua FIFO
    TX, bọc `rs485_send/recv_polling` thành `modbus_serial_port_t`, `splc_host_start()`, stub
    `sx_rtc_*`. `SPLC_LOGGER_BUILTIN=0`, `SPLC_RTC_BUILTIN=0`, `SPLC_ADC_BUILTIN=0`. **CẦN đọc
    trước:** `Documents/Rules/*` (CLAUDE.md của `wg_ue` bắt buộc), `ports/modbus_port/mmb_serial.*`,
    `Drivers/uart/rs485_driver.h`, `usb_netif.c` + `tusb_config.h` (ai gọi `tud_task_ext`), cờ NMBS
    thật của `middleware/nanomodbus`, `gateway.c`.
-3. Dò xung đột với host bằng `nm`/so header basename: `HAL_UART_RxCpltCallback`,
+3. *(đã làm một phần)* Binary Gateway không có symbol trần `cqueue_*`/`board_init`/`nmbs_*`/
+   `HAL_UART_RxCpltCallback`/`PVD_AVD_IRQHandler`; header `board_*.h`/`splc_*.h` không trùng file nào
+   của `wg_ue`. **Còn lại:** `nm` trên binary `wg_ue` thật sau khi nối CMake. Dò xung đột với host bằng
+   `nm`/so header basename: `HAL_UART_RxCpltCallback`,
    `PVD_AVD_IRQHandler`, `cqueue_*`, `board_init`, `nmbs_*`, `logger.h`. Kiểm nanoMODBUS riêng
    cùng tồn tại với bản `wg_ue` thật (còn nợ từ quyết định 15).
 4. Thử build gateway kèm `splc_port.c` bằng ARM gcc. Baseline `wg_ue` từng không configure được vì
@@ -254,6 +278,14 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
    chạy `test_plc.py`; đo độ trễ khi task engine và task USB chạy cùng lúc; kích thước ring phải
    đủ khung dài nhất (256 B RTU) khi engine ngủ một scan 10 ms.
 
+**A'. Rủi ro của port đã thấy khi đối chiếu `wg_ue` (chưa đo):**
+- Task `SPLC` priority 6 trùng `UART_LOG` (6), thấp hơn MODBUS/BROKER/SHELL (11) và NETWORK (12) → khi
+  gateway bận scan 10 ms có thể trễ. Đo trên board.
+- FIFO CDC của TinyUSB: engine đọc/ghi từ task khác `usb_netif_task` (đang chạy `tud_task_ext`); đang
+  giả định mutex FIFO của TinyUSB (`CFG_TUSB_OS=FreeRTOS`) bảo vệ — chưa kiểm cấu hình trong tinyusb của host.
+- `plc_rule_flash` ghi Flash trong, host còn bootloader/OTA: tuyệt đối không chồng thao tác (bước 5).
+- Heap host 320 KB (`configTOTAL_HEAP_SIZE`): task `SPLC` 1536 word = 6 KB, tính vào heap.
+
 **B. Remote I/O còn mở:** chưa phát hiện trùng `unit_id` giữa hai hàng bảng trên cùng bus; chưa có
 tag báo "node offline" cho App.
 
@@ -262,7 +294,8 @@ VREG_RETAIN (giá trị dự phòng 84 sai trên board này, RETAIN bắt đầu
 một FC03 128 reg bị từ chối (tối đa 125) → App tách 64+64; sửa Structs 3.6/3.7 và Wire Contract
 9.3 (quyền R/W, `+6`, `rule_ref`); App sinh rule "đúng giờ" `EQ, Lo=Hi`.
 
-**D. Firmware khác:** validate `guard/trigger/action_tag` ∈ `0..MAX_TAGS-1` khi nạp rule (hiện index
+**D. Firmware khác:** `components/usb_cdc/` và `port/modbus_usb/` vẫn còn trong repo (không được build,
+chỉ còn trong comment; `sx_usb_cdc.h` còn include `cqueue.h` cũ) — xoá khi người dùng đồng ý; validate `guard/trigger/action_tag` ∈ `0..MAX_TAGS-1` khi nạp rule (hiện index
 sai chỉ vô hiệu hoá rule âm thầm); chưa ghi snapshot retain ngay trước REBOOT; lỗi Flash lúc erase
 trong bước copy A→B huỷ bản cũ trước khi biết lỗi; `ACT_WRITE_REMOTE/LOG_EVENT/SEND_ALARM` chưa
 implement; không có log trước `logger_init` (đọc Flash trong `plc_engine_init()` chạy TRƯỚC
@@ -306,6 +339,14 @@ implement; không có log trước `logger_init` (đọc Flash trong `plc_engine
 18. Handoff cũ có thể nói đã xoá file nhưng repo vẫn còn (`usb_cdc`, `modbus_usb`): kiểm bằng
     `git status`/`ls` trước khi tin.
 
+19. **Build baseline TRƯỚC khi tin handoff/commit.** Commit đổi tên (`678ae47`) bỏ sót `#include "board.h"`
+    ở 2 file board → Zigbee-IO không build; quyết định 23 ghi "đã build sạch" nhưng
+    `platforms/stm32/stm32h5/CMakeLists.txt` vẫn luôn biên dịch driver RTC/ADC (cờ `*_BUILTIN` chỉ dùng cho
+    `--wrap`). Chỉ phát hiện nhờ build thật + thử ca `BUILTIN=0`.
+20. Khi đo kích thước bằng link giả (`--defsym`), đừng gán symbol mà kernel/driver THẬT của project cũng
+    định nghĩa (vd. `xTaskCreate`): nó loại cả heap khỏi link, RAM tụt 72→39 KB một cách giả. Chỉ `defsym`
+    symbol thuần của host, và đừng ghi con số đó vào tài liệu.
+
 ## 6. Verify & test
 
 **Script test trên board** (`python -m pip install pymodbus pyserial`; dùng đúng interpreter).
@@ -327,7 +368,8 @@ Trước `test_diag.py manual`: reset board, xác nhận `DO0=0`.
 `SPLC_BOARD_GATEWAY` qua `-DSPLC_OPTS_DIR`; `SPLC_FLASH_SIZE_KB` 128/256/512/… (sai phải
 `#error`/`_Static_assert`); `SX_OS_USE_FREERTOS=1` (cần `-DSPLC_OS_INCLUDE_DIRS` hoặc stm32cubemx);
 `MAX_RULES=50`; `SPLC_LOGGER_BUILTIN=0` (cần logger của host mới link được);
-`SPLC_RTC_BUILTIN=0`/`SPLC_ADC_BUILTIN=0` (standalone phải FAIL link thiếu `sx_rtc_*`);
+`SPLC_RTC_BUILTIN=0`/`SPLC_ADC_BUILTIN=0` (standalone phải FAIL link thiếu `sx_rtc_*`/`sx_adc_read` — đã
+kiểm cả Zigbee-IO lẫn Gateway; có `splc_port.c` thì link qua);
 `SPLC_AS_LIBRARY=ON` (host giả link `splc`); thiếu `splcopts.h` phải `FATAL_ERROR` lúc configure.
 So FLASH/RAM với số đo chuẩn ở mục 0.
 

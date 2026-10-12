@@ -29,8 +29,12 @@ set(SPLC_BOARD_SRC
 
 add_library(splc_board STATIC ${SPLC_BOARD_SRC})
 
+# board_device/ is public too: a SKU's own header (e.g.
+# board_ethernet_wifi_gateway.h: splc_gateway_set_rs485_port()) is the API the
+# host firmware's port file calls (port_gw/splc_port.c).
 target_include_directories(splc_board PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/board_device
 )
 
 target_include_directories(splc_board PRIVATE

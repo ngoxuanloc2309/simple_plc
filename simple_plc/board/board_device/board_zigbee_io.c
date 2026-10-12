@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "board.h"
+#include "splc_board.h"
 #include "board_zigbee_io.h"
 #include "board_config.h"
 SPLC_BOARD_CHECK_SELECTED(BOARD_ZIGBEE_IO_4DI_4DO);

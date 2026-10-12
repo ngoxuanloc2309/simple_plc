@@ -14,6 +14,8 @@
 #include "plc_engine.h"
 #include "modbus_link.h"
 #include "modbus_serial.h"
+#include "sx_rtc.h"
+#include "sx_adc.h"
 #include "board_ethernet_wifi_gateway.h"
 #include "splc_log.h"
 
@@ -161,6 +163,52 @@ static int32_t cdc_output(const uint8_t *buf, uint16_t len, void *ctx)
     (void)tud_cdc_n_write_flush(SPLC_CDC_ITF);
     return (int32_t)n;   /* 0 = FIFO full, the core retries */
 }
+
+/* ------------------------------------------------------------------------ */
+/* Peripherals the host does not have (SPLC_RTC_BUILTIN / SPLC_ADC_BUILTIN)  */
+/* ------------------------------------------------------------------------ */
+
+/* GatewayV2 has no CubeMX RTC and no analog input, so splcopts.h sets both
+ * options to 0 and SimplePLC leaves its STM32H5 drivers out. The linker then
+ * demands these functions (config/splc_opt.h). They are honest "not available"
+ * answers, not fake data:
+ *   - RTC: never synced -> Time Window rules do not fire, and an App write of
+ *     the clock is rejected. Who owns the clock (host NTP) is still an open
+ *     decision (handoff, decision 23).
+ *   - ADC: the gateway has no AI tag, so nothing calls these; a read returns 0
+ *     as the contract says for "timeout/error". */
+#if (SPLC_RTC_BUILTIN == 0)
+bool sx_rtc_set_epoch(uint32_t epoch_utc_s)
+{
+    (void)epoch_utc_s;
+    return false;
+}
+
+bool sx_rtc_get_epoch(uint32_t *epoch_utc_s)
+{
+    (void)epoch_utc_s;
+    return false;
+}
+
+bool sx_rtc_is_synced(void)
+{
+    return false;
+}
+#endif
+
+#if (SPLC_ADC_BUILTIN == 0)
+void sx_adc_init(sx_adc_config_t *config, sx_adc_resolution_t resolution)
+{
+    (void)config;
+    (void)resolution;
+}
+
+uint32_t sx_adc_read(sx_adc_config_t *config)
+{
+    (void)config;
+    return 0U;
+}
+#endif
 
 /* ------------------------------------------------------------------------ */
 /* Engine task                                                               */

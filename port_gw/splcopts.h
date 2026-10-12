@@ -29,6 +29,12 @@
 #define SPLC_LOGGER_BUILTIN           0
 #define SPLC_LOG_LEVEL                3
 
+/* The host firmware has no CubeMX RTC or ADC (no hrtc / hadc in GatewayV2), so
+ * SimplePLC's STM32H5 drivers for them must not be built. splc_port.c supplies
+ * the sx_rtc_*() stubs ("no time source yet"); the gateway has no analog input. */
+#define SPLC_RTC_BUILTIN              0
+#define SPLC_ADC_BUILTIN              0
+
 /* The host has no PVD handler and nothing is known about a hold-up circuit
  * on the gateway: keep the emergency retain save off. */
 #define PLC_PVD_EMERGENCY_SAVE_ENABLE 0

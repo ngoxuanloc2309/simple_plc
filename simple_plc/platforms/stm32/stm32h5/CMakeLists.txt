@@ -46,14 +46,24 @@
 
 set(SPLC_PLATFORM_STM32H5_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/gpio/stm32h5_gpio.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/adc/stm32h5_adc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/flash/stm32h5_flash.c
     ${CMAKE_CURRENT_SOURCE_DIR}/uart/stm32h5_uart.c
     ${CMAKE_CURRENT_SOURCE_DIR}/time/stm32h5_time.c
     ${CMAKE_CURRENT_SOURCE_DIR}/system/stm32h5_system.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/rtc/stm32h5_rtc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/pwd/stm32h5_pwd.c
 )
+
+# The ADC and RTC drivers need peripherals the host project may not have
+# configured in CubeMX (hadc1 / hrtc). SPLC_ADC_BUILTIN / SPLC_RTC_BUILTIN = 0
+# (splcopts.h, read in cmake_modules/splc_select.cmake) leaves them out; the
+# host then supplies sx_adc_init/read and sx_rtc_set_epoch/get_epoch/is_synced
+# itself (config/splc_opt.h). Without that the link fails -- on purpose.
+if(SPLC_ADC_BUILTIN)
+    list(APPEND SPLC_PLATFORM_STM32H5_SRC ${CMAKE_CURRENT_SOURCE_DIR}/adc/stm32h5_adc.c)
+endif()
+if(SPLC_RTC_BUILTIN)
+    list(APPEND SPLC_PLATFORM_STM32H5_SRC ${CMAKE_CURRENT_SOURCE_DIR}/rtc/stm32h5_rtc.c)
+endif()
 
 add_library(splc_platform_stm32h5 STATIC ${SPLC_PLATFORM_STM32H5_SRC})
 
