@@ -74,8 +74,11 @@ lệch nhau vài chục–trăm byte vì ELF nhúng ~49 chuỗi đường dẫn 
 và hiệu số, đừng so từng byte FLASH giữa hai máy. Preset `Release` mặc định của `wg_ue` có
 `GW_MDNS_ENABLE=OFF`, khác `build.bat` → luôn đo bằng cờ của `build.bat`.
 
-**Chưa làm:** bản đồ Flash host (bước 5), khoá Flash chung với OTA (A'),
-firmware slave cho board IO. Chi tiết ở mục 4.
+**Đã chạy trên board gateway (log người dùng, `GW_USB_NETIF_ENABLE=OFF`, heap 296 KB):** SimplePLC khởi động
+(`PLC_RULE_FLASH` bảng rule rỗng, `BOARD_GATEWAY: RS485 master ready (115200 baud)`); `PLC_IO_REMOTE` báo node 0
+(unit 1) offline vì chưa có firmware slave. CDC chưa kiểm được vì USB tắt. Sau đó bật USB netif: TinyUSB init OK, `USB netif ready`, nhưng PC báo Unknown USB Device (quyết định 28).
+
+**Chưa làm:** bản đồ Flash host (bước 5), firmware slave cho board IO. Khoá Flash chung với OTA: hoãn (quyết định 27). Chi tiết ở mục 4.
 
 **Chưa verify (không chặn việc tiếp):** chạy lại `test_plc/test_fb/test_retain` với firmware
 sau các thay đổi đổi-tên/config/OS/Flash/logger; Remote I/O với board IO thật (timing RS485,
@@ -280,6 +283,37 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
     chưa nối SimplePLC, chạy đủ tải; người dùng cần đọc log đó trên board. Bản giao `Core/Inc/FreeRTOSConfig.h`
     có 288 KB — thay bằng giá trị người dùng đã tự chỉnh (296 KB). Khi CubeMX sinh lại phải làm lại.
 
+27. **OTA của `wg_ue` KHÔNG dùng (người dùng xác nhận, phiên này) → không làm khoá Flash chung (A' / 4b).**
+    Người dùng không dùng OTA và chấp nhận ghi nhận ở đây, không sửa code host. Hệ quả: vì
+    `ports/flash_port` chỉ có `apps/ota` dùng (đã kiểm bằng grep), nên khi OTA không chạy thì không còn
+    bên nào ghi bank 2 song song với `plc_rule_flash`/`plc_retain`. `ota_init()` + task `OTA_HEALTH`
+    (`ota_mark_healthy()` sau 15 s) VẪN còn trong `gateway.c` và vẫn chạy; chỉ cần không ai kích hoạt
+    tải OTA. **Chưa kiểm:** `ota_mark_healthy()` có phải bước xác nhận image cho bootloader (rollback nếu
+    thiếu) hay không — vì vậy KHÔNG xoá `ota_init()`/`OTA_HEALTH` khi chưa đọc `ota.c` + `bootloader.c`.
+    **Nếu sau này dùng OTA lại thì phải thiết kế khoá Flash (SPLC_FLASH_LOCK/UNLOCK hoặc tương đương;
+    lưu ý PVD ghi retain trong ISR, không được chờ mutex).** Bản đồ Flash (4c) vẫn chờ người dùng.
+
+28. **Chế độ USB CDC-only cho gateway (người dùng yêu cầu, nhánh `usb_cdc_gw` của `wg_ue`; thay thế một phần
+    quyết định 20).** Lý do: với `GW_USB_NETIF_ENABLE=ON` PC báo "Unknown USB Device"; log chẩn đoán cho thấy
+    MCU nhận RESET (`last_istr=0x400`, `irq=1845`) nhưng `daddr=0x80` (không qua SET_ADDRESS); đã tắt SimplePLC
+    (comment `splc_host_start()`) vẫn lỗi ⇒ lỗi KHÔNG do SimplePLC. Đã loại trừ qua đọc code: ưu tiên ngắt USB 5
+    (hợp lệ), trim CRS 32 (= mặc định HAL), ISR có `tud_int_handler`. Nguyên nhân CHƯA biết.
+    Thiết kế: cờ CMake `GW_USB_CDC_ENABLE` (loại trừ nhau với `GW_USB_NETIF_ENABLE`, CMake FATAL_ERROR nếu bật
+    cả hai). Dùng TinyUSB của host (KHÔNG dùng `port/usb` của SimplePLC: TinyUSB chỉ một chủ, quyết định 15).
+    File: `ports/usb_port/Target/usb_descriptors_cdc.c` (một cấu hình, một ACM, PID 0x4001 khác 0x4021 để PC không
+    dùng lại trạng thái lỗi đã cache), `tusb_config.h` (CDC=1, ECM_RNDIS=0, NCM=0), `libs/CMakeLists.txt` (chọn bộ
+    descriptor, bỏ `lib/networking`), `ports/splc_port/gw_usb_cdc.[ch]` (task `USB_CDC` prio 5, stack 1024 word:
+    `MX_USB_TinyUSB_Init()` → `tusb_init()` → `g_usb_tusb_initialized=1` → `tud_task_ext`; log "enumerated",
+    "COM port opened", và diag mỗi 5 s khi chưa enumerate), `splc_port.c` (`splc_host_start()` gọi
+    `gw_usb_cdc_start()` khi `GW_USB_CDC_ENABLE`), `network/usb_netif/usb_netif.c` (ở chế độ CDC-only chỉ còn stub
+    `usb_netif_init/usb_netif_is_available`, vì `tud_mount_cb` cũ gọi `tcpip_callback` trên netif chưa khởi tạo và
+    `wifi_driver.c`/`http_server.c`/`gateway.c` include `usb_netif.h` vô điều kiện). `gateway.c` KHÔNG sửa thêm.
+    Số đo sandbox (ARM Release, GCC 13.2.1, cờ `build.bat` + `GW_USB_CDC_ENABLE=ON`, `NETIF=OFF`): FLASH 607 264 B,
+    RAM 648 080 B (98,89%, dư 7 264 B); cùng máy, `NETIF=ON`: FLASH 614 412 B, RAM 653 528 B ⇒ CDC-only tiết kiệm
+    ~5,4 KB RAM, ~7,1 KB FLASH. (Số FLASH giữa sandbox và máy người dùng lệch nhau — bài học 24; so hiệu số.)
+    **Chưa chạy trên board.** Ý nghĩa phép thử: nếu CDC-only enumerate được ⇒ lỗi nằm ở descriptor composite
+    RNDIS/ECM; nếu vẫn Unknown Device ⇒ lỗi ở tầng chung (clock/EP0/ISR/phần cứng), không phải descriptor.
+
 ## 3. Quy trình làm việc
 
 - Trao đổi **tiếng Việt**, code/comment **tiếng Anh**.
@@ -358,7 +392,7 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
   và `tu_edpt_stream_init()` (`tusb.c:317`) tạo mutex cho FIFO RX/TX → truy cập song song được bảo vệ.
   Priority: `usb_netif_task` = 5, `SPLC` = 6 (trên 5, dưới nhóm ứng dụng 10..12). Task `SPLC` priority 6
   trùng `UART_LOG`/`LOG_THREAD_PRIO`(6); vẫn thấp hơn MODBUS/BROKER/SHELL (11), NETWORK (12): đo trễ scan trên board.
-- **Chồng thao tác Flash với OTA (CHƯA giải quyết):** `ports/flash_port/flash_port.c` (OTA ghi Secondary
+- **Chồng thao tác Flash với OTA (HOÃN — OTA không dùng, quyết định 27):** `ports/flash_port/flash_port.c` (OTA ghi Secondary
   slot, một phần nằm bank 2) gọi `HAL_FLASHEx_Erase` KHÔNG có khoá; `plc_rule_flash`/`plc_retain` cũng
   erase/ghi bank 2 qua `sx_flash`. Hai bên cùng lúc → lỗi BUSY/hỏng dữ liệu. Cần một khoá dùng chung
   (vd. option `SPLC_FLASH_LOCK()/UNLOCK()` trong `splcopts.h` + host bọc `flash_port` bằng cùng mutex) —
