@@ -43,6 +43,15 @@
 #define UART_ZIGBEE huart2
 #define ZIGBEE_TIM1 htim1
 
+/* RS485 App link (used when SPLC_PORT_USB_CDC = 0 in splcopts.h): USART1 with a
+ * GPIO-driven transceiver direction pin (CubeMX label USART1_DE, PB13 -- a
+ * plain output, not the USART's hardware DE function). Baud rate and parity
+ * are whatever CubeMX configured for USART1 (115200 8N1). */
+#define RS485_DE_PORT         USART1_DE_GPIO_Port
+#define RS485_DE_PIN          USART1_DE_Pin
+#define RS485_DE_ACTIVE_HIGH  1      /* 1: DE high = transmit; 0 if the board is wired inverted */
+#define RS485_TX_TIMEOUT_MS   100U   /* longest frame: 256 bytes = ~22 ms at 115200 */
+
 /* USB CDC (App<->MCU Modbus channel, per docs/architecture.md section 0
  * -- USB, not RS485) is the optional port module port/usb/; its byte
  * buffering is the link ring (SPLC_LINK_RX_BUF_SIZE, splcopts.h), not a board

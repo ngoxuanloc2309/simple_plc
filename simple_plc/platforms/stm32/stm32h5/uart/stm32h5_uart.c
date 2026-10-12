@@ -58,13 +58,28 @@ void sx_uart_init(sx_uart_t *uart, sx_uart_config_t *config)
     }
 }
 
+/*
+ * rxQueue has one producer (HAL_UART_RxCpltCallback, ISR context) and one
+ * consumer (sx_uart_read/available, normal context), but splc_cqueue_t keeps a
+ * shared `count` that BOTH sides modify with a plain read-modify-write. If the
+ * ISR fires between the consumer's load and store of `count`, one update is
+ * lost and the queue permanently disagrees with itself (a byte is replayed or
+ * dropped -> random Modbus CRC errors). The consumer therefore takes each byte
+ * (and each empty-check) with interrupts masked; PRIMASK is saved/restored so
+ * this is also safe if the caller already runs with interrupts disabled. The
+ * critical section is a handful of instructions per byte.
+ */
 int sx_uart_available(sx_uart_t *uart)
 {
-    (void)uart;
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    bool empty = splc_cqueue_is_empty(&uart->rxQueue);
+    __set_PRIMASK(primask);
+
     /* splc_cqueue_t does not expose a byte-count getter beyond is_empty/is_full,
      * so this reports 0 (nothing) / 1 (something) only. Callers wanting an
      * exact count should read via sx_uart_read() and check the return. */
-    return splc_cqueue_is_empty(&uart->rxQueue) ? 0 : 1;
+    return empty ? 0 : 1;
 }
 
 int sx_uart_read(sx_uart_t *uart, uint8_t *data, int len)
@@ -73,7 +88,13 @@ int sx_uart_read(sx_uart_t *uart, uint8_t *data, int len)
 
     while (received < len) {
         uint8_t byte;
-        if (!splc_cqueue_receive(&uart->rxQueue, &byte)) {
+
+        uint32_t primask = __get_PRIMASK();
+        __disable_irq();
+        bool got = splc_cqueue_receive(&uart->rxQueue, &byte);
+        __set_PRIMASK(primask);
+
+        if (!got) {
             break; /* queue empty -- return what we have so far */
         }
         data[received++] = byte;
@@ -93,6 +114,24 @@ int sx_uart_write(sx_uart_t *uart, const uint8_t *data, int len, uint32_t timeou
     return 0;
 }
 
+void sx_uart_set_rx_enabled(sx_uart_t *uart, bool enabled)
+{
+    UART_HandleTypeDef *huart = (UART_HandleTypeDef *)uart->config->pDriver;
+
+    if (!enabled) {
+        ATOMIC_CLEAR_BIT(huart->Instance->CR1, USART_CR1_RE);
+        return;
+    }
+
+    /* Drop whatever the receiver shifted in while it was off or while the line
+     * was driven by us, and any error flag that came with it, then switch the
+     * receiver back on. */
+    __HAL_UART_SEND_REQ(huart, UART_RXDATA_FLUSH_REQUEST);
+    __HAL_UART_CLEAR_FLAG(huart, UART_CLEAR_OREF | UART_CLEAR_NEF |
+                                 UART_CLEAR_PEF  | UART_CLEAR_FEF);
+    ATOMIC_SET_BIT(huart->Instance->CR1, USART_CR1_RE);
+}
+
 /*
  * Shared ISR-context callback for every UART instance registered via
  * sx_uart_init(). Pushes the just-received byte into that instance's
@@ -110,6 +149,25 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
      * concern (rxBufferSize), not something this driver can fix at
      * ISR time. */
     (void)splc_cqueue_send(&binding->uart->rxQueue, &binding->rx_byte);
+
+    arm_rx_byte(binding);
+}
+
+/*
+ * HAL aborts the interrupt receive on an overrun (UART_EndRxTransfer(): RXNE
+ * and error interrupts are disabled, RxState goes back to READY) and never
+ * starts it again, so after ONE overrun -- a noisy bus, or the engine not
+ * servicing the queue for a while -- the UART would stay deaf forever. Re-arm
+ * here. For the non-blocking errors (framing, noise, parity) the HAL keeps the
+ * receive running and calls this callback as a notification only; then
+ * HAL_UART_Receive_IT() just returns HAL_BUSY, which is harmless.
+ */
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    sx_uart_binding_t *binding = find_binding(huart);
+    if (binding == NULL) {
+        return;
+    }
 
     arm_rx_byte(binding);
 }

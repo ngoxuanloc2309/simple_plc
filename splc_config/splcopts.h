@@ -3,7 +3,7 @@
 
 /*
  * splcopts.h - SimplePLC configuration of THIS product (Zigbee-IO SKU,
- * STM32H523CCU6). Library defaults and the full option list are in
+ * STM32H523CCU6), RS485 App link variant. Library defaults and the full option list are in
  * simple_plc/config/splc_opt.h; a blank template is
  * simple_plc/config/splcopts_template.h.
  *
@@ -23,9 +23,10 @@
  *     1 = FreeRTOS (one task calls plc_engine_poll()). */
 #define SX_OS_USE_FREERTOS            1
 
-/* App <-> device link: this board talks to the App over USB-CDC, and
- * SimplePLC owns the USB peripheral (TinyUSB + CDC port module, port/usb/). */
-#define SPLC_PORT_USB_CDC             1
+/* App <-> device link: RS485 Modbus RTU slave on USART1 (DE = PB13), written in
+ * board_zigbee_io.c. 0 = no USB code is built (no TinyUSB). Use the sibling
+ * directory splc_config/ for the USB-CDC variant. */
+#define SPLC_PORT_USB_CDC             0
 
 /* Engine */
 #define PLC_SCAN_INTERVAL_MS          10U

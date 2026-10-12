@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "splc_cqueue.h"
 
 typedef struct sx_uart_config {
@@ -64,6 +65,16 @@ int sx_uart_available(sx_uart_t *uart);
  * timeout_ms. Returns 0 on success, negative on error/timeout.
  */
 int sx_uart_write(sx_uart_t *uart, const uint8_t *data, int len, uint32_t timeout_ms);
+
+/*
+ * Half-duplex helper (RS485): enable/disable the UART receiver without
+ * touching the rest of the driver. Disabling it keeps the transceiver's own
+ * echo of a transmitted frame out of rxQueue; enabling it again discards
+ * anything still sitting in the hardware receive register and clears stale
+ * error flags, so the next received byte is a real one. The single-byte
+ * interrupt receive armed by sx_uart_init() stays armed throughout.
+ */
+void sx_uart_set_rx_enabled(sx_uart_t *uart, bool enabled);
 
 #ifdef __cplusplus
 }

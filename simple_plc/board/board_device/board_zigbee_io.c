@@ -6,14 +6,18 @@
 SPLC_BOARD_CHECK_SELECTED(BOARD_ZIGBEE_IO_4DI_4DO);
 
 #include "splc_opt.h"
-/* App link: this board talks to the App over USB-CDC and SimplePLC owns the USB
- * peripheral, through the optional port module port/usb/ (SPLC_PORT_USB_CDC = 1
- * in splcopts.h). The module registers the USB pipe with port/modbus_link; this
- * file only starts it, forwards the USB interrupt to it and asks the link for
- * its transport. It includes nothing from TinyUSB. */
-#if !SPLC_PORT_USB_CDC
-#error "board_zigbee_io.c talks to the App over USB-CDC: set SPLC_PORT_USB_CDC to 1 in splcopts.h"
-#endif
+/* App link: this board offers two ways to reach the App, picked by
+ * SPLC_PORT_USB_CDC in splcopts.h; either way the core only sees the byte pipe
+ * of port/modbus_link.
+ *   SPLC_PORT_USB_CDC = 1 : USB-CDC. SimplePLC owns the USB peripheral through
+ *                           the optional port module port/usb/, which registers
+ *                           the pipe itself. This file starts it and forwards
+ *                           the USB interrupt. It includes nothing from TinyUSB.
+ *   SPLC_PORT_USB_CDC = 0 : RS485 Modbus RTU slave on USART1 (DE = PB13). The
+ *                           two functions of the pipe -- output and input --
+ *                           are written right here (rs485_output/rs485_pump),
+ *                           the way a product plugs its own link into the
+ *                           library. */
 
 #include "main.h"    /* CubeMX-generated: GPIOA/GPIOB, GPIO_PIN_x macros used
                        * by board_zigbee_io.h's DI*_PORT/DI*_PIN/DO*_PORT/
@@ -23,7 +27,9 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_ZIGBEE_IO_4DI_4DO);
 
 #include "sx_gpio.h"
 #include "sx_uart.h"
+#if SPLC_PORT_USB_CDC
 #include "splc_usb_cdc.h"   /* optional USB-CDC port module: splc_usb_cdc_init(), splc_usb_irq() */
+#endif
 #include "modbus_link.h"    /* splc_link_get_transport() */
 #include "splc_log.h"
 #include "logger.h"     /* logger_init(): this board always uses the built-in logger */
@@ -91,6 +97,11 @@ typedef struct {
 
     sx_uart_t         log_uart;
     sx_uart_config_t  log_uart_cfg;
+
+#if !SPLC_PORT_USB_CDC
+    sx_uart_t         app_uart;       /* App link over RS485 (USART1) */
+    sx_uart_config_t  app_uart_cfg;
+#endif
 } zigbee_io_board_t;
 
 static zigbee_io_board_t s_board;
@@ -102,8 +113,16 @@ static zigbee_io_board_t s_board;
 static uint8_t s_log_rx_buf[128];
 static uint8_t s_log_tx_buf[128];
 
-/* True once splc_usb_cdc_init() has registered the App link and started USB. */
-static bool s_usb_ok;
+#if !SPLC_PORT_USB_CDC
+/* RX byte queue of the RS485 App link. Must hold the longest request that can
+ * arrive while the engine is not looking (one 10 ms scan = ~115 bytes at
+ * 115200 baud); an FC16 request is at most 256 bytes. */
+static uint8_t s_app_rx_buf[256];
+static uint8_t s_app_tx_buf[1];   /* sx_uart_write() is direct, no TX queue */
+#endif
+
+/* True once the App link (USB-CDC or RS485) has been registered. */
+static bool s_link_ok;
 
 /*
  * logger_init() takes a p_log_func (void (*)(const char *s)) -- adapts
@@ -280,18 +299,93 @@ static void board_log_uart_init(void)
     log_info(TAG, "Zigbee-IO board init start");
 }
 
-static void board_usb_init(void)
+#if SPLC_PORT_USB_CDC
+
+static void board_app_link_init(void)
 {
     /* Registers the USB-CDC pipe with the App link and starts TinyUSB. A
      * failure is logged and the board still runs (rules, retain, I/O); only the
      * App cannot reach it, and board_get_modbus_transport() then hands out an
      * idle transport. */
     splc_link_err_t err = splc_usb_cdc_init();
-    s_usb_ok = (err == SPLC_LINK_OK);
-    if (!s_usb_ok) {
+    s_link_ok = (err == SPLC_LINK_OK);
+    if (!s_link_ok) {
         log_error(TAG, "USB-CDC App link init FAILED (%d)", (int)err);
     }
 }
+
+#else /* RS485 */
+
+static void rs485_de(bool transmit)
+{
+    GPIO_PinState level = (transmit == (RS485_DE_ACTIVE_HIGH != 0)) ? GPIO_PIN_SET
+                                                                    : GPIO_PIN_RESET;
+    HAL_GPIO_WritePin(RS485_DE_PORT, RS485_DE_PIN, level);
+}
+
+/* Link output (core -> bus): put the frame on the wire. Blocking: returns when
+ * the last stop bit has left the UART (HAL_UART_Transmit waits for TC), which
+ * is ~4 ms for a 41-byte reply and ~22 ms for the longest one at 115200 baud.
+ * The receiver is switched off for the duration so the transceiver's own echo
+ * (if its RE pin is not tied to DE) never reaches the RX queue. */
+static int32_t rs485_output(const uint8_t *buf, uint16_t len, void *ctx)
+{
+    (void)ctx;
+
+    sx_uart_set_rx_enabled(&s_board.app_uart, false);
+    rs485_de(true);
+    int rc = sx_uart_write(&s_board.app_uart, buf, (int)len, RS485_TX_TIMEOUT_MS);
+    rs485_de(false);
+    sx_uart_set_rx_enabled(&s_board.app_uart, true);
+
+    return (rc == 0) ? (int32_t)len : -1;
+}
+
+/* Link input (bus -> core): hand every byte received since the last call to
+ * the core. Runs in the engine context once per scan and while the core waits
+ * for the rest of a frame. */
+static void rs485_pump(void *ctx)
+{
+    (void)ctx;
+
+    uint8_t chunk[32];
+    int n;
+    while ((n = sx_uart_read(&s_board.app_uart, chunk, (int)sizeof(chunk))) > 0) {
+        (void)splc_link_input(chunk, (uint16_t)n);   /* overflow is counted by the link */
+    }
+}
+
+static void board_app_link_init(void)
+{
+    s_board.app_uart_cfg.pDriver  = &UART_RS485;   /* baud/parity: CubeMX USART1 setup */
+    s_board.app_uart_cfg.baudrate = 115200;
+    s_board.app_uart_cfg.bits     = 8;
+    s_board.app_uart_cfg.parity   = 0;
+    s_board.app_uart_cfg.stopbits = 1;
+
+    s_board.app_uart.rxBuffer     = s_app_rx_buf;
+    s_board.app_uart.rxBufferSize = (int)sizeof(s_app_rx_buf);
+    s_board.app_uart.txBuffer     = s_app_tx_buf;
+    s_board.app_uart.txBufferSize = (int)sizeof(s_app_tx_buf);
+
+    rs485_de(false);   /* listen */
+    sx_uart_init(&s_board.app_uart, &s_board.app_uart_cfg);
+
+    static const splc_link_ops_t ops = {
+        .ctx     = NULL,
+        .output  = rs485_output,
+        .process = rs485_pump,
+        .kind    = MODBUS_TRANSPORT_KIND_RTU,
+        .unit_id = MODBUS_UNIT_ID,
+    };
+    splc_link_err_t err = splc_link_register(&ops);
+    s_link_ok = (err == SPLC_LINK_OK);
+    if (!s_link_ok) {
+        log_error(TAG, "RS485 App link register FAILED (%d)", (int)err);
+    }
+}
+
+#endif /* SPLC_PORT_USB_CDC */
 
 void board_hw_init(void)
 {
@@ -299,8 +393,8 @@ void board_hw_init(void)
 
     /* Must run before board_get_modbus_transport()/plc_modbus_cfg_init()
      * (Layer 4, see plc_engine.c) ever answers a Modbus request -- the App
-     * may read DEVICE_DESCRIPTOR the moment USB enumerates, so this cannot
-     * be deferred past board_usb_init() below. Placed after
+     * may read DEVICE_DESCRIPTOR the moment the link is up, so this cannot
+     * be deferred past board_app_link_init() below. Placed after
      * board_log_uart_init() only so the confirmation log line below is
      * actually emitted (logger_init() runs inside board_log_uart_init()). */
     board_device_info_init();
@@ -316,8 +410,9 @@ void board_hw_init(void)
                        ZIGBEE_IO_DI_NUM + ZIGBEE_IO_DO_NUM);
     }
 
-    board_usb_init();
-    if (s_usb_ok) {
+    board_app_link_init();
+#if SPLC_PORT_USB_CDC
+    if (s_link_ok) {
         log_info(TAG, "USB CDC initialized");
 
         /* Let the host enumerate the device before the engine starts scanning. */
@@ -327,6 +422,11 @@ void board_hw_init(void)
             sx_os_yield_wait();   /* no-op bare-metal; 1-tick sleep under FreeRTOS */
         }
     }
+#else
+    if (s_link_ok) {
+        log_info(TAG, "UART/RS485 App link initialized (USART1, unit %d)", (int)MODBUS_UNIT_ID);
+    }
+#endif
 }
 
 /* Transport handed to plc_modbus_cfg when no App link exists: no byte ever
@@ -346,10 +446,10 @@ static int32_t idle_write(const uint8_t *buf, uint16_t count, int32_t timeout_ms
 
 modbus_transport_t board_get_modbus_transport(void)
 {
-    /* Zigbee-IO's App<->MCU config channel is USB-CDC: board_usb_init() (run by
-     * board_hw_init(), which board.h guarantees happens before this function)
-     * registered the USB pipe with the App link, so the transport is the
-     * link's. */
+    /* Zigbee-IO's App<->MCU config channel (USB-CDC or RS485, see the top of
+     * this file): board_app_link_init() (run by board_hw_init(), which board.h
+     * guarantees happens before this function) registered the pipe with the
+     * App link, so the transport is the link's. */
     modbus_transport_t t;
     if (splc_link_get_transport(&t)) {
         return t;
@@ -365,8 +465,10 @@ modbus_transport_t board_get_modbus_transport(void)
     return t;
 }
 
+#if SPLC_PORT_USB_CDC
 /* USB interrupt: forwarded to the USB-CDC port module (TinyUSB stays inside it). */
 void USB_DRD_FS_IRQHandler(void)
 {
     splc_usb_irq();
 }
+#endif

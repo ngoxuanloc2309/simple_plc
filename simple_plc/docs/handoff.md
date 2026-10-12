@@ -78,6 +78,8 @@ và hiệu số, đừng so từng byte FLASH giữa hai máy. Preset `Release` 
 (`PLC_RULE_FLASH` bảng rule rỗng, `BOARD_GATEWAY: RS485 master ready (115200 baud)`); `PLC_IO_REMOTE` báo node 0
 (unit 1) offline vì chưa có firmware slave. CDC chưa kiểm được vì USB tắt. Sau đó bật USB netif: TinyUSB init OK, `USB netif ready`, nhưng PC báo Unknown USB Device (quyết định 28).
 
+**Chưa chạy trên board:** đường RS485 của Zigbee-IO (quyết định 29; `test_plc → test_fb --probe-64 → test_retain` qua dongle USB-RS485, `python test_plc.py COMx`, baud 115200, unit 1).
+
 **Chưa làm:** bản đồ Flash host (bước 5), firmware slave cho board IO. Khoá Flash chung với OTA: hoãn (quyết định 27). Chi tiết ở mục 4.
 
 **Chưa verify (không chặn việc tiếp):** chạy lại `test_plc/test_fb/test_retain` với firmware
@@ -313,6 +315,21 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
     ~5,4 KB RAM, ~7,1 KB FLASH. (Số FLASH giữa sandbox và máy người dùng lệch nhau — bài học 24; so hiệu số.)
     **Chưa chạy trên board.** Ý nghĩa phép thử: nếu CDC-only enumerate được ⇒ lỗi nằm ở descriptor composite
     RNDIS/ECM; nếu vẫn Unknown Device ⇒ lỗi ở tầng chung (clock/EP0/ISR/phần cứng), không phải descriptor.
+
+29. **Zigbee-IO nói chuyện với App qua RS485 (người dùng chọn, phiên này) — làm ở phía user, KHÔNG thêm module port.**
+    Lõi không đổi: `modbus_link` đã có đúng hai điểm nối (`output` và `splc_link_input`). Hai hàm
+    `rs485_output`/`rs485_pump` nằm thẳng trong `board_zigbee_io.c`; `SPLC_PORT_USB_CDC` chọn USB (1) hay
+    RS485 (0) cho board này (không thêm cờ mới). Cấu hình RS485 = thư mục `splc_config_rs485/` + preset
+    `Release-RS485`. USART1, chân DE = PB13 (GPIO thường, nhãn CubeMX `USART1_DE`), baud/parity lấy theo
+    CubeMX (115200 8N1), unit = `SPLC_MODBUS_UNIT_ID`. Cực DE: `RS485_DE_ACTIVE_HIGH` trong `board_zigbee_io.h`.
+    Phát CHẶN (`HAL_UART_Transmit`, ~4 ms/khung 41 B, ~22 ms/khung 256 B) — đủ cho test, lệch hợp đồng
+    "output không chặn" của `modbus_link`. Bỏ echo bằng cách tắt bộ nhận (`sx_uart_set_rx_enabled`) quanh lúc
+    phát, không so khớp byte. Hai sửa Layer 0 (`stm32h5_uart.c`, dùng chung mọi nơi nhận byte qua `sx_uart`):
+    (a) `sx_uart_read/available` khoá ngắt quanh `splc_cqueue_*` vì ISR và engine cùng sửa `count`;
+    (b) `HAL_UART_ErrorCallback` nhận lại RX vì HAL huỷ nhận sau overrun (đã đọc `HAL_UART_IRQHandler`).
+    Build ARM: Zigbee-IO RS485 FLASH 70 860 B / RAM 77 048 B; Zigbee-IO USB FLASH 80 248 B / RAM 77 664 B
+    (+48 B so với số chuẩn 80 200 B, do khoá ngắt); Gateway chuẩn 55 356 / 72 624 giống từng byte.
+    **Chưa chạy trên board.**
 
 ## 3. Quy trình làm việc
 
