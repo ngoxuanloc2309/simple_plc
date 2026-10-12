@@ -63,7 +63,18 @@ FAIL (`.bss` vượt 21 560 B). Bắt buộc giảm `configTOTAL_HEAP_SIZE` (ho�
 host chưa đo (cần `xPortGetMinimumEverFreeHeapSize()` trên board) nên 296 KB chỉ là con số thử,
 CHƯA phải đề xuất. `FreeRTOSConfig.h` do CubeMX sinh → hỏi người dùng (quyết định 9).
 
-**Chưa làm:** chốt chỗ lấy RAM (ở trên), bản đồ Flash host (bước 5), khoá Flash chung với OTA (A'),
+**Đã xác nhận trên máy người dùng (Windows, STM32CubeCLT GCC 14.3.1, cờ của `build.bat`:
+`GW_MDNS_ENABLE=ON`, `ST67W611_ARCH=T02`, `GW_USB_NETIF_ENABLE=OFF`):** `wg_ue` chưa nối SimplePLC
+RAM 654 464 B / FLASH 570 768 B; nối SimplePLC (heap 320 KB) → link FAIL, `.bss` vượt 21 584 B,
+RAM 676 928 B, FLASH 597 548 B ⇒ SimplePLC thêm **+22 464 B RAM, +26 780 B FLASH** (khớp số đo sandbox
+GCC 13.2.1 trong 24 B). Với heap 296 KB (giá trị người dùng đang dùng, quyết định 26), build của người dùng
+(GCC 14.3.1): RAM 652 352 B (99,54%, dư **2 992 B**), FLASH 597 548 B (88,95%) — link qua. Thử 288 KB trong sandbox
+(GCC 13.2.1): RAM 644 160 B (98,29%, dư 11 184 B). **Chưa chạy trên board.** Số FLASH giữa các máy
+lệch nhau vài chục–trăm byte vì ELF nhúng ~49 chuỗi đường dẫn build tuyệt đối (bài học 24); so RAM
+và hiệu số, đừng so từng byte FLASH giữa hai máy. Preset `Release` mặc định của `wg_ue` có
+`GW_MDNS_ENABLE=OFF`, khác `build.bat` → luôn đo bằng cờ của `build.bat`.
+
+**Chưa làm:** bản đồ Flash host (bước 5), khoá Flash chung với OTA (A'),
 firmware slave cho board IO. Chi tiết ở mục 4.
 
 **Chưa verify (không chặn việc tiếp):** chạy lại `test_plc/test_fb/test_retain` với firmware
@@ -258,6 +269,17 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
     `Drivers/` vs `drivers/`, `backend_T02.c` vs `backend_t02.c`, và thiếu `#include "semphr.h"`
     (`network/eth_netif/eth_driver.c`) / `"queue.h"` (`apps/shell/shell_serial.c`). Chỉ vá ở sandbox.
 
+26. **Chỗ lấy RAM cho SimplePLC trên `wg_ue` (người dùng chọn, phiên này):** hạ `configTOTAL_HEAP_SIZE`
+    trong `Core/Inc/FreeRTOSConfig.h` dòng 74, **sửa tay** (người dùng chấp nhận file CubeMX sinh bị sửa;
+    `GatewayV2.ioc` KHÔNG lưu kích thước heap, chỉ lưu kiểu `Heap_4`, nên sinh lại từ CubeMX sẽ hoàn về
+    giá trị khác và mất thay đổi). Giá trị **người dùng đang dùng: 296 KB** (hạ 24 576 B; phiên này đã đề xuất 288 KB, người dùng chọn
+    296 KB): đủ cho +22 464 B tĩnh nhưng chỉ dư **2 992 B** RAM tĩnh — bất kỳ buffer tĩnh mới nào của
+    host/SimplePLC (> ~3 KB) sẽ làm link FAIL lại. Heap còn khoảng 290 KB cho host sau khi trừ stack task
+    `SPLC` 6 KB (ít hơn trước 30 KB). **Điều kiện chưa kiểm:** heap trống tối thiểu thật của host
+    (`lowest free` trong log `MONITOR`, `Core/Src/app_freertos.c`) phải ≥ ~30 KB (tốt nhất ~38 KB) ở bản
+    chưa nối SimplePLC, chạy đủ tải; người dùng cần đọc log đó trên board. Bản giao `Core/Inc/FreeRTOSConfig.h`
+    có 288 KB — thay bằng giá trị người dùng đã tự chỉnh (296 KB). Khi CubeMX sinh lại phải làm lại.
+
 ## 3. Quy trình làm việc
 
 - Trao đổi **tiếng Việt**, code/comment **tiếng Anh**.
@@ -410,6 +432,16 @@ implement; không có log trước `logger_init` (đọc Flash trong `plc_engine
     (c) trùng tên target (`splc_port`). Luôn build baseline host TRƯỚC, rồi mới nối.
 22. Đọc code bootloader trước khi tin một đề xuất bản đồ Flash: partition table lưu kích thước slot trong
     Flash, nên đổi `flash_define.h` mà không migrate thì thiết bị cũ chạy layout cũ.
+
+23. Đo bằng ĐÚNG cờ mà người dùng build (`build.bat`), không bằng preset mặc định: `GW_MDNS_ENABLE`
+    mặc định OFF trong CMake nhưng `build.bat` đặt ON, nên số đo preset lệch vài trăm byte RAM/KB FLASH.
+24. So FLASH giữa hai máy/hai thư mục build phải tính đường dẫn tuyệt đối nhúng trong ELF (`__FILE__`,
+    ~49 chuỗi ở `wg_ue`): 1 ký tự khác nhau ≈ 49 B. Dùng hiệu số (có/không SimplePLC) cùng một máy.
+25. Hướng dẫn build cho người dùng: `build.bat` gốc của `wg_ue` cứng đường dẫn Ninja `C:\Users\DELL\...`
+    (không chạy được trên máy khác); chạy nó dù chỉ một lần cũng ghi `CMAKE_MAKE_PROGRAM` sai vào cache
+    `build\` → phải xoá `build\` (`build_gw.bat rebuild`). `apps\CMakeLists.txt` và `apps\main\CMakeLists.txt`
+    dễ nhầm: chỉ file thứ hai định nghĩa `apps_main`. Trong khối `( )` của batch, `%ERRORLEVEL%` bị thay
+    ngay lúc đọc khối — dùng `if errorlevel`/`exit /b 1`.
 
 ## 6. Verify & test
 
