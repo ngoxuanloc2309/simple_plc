@@ -44,10 +44,27 @@ sẽ chép sang `wg_ue/ports/splc_port/`). Đã kiểm: `splc_port.c` biên dị
 với header THẬT của `wg_ue`; symbol còn thiếu chỉ là của host (`rs485_*`, `tud_cdc_n_*`, FreeRTOS,
 `log_func`, `g_usb_tusb_initialized`) hoặc của SimplePLC. Gateway link được ở cả hai ca:
 `SPLC_RTC/ADC_BUILTIN=0` KHÔNG stub → FAIL link (`sx_rtc_*`, `sx_adc_read`); có stub trong
-`splc_port.c` → link qua. **Chưa** link với `wg_ue` thật, chưa chạy trên board.
+`splc_port.c` → link qua. Đã link với `wg_ue` thật ở bản clone sandbox (xem ngay dưới); chưa chạy
+trên board.
 
-**Chưa làm (A5 còn lại):** chép `port_gw/` vào `wg_ue/ports/splc_port/`, nối CMake SimplePLC vào
-build `wg_ue`, sửa bản đồ Flash host, firmware slave cho board IO. Chi tiết ở mục 4.
+**Đã nối vào `wg_ue` (bản clone sandbox, `main` = `2684df5`) và LINK ĐƯỢC** (ARM Release, gcc 13.2.1,
+`SPLC_AS_LIBRARY=ON`, `splcopts.h` của `port_gw/`, `GW_USB_NETIF_ENABLE` mặc định OFF). Không có
+undefined, không multiple definition, không cảnh báo của `splc_port.c` (`-Wall -Wextra -Wshadow`).
+Số đo `wg_ue` (chuẩn để bắt hồi quy; baseline vá tối thiểu 2 include trong sandbox, xem quyết định 25):
+
+| | FLASH | RAM tĩnh |
+|---|---|---|
+| `wg_ue` baseline (chưa có SimplePLC) | 576 876 B (85,9% của slot 656 KB) | 654 432 B (**99,86%** của 640 KB − 16 B) |
+| `wg_ue` + SimplePLC | 603 660 B (**+26 784 B**; 92,1% của 640 KB) | **+22 472 B** (~23,5 KB bss: services 12 KB, core 5,8 KB, app 3,9 KB) |
+
+**RAM host gần đầy:** baseline chỉ còn ~912 B trống vì `ucHeap` = 320 KB tĩnh. Thêm SimplePLC → link
+FAIL (`.bss` vượt 21 560 B). Bắt buộc giảm `configTOTAL_HEAP_SIZE` (hoặc nơi khác) ≥ ~22 KB, cộng task
+`SPLC` 6 KB lấy từ chính heap đó. Thử với 296 KB thì link qua (RAM 99,54%). Mức heap THẬT còn dùng của
+host chưa đo (cần `xPortGetMinimumEverFreeHeapSize()` trên board) nên 296 KB chỉ là con số thử,
+CHƯA phải đề xuất. `FreeRTOSConfig.h` do CubeMX sinh → hỏi người dùng (quyết định 9).
+
+**Chưa làm:** chốt chỗ lấy RAM (ở trên), bản đồ Flash host (bước 5), khoá Flash chung với OTA (A'),
+firmware slave cho board IO. Chi tiết ở mục 4.
 
 **Chưa verify (không chặn việc tiếp):** chạy lại `test_plc/test_fb/test_retain` với firmware
 sau các thay đổi đổi-tên/config/OS/Flash/logger; Remote I/O với board IO thật (timing RS485,
@@ -221,6 +238,26 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
     `rs485_port_reconfigure()` cho cả 3 cổng theo cấu hình host, và `splc_check_port()` đặt lại baud
     mỗi giây — nếu sau này cổng được cấu hình cho dịch vụ khác, hai bên sẽ giành nhau.
 
+25. **Cách nhúng vào `wg_ue` (đã link được ở sandbox):** thư viện nằm ở `libs/simple_plc/` (submodule/bản
+    chép của repo này; CMake thư viện là `libs/simple_plc/simple_plc/`), port ở `ports/splc_port/`
+    (`CMakeLists.txt`, `splc_port.c/.h`, `splcopts.h`). Quy tắc rút ra khi link thật:
+    (a) target của host tên **`ports_splc_port`** (không phải `splc_port`: SimplePLC đã dùng tên đó cho Layer
+    3.5); (b) `ports/splc_port/CMakeLists.txt` `set(SPLC_AS_LIBRARY ON ... FORCE)` và
+    `set(SPLC_OPTS_DIR <thư mục port> ... FORCE)` TRƯỚC `add_subdirectory`; (c) `splc_platform_freertos`
+    phải gắn vào **executable** của host (`target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+    $<TARGET_OBJECTS:splc_platform_freertos>)`), KHÔNG gắn vào một static library — đặt trong
+    `ports_splc_port` thì link FAIL `undefined sx_os_yield_wait` vì thứ tự archive; (d) `logger.h` của host
+    được SimplePLC thấy nhờ `include_directories(libs/logger ...)` ở scope gốc của host (thư mục con kế thừa),
+    còn `stm32cubemx` cấp header FreeRTOS nên KHÔNG cần `SPLC_OS_INCLUDE_DIRS`; (e) file host phải sửa
+    (đã gói trong `wg_ue_changes/`): `CMakeLists.txt` gốc (+`add_subdirectory(ports/splc_port)` và
+    +`ports_splc_port` trong danh sách link), `apps/main/CMakeLists.txt` (`apps_main` link
+    `ports_splc_port` để thấy `splc_port.h`), `apps/main/gateway.c` (`#include "splc_port.h"` và
+    `(void)splc_host_start();` ngay sau `modbus_master_init();`). Không sửa `usb_netif.c`,
+    `rs485_driver.*`, `flash_port.c`, file CubeMX.
+    **Baseline `wg_ue` trên Linux cần workaround KHÔNG thuộc dự án này** (người dùng xác nhận bỏ qua):
+    `Drivers/` vs `drivers/`, `backend_T02.c` vs `backend_t02.c`, và thiếu `#include "semphr.h"`
+    (`network/eth_netif/eth_driver.c`) / `"queue.h"` (`apps/shell/shell_serial.c`). Chỉ vá ở sandbox.
+
 ## 3. Quy trình làm việc
 
 - Trao đổi **tiếng Việt**, code/comment **tiếng Anh**.
@@ -258,18 +295,31 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
    trước:** `Documents/Rules/*` (CLAUDE.md của `wg_ue` bắt buộc), `ports/modbus_port/mmb_serial.*`,
    `Drivers/uart/rs485_driver.h`, `usb_netif.c` + `tusb_config.h` (ai gọi `tud_task_ext`), cờ NMBS
    thật của `middleware/nanomodbus`, `gateway.c`.
-3. *(đã làm một phần)* Binary Gateway không có symbol trần `cqueue_*`/`board_init`/`nmbs_*`/
-   `HAL_UART_RxCpltCallback`/`PVD_AVD_IRQHandler`; header `board_*.h`/`splc_*.h` không trùng file nào
-   của `wg_ue`. **Còn lại:** `nm` trên binary `wg_ue` thật sau khi nối CMake. Dò xung đột với host bằng
-   `nm`/so header basename: `HAL_UART_RxCpltCallback`,
-   `PVD_AVD_IRQHandler`, `cqueue_*`, `board_init`, `nmbs_*`, `logger.h`. Kiểm nanoMODBUS riêng
-   cùng tồn tại với bản `wg_ue` thật (còn nợ từ quyết định 15).
-4. Thử build gateway kèm `splc_port.c` bằng ARM gcc. Baseline `wg_ue` từng không configure được vì
-   thiếu submodule `libs/x-cube-st67w61` (chưa thử lại) → nếu vẫn vậy, tách bản build rút gọn chỉ
-   để kiểm link. Dòng `splc_host_start();` trong `gateway.c` sửa trên bản clone.
-5. *(cần người dùng)* **Bootloader + Flash:** đọc `libs/bootloader/flash_define.h`, `bootloader/`,
-   `STM32H563xx_FLASH.ld`; trả lời các điều "chưa kiểm" của quyết định 17. Cho tới lúc đó địa chỉ
-   `0x081F0000` chỉ là đề xuất, KHÔNG nạp.
+3. *(XONG ở sandbox)* `nm` trên `GatewayV2.elf` thật: không symbol trùng; `HAL_UART_RxCpltCallback` chỉ
+   có bản của host; `PVD_AVD_IRQHandler` là `W` từ startup (SimplePLC tắt PVD ở gateway); nanoMODBUS của
+   host (20 hàm `nmbs_*`) và bản riêng `splc_nmbs_*` (9 hàm còn sau gc) cùng tồn tại. Header trùng basename
+   với host chỉ còn `logger.h`, `tusb_config.h` (+ `.c`: `logger.c`, `usb_descriptors.c`) — đúng các file
+   SimplePLC loại khi nhúng; đã xác nhận bằng `compile_commands.json` (29 unit của SimplePLC, 0 unit
+   đưa `utils/logger` hay `port/usb` vào include path/build).
+4. *(XONG ở sandbox)* Build `wg_ue` đầy đủ kèm SimplePLC link được (số đo ở mục 0). Submodule của `wg_ue`
+   đủ khi clone `--recurse-submodules`. Còn lại: người dùng chép `wg_ue_changes/` vào `wg_ue` thật,
+   thêm `libs/simple_plc` (submodule), quyết định chỗ lấy RAM, build lại trên máy của mình.
+5. *(đã đọc code; còn quyết định của người dùng)* **Bootloader + Flash** — đã đọc `libs/bootloader/
+   flash_define.h`, `bootloader.c`, `STM32H563xx_FLASH.ld`, `apps/ota/ota.c`, `ports/flash_port`:
+   - Số học đề xuất ĐÚNG: 56 KB boot + 8 KB partition + 3 slot × 82 sector (656 KB) + 16 KB scratch =
+     2048 KB; app link cố định tại `0x08010000`. Thu mỗi slot 82→80 sector (640 KB) → 3 slot kết thúc ở
+     `0x081F0000`; dữ liệu 40 KB `0x081F0000..0x081F9FFF`; 1 sector trống `0x081FA000`; scratch giữ
+     `0x081FC000`. Cả vùng dữ liệu nằm bank 2 (≥ `0x08100000`); app chạy từ bank 1 nên erase bank 2 không
+     làm đứng CPU.
+   - Image app 603 660 B < 640 KB (dư 51 700 B, 7,9%).
+   - **Phải đổi (host, người dùng làm):** `flash_define.h` (82→80 ×3), `LENGTH` FLASH của app 656K→640K,
+     build + nạp lại bootloader.
+   - **Rủi ro lớn:** `bootloader.c` chỉ ghi địa chỉ/kích thước slot vào partition table khi `magic_number`
+     sai (khởi tạo lần đầu). Thiết bị đã có partition table GIỮ layout 82 sector cũ: slot Factory cũ phủ
+     `0x081F0000..0x081FC000` = ĐÚNG vùng dữ liệu SimplePLC → bootloader/OTA sẽ ghi đè lẫn nhau. Board dev
+     phải xoá sector partition `0x0800E000` sau khi nạp bootloader mới; thiết bị ngoài thực địa cần cơ chế
+     migrate riêng (CHƯA có).
+   - Địa chỉ `0x081F0000` vẫn chỉ là đề xuất, KHÔNG nạp cho tới khi người dùng chốt các mục trên.
 6. *(cần người dùng)* Chốt chủ sở hữu đồng hồ (quyết định 23) nếu cần Time Window trên gateway.
 7. *(cần người dùng/phần cứng)* **Firmware slave cho board IO** (khối `0x0C00..0x0C06` bằng
    nanoMODBUS; lease/SAFE nằm ở slave; chốt baud/parity — đang giả định 115200 8N1). Thiếu nó
@@ -281,10 +331,18 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
 **A'. Rủi ro của port đã thấy khi đối chiếu `wg_ue` (chưa đo):**
 - Task `SPLC` priority 6 trùng `UART_LOG` (6), thấp hơn MODBUS/BROKER/SHELL (11) và NETWORK (12) → khi
   gateway bận scan 10 ms có thể trễ. Đo trên board.
-- FIFO CDC của TinyUSB: engine đọc/ghi từ task khác `usb_netif_task` (đang chạy `tud_task_ext`); đang
-  giả định mutex FIFO của TinyUSB (`CFG_TUSB_OS=FreeRTOS`) bảo vệ — chưa kiểm cấu hình trong tinyusb của host.
-- `plc_rule_flash` ghi Flash trong, host còn bootloader/OTA: tuyệt đối không chồng thao tác (bước 5).
-- Heap host 320 KB (`configTOTAL_HEAP_SIZE`): task `SPLC` 1536 word = 6 KB, tính vào heap.
+- FIFO CDC của TinyUSB: engine đọc/ghi từ task khác `usb_netif_task` (đang chạy `tud_task_ext`).
+  **Đã kiểm mã nguồn (chưa chạy):** host đặt `CFG_TUSB_OS = OPT_OS_FREERTOS` nên `OSAL_MUTEX_REQUIRED=1`,
+  và `tu_edpt_stream_init()` (`tusb.c:317`) tạo mutex cho FIFO RX/TX → truy cập song song được bảo vệ.
+  Priority: `usb_netif_task` = 5, `SPLC` = 6 (trên 5, dưới nhóm ứng dụng 10..12). Task `SPLC` priority 6
+  trùng `UART_LOG`/`LOG_THREAD_PRIO`(6); vẫn thấp hơn MODBUS/BROKER/SHELL (11), NETWORK (12): đo trễ scan trên board.
+- **Chồng thao tác Flash với OTA (CHƯA giải quyết):** `ports/flash_port/flash_port.c` (OTA ghi Secondary
+  slot, một phần nằm bank 2) gọi `HAL_FLASHEx_Erase` KHÔNG có khoá; `plc_rule_flash`/`plc_retain` cũng
+  erase/ghi bank 2 qua `sx_flash`. Hai bên cùng lúc → lỗi BUSY/hỏng dữ liệu. Cần một khoá dùng chung
+  (vd. option `SPLC_FLASH_LOCK()/UNLOCK()` trong `splcopts.h` + host bọc `flash_port` bằng cùng mutex) —
+  thiết kế chưa chốt, cần người dùng.
+- RAM host (xem mục 0): chỉ còn ~912 B trống ở baseline; SimplePLC +22 472 B; task `SPLC` 1536 word = 6 KB
+  lấy từ heap.
 
 **B. Remote I/O còn mở:** chưa phát hiện trùng `unit_id` giữa hai hàng bảng trên cùng bus; chưa có
 tag báo "node offline" cho App.
@@ -294,8 +352,8 @@ VREG_RETAIN (giá trị dự phòng 84 sai trên board này, RETAIN bắt đầu
 một FC03 128 reg bị từ chối (tối đa 125) → App tách 64+64; sửa Structs 3.6/3.7 và Wire Contract
 9.3 (quyền R/W, `+6`, `rule_ref`); App sinh rule "đúng giờ" `EQ, Lo=Hi`.
 
-**D. Firmware khác:** `components/usb_cdc/` và `port/modbus_usb/` vẫn còn trong repo (không được build,
-chỉ còn trong comment; `sx_usb_cdc.h` còn include `cqueue.h` cũ) — xoá khi người dùng đồng ý; validate `guard/trigger/action_tag` ∈ `0..MAX_TAGS-1` khi nạp rule (hiện index
+**D. Firmware khác:** (`components/usb_cdc/` và `port/modbus_usb/` ĐÃ xoá trong vài commit gần nhất;
+đã kiểm bằng `ls`) validate `guard/trigger/action_tag` ∈ `0..MAX_TAGS-1` khi nạp rule (hiện index
 sai chỉ vô hiệu hoá rule âm thầm); chưa ghi snapshot retain ngay trước REBOOT; lỗi Flash lúc erase
 trong bước copy A→B huỷ bản cũ trước khi biết lỗi; `ACT_WRITE_REMOTE/LOG_EVENT/SEND_ALARM` chưa
 implement; không có log trước `logger_init` (đọc Flash trong `plc_engine_init()` chạy TRƯỚC
@@ -346,6 +404,12 @@ implement; không có log trước `logger_init` (đọc Flash trong `plc_engine
 20. Khi đo kích thước bằng link giả (`--defsym`), đừng gán symbol mà kernel/driver THẬT của project cũng
     định nghĩa (vd. `xTaskCreate`): nó loại cả heap khỏi link, RAM tụt 72→39 KB một cách giả. Chỉ `defsym`
     symbol thuần của host, và đừng ghi con số đó vào tài liệu.
+21. Nhúng vào host thật mới lộ điều mô hình giả không lộ: (a) RAM host chỉ còn ~912 B (số RAM của
+    SimplePLC đo độc lập là 72 KB, nhưng thực tế thêm 22 KB sau gc — đọc map thật, đừng cộng số đo rời);
+    (b) OBJECT library gắn vào static library không được kéo vào (thứ tự archive) → gắn vào executable;
+    (c) trùng tên target (`splc_port`). Luôn build baseline host TRƯỚC, rồi mới nối.
+22. Đọc code bootloader trước khi tin một đề xuất bản đồ Flash: partition table lưu kích thước slot trong
+    Flash, nên đổi `flash_define.h` mà không migrate thì thiết bị cũ chạy layout cũ.
 
 ## 6. Verify & test
 
