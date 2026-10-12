@@ -290,6 +290,7 @@ static void plc_task(void *arg)
   for (;;)
   {
     plc_engine_poll();
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_RESET);
     vTaskDelay(1);
   }
 }
