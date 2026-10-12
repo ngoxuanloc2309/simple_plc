@@ -316,6 +316,12 @@ static void board_app_link_init(void)
 
 #else /* RS485 */
 
+#if RS485_DIAG
+static uint32_t s_diag_rx_bytes;
+static uint32_t s_diag_tx_frames;
+static uint32_t s_diag_last_ms;
+#endif
+
 static void rs485_de(bool transmit)
 {
     GPIO_PinState level = (transmit == (RS485_DE_ACTIVE_HIGH != 0)) ? GPIO_PIN_SET
@@ -338,6 +344,11 @@ static int32_t rs485_output(const uint8_t *buf, uint16_t len, void *ctx)
     rs485_de(false);
     sx_uart_set_rx_enabled(&s_board.app_uart, true);
 
+#if RS485_DIAG
+    s_diag_tx_frames++;
+    log_info(TAG, "RS485 TX len=%u rc=%d", (unsigned)len, rc);
+#endif
+
     return (rc == 0) ? (int32_t)len : -1;
 }
 
@@ -352,7 +363,27 @@ static void rs485_pump(void *ctx)
     int n;
     while ((n = sx_uart_read(&s_board.app_uart, chunk, (int)sizeof(chunk))) > 0) {
         (void)splc_link_input(chunk, (uint16_t)n);   /* overflow is counted by the link */
+#if RS485_DIAG
+        s_diag_rx_bytes += (uint32_t)n;
+        log_info(TAG, "RS485 RX n=%d: %02X %02X %02X %02X %02X %02X %02X %02X", n,
+                 chunk[0], (n > 1) ? chunk[1] : 0, (n > 2) ? chunk[2] : 0, (n > 3) ? chunk[3] : 0,
+                 (n > 4) ? chunk[4] : 0, (n > 5) ? chunk[5] : 0, (n > 6) ? chunk[6] : 0,
+                 (n > 7) ? chunk[7] : 0);
+#endif
     }
+
+#if RS485_DIAG
+    /* Once every 2 s: totals + the HAL's view of USART1 (RxState 0x22 = receive armed,
+     * 0x20 = READY i.e. deaf; ErrorCode bits: 1 PE, 2 NE, 4 FE, 8 ORE). */
+    uint32_t now = HAL_GetTick();
+    if ((now - s_diag_last_ms) >= 2000U) {
+        s_diag_last_ms = now;
+        log_info(TAG, "RS485 diag: rx_bytes=%lu tx_frames=%lu RxState=0x%02lX ErrorCode=0x%02lX DE=%d",
+                 (unsigned long)s_diag_rx_bytes, (unsigned long)s_diag_tx_frames,
+                 (unsigned long)UART_RS485.RxState, (unsigned long)UART_RS485.ErrorCode,
+                 (int)HAL_GPIO_ReadPin(RS485_DE_PORT, RS485_DE_PIN));
+    }
+#endif
 }
 
 static void board_app_link_init(void)
