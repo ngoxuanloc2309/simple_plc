@@ -69,6 +69,15 @@
 #define SPLC_FLASH_SIZE_KB               256
 #endif
 
+/* OPTIONAL: absolute address of the LOWEST data sector (Retain sector 1 of 3).
+ * Leave it undefined (default) and the 5 data sectors are the last 5 sectors
+ * of the Flash, counted back from SPLC_FLASH_SIZE_KB. Define it when a host
+ * firmware (bootloader, A/B app slots, ...) already owns the end of the Flash
+ * and has carved a 40 KB hole elsewhere: it must be 8 KB aligned, inside
+ * bank 2, and the 5 sectors [addr, addr + 40 KB) must belong to SimplePLC
+ * alone. Example: #define SPLC_FLASH_DATA_ADDR 0x081F0000UL */
+/* #define SPLC_FLASH_DATA_ADDR          0x081F0000UL */
+
 /* Product/board. Must agree with the board source CMake builds
  * (-DSPLC_BOARD_SKU=..., default zigbee_io); the board .c checks this and
  * stops with #error if they disagree. */

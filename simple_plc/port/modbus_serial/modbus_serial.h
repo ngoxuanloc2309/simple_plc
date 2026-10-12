@@ -4,7 +4,10 @@
 /*
  * modbus_serial.h - Layer 3.5 (Protocol / Library Porting)
  *
- * Non-blocking Modbus RTU MASTER over a sx_uart_t (RS485), for the Gateway.
+ * Non-blocking Modbus RTU MASTER over a byte port supplied by the caller
+ * (RS485), for the Gateway. The port is a small callback struct, so this
+ * layer depends on NO UART/GPIO driver: SimplePLC's own sx_uart_*, or a host
+ * firmware's RS485 driver, are plugged in by the board / port file.
  * Supports exactly what the Remote I/O link needs: FC03 (read holding
  * registers) and FC16 (write multiple registers).
  *
@@ -20,26 +23,42 @@
  * (FC03: 5 + 2*qty bytes, FC16: 8 bytes, exception: 5 bytes), so no
  * inter-character timer is needed.
  *
- * RS485 direction: if de_pin is given the master drives it high around the
- * transmit (HAL_UART_Transmit returns after the last bit has left the shift
- * register). Bytes echoed back by a transceiver that keeps its receiver on
- * are discarded after the transmit.
+ * RS485 direction: if the port provides set_tx() the master calls it with
+ *  true right before write() and false right after (the write callback must
+ *  return only after the last bit has left the UART). If set_tx is NULL the
+ *  port handles direction itself (e.g. a host RS485 driver). Bytes echoed back
+ *  by a transceiver that keeps its receiver on are discarded after the
+ *  transmit.
  *
- * Contract: sx_uart_init() must already have run; uart->config->baudrate
- * must equal the real baud rate (it only feeds the inter-frame gap
- * calculation -- sx_uart_init() does not change the peripheral's baud rate,
- * CubeMX does).
+ * Contract: the port must already be initialised and its baudrate field must
+ *  equal the real baud rate (it only feeds the inter-frame gap calculation).
  */
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "sx_uart.h"
-#include "sx_gpio.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/*
+ * Byte port the master talks through. All callbacks run in the caller's
+ * context (the engine task); none may block longer than stated.
+ */
+typedef struct {
+    /* Non-blocking: copy up to max_len received bytes into buf and return how
+     * many (0 = nothing yet). A negative value is treated as 0. REQUIRED. */
+    int  (*read)(void *ctx, uint8_t *buf, uint16_t max_len);
+    /* Send len bytes and return 0 once the LAST BIT has left the UART, or a
+     * negative value on failure. May block for the TX time of one frame
+     * (~1.5 ms for 17 bytes at 115200) up to timeout_ms. REQUIRED. */
+    int  (*write)(void *ctx, const uint8_t *buf, uint16_t len, uint32_t timeout_ms);
+    /* Optional RS485 direction control: true = driver enable (transmit),
+     * false = receive. NULL when the port does it inside write(). */
+    void (*set_tx)(void *ctx, bool tx);
+    void     *ctx;        /* passed back to every callback */
+    uint32_t  baudrate;   /* real line speed, for the inter-frame gap */
+} modbus_serial_port_t;
 
 #define MODBUS_MASTER_MAX_REGS   16U   /* per request, either direction */
 #define MODBUS_MASTER_FRAME_MAX  64U
@@ -61,8 +80,7 @@ typedef enum {
 } modbus_master_error_t;
 
 typedef struct {
-    sx_uart_t       *uart;
-    sx_gpio_pin_t   *de_pin;          /* NULL = transceiver direction is automatic */
+    modbus_serial_port_t port;        /* copied by modbus_rtu_master_init() */
 
     /* --- private state --- */
     modbus_master_state_t state;
@@ -79,8 +97,10 @@ typedef struct {
     uint16_t  regs[MODBUS_MASTER_MAX_REGS];   /* FC03 answer, valid after DONE_OK */
 } modbus_rtu_master_t;
 
-/* uart/de_pin are borrowed, not copied; they must outlive the master. */
-void modbus_rtu_master_init(modbus_rtu_master_t *m, sx_uart_t *uart, sx_gpio_pin_t *de_pin);
+/* The port struct is copied; port->ctx (if any) is borrowed and must outlive
+ * the master. Returns false (master unusable, every request fails) if m/port
+ * is NULL or port->read / port->write is NULL. */
+bool modbus_rtu_master_init(modbus_rtu_master_t *m, const modbus_serial_port_t *port);
 
 /*
  * Starts a request. Returns false (nothing sent) if a request is already in

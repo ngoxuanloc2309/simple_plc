@@ -20,6 +20,7 @@
 /* #define SPLC_BOARD                    SPLC_BOARD_ZIGBEE_IO_4DI_4DO */   /* also CMake -DSPLC_BOARD_SKU */
 
 /* #define SPLC_FLASH_SIZE_KB            256 */    /* chip Flash in KB; data sectors are the last 5 */
+/* #define SPLC_FLASH_DATA_ADDR          0x081F0000UL */ /* optional: 8 KB-aligned address of the 5 data sectors when the host owns the end of Flash */
 
 /* --- Operating system ------------------------------------------------ */
 /* #define SX_OS_USE_FREERTOS            1 */      /* 0 bare-metal (default), 1 FreeRTOS */

@@ -6,8 +6,8 @@
  *
  * This board has NO local I/O pins. Its DI/DO are VIRTUAL: each one stands
  * for a DI/DO of an I/O board on the RS485 bus (see services/plc_io/
- * plc_io_remote.h). Only two peripherals are used: the log UART and the
- * RS485 UART.
+ * plc_io_remote.h). It owns no peripheral: the RS485 port
+ * and the App link are plugged in by the host firmware (see below).
  *
  * ---- Adding / growing I/O boards (the ONLY place to edit) ---------------
  *
@@ -51,19 +51,33 @@
 #define GATEWAY_VREG_RETAIN_NUM     32
 #define GATEWAY_COUNTER_NUM         8
 
-/* --- peripherals (CubeMX handles in Core/Inc/usart.h) ------------------- */
-#define UART_LOG      hlpuart1
-#define UART_RS485    huart1
+/* --- RS485 port to the I/O boards (supplied by the host firmware) ----------
+ *
+ * This board owns NO peripheral. The RS485 UART, its driver-enable pin and
+ * its baud rate belong to the firmware that embeds SimplePLC (the host); it
+ * plugs them in as a modbus_serial_port_t (read / write / set_tx / baudrate,
+ * see port/modbus_serial/modbus_serial.h) -- the same way the App link is
+ * plugged in with splc_link_register(). The I/O boards must run the same
+ * baud rate as port->baudrate, 8N1. */
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-/* RS485 driver-enable: CubeMX labels PB13 "USART1_DE" (main.h); the RS485
- * master drives it high around each transmit. */
-#define GATEWAY_RS485_DE_PORT     USART1_DE_GPIO_Port
-#define GATEWAY_RS485_DE_PIN      USART1_DE_Pin
+#include <stdbool.h>
+#include "modbus_serial.h"
 
-/* MUST equal huart1.Init.BaudRate in Core/Src/usart.c (CubeMX).
- * sx_uart_init() does not change the peripheral's baud rate; this value only
- * feeds the inter-frame gap. The I/O boards must run the same baud, 8N1. */
-#define GATEWAY_RS485_BAUDRATE    115200
+/*
+ * Register the RS485 port. The struct is copied; port->ctx is borrowed. Call
+ * it BEFORE plc_engine_init() (board_hw_init() builds the virtual I/O from
+ * it). Returns false when port->read/write is NULL. Without a registered port
+ * the gateway still runs, but every virtual DI/DO stays unserved and an error
+ * is logged.
+ */
+bool splc_gateway_set_rs485_port(const modbus_serial_port_t *port);
+
+#ifdef __cplusplus
+}
+#endif
 
 /* Modbus RTU unit ID the gateway itself would answer to on its App link. */
 #define MODBUS_UNIT_ID            SPLC_MODBUS_UNIT_ID

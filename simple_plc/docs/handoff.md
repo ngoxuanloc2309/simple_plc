@@ -60,6 +60,14 @@ phải đọc CẢ HAI repo (`RuleCompiler.cs`, `RuleTableWriter.cs`,
      `cmake_modules/splc_check_symbols.cmake` chạy sau build (quyết định 15). Mọi file SimplePLC
      include `splc_nmbs.h`, KHÔNG BAO GIỜ `nanomodbus.h`. Build ARM sạch cả Zigbee-IO và Gateway,
      FLASH/RAM không đổi so với trước A2. Các bước còn lại ở mục 4.A.
+- **A5 đang làm (phiên 2026-10-12) — hướng nhúng vào `wg_ue` đã chốt (quyết định 17-19):**
+  ✅ **A6** option `SPLC_FLASH_DATA_ADDR` (build ARM Zigbee-IO + Gateway/H563 sạch, `_Static_assert` kiểm
+  địa chỉ và 2 ca sai). ✅ `port/modbus_serial` đổi sang struct callback `modbus_serial_port_t`
+  (PC test 34 check + đột biến 3/3 đỏ; build ARM sạch). ✅ `board_ethernet_wifi_gateway.*` viết lại: KHÔNG
+  còn chạm UART/GPIO/CubeMX, host cấp cổng RS485 bằng `splc_gateway_set_rs485_port()` và ống App bằng
+  `splc_link_register()`. **CHƯA làm:** `ports/splc_port/` trong `wg_ue` (task engine, bơm CDC, bọc
+  `rs485_send/recv_polling`, `splc_host_start()`), nối CMake SimplePLC vào build `wg_ue`
+  (`if(NOT TARGET)` cho nanomodbus/tinyusb/FreeRTOS/cubemx), sửa bản đồ Flash host. Chưa chạy trên board nào.
 - **Số đo sau A3 (ARM Release, arm-none-eabi-gcc 13, build lại trong phiên A3):** Zigbee-IO FLASH
   80 264 B / RAM 77 664 B (đường mới đang chạy thật trong binary: +~1 KB Flash so với 79 256);
   Gateway (`SPLC_PORT_USB_CDC=0`, bare-metal) FLASH 57 140 B / RAM 72 672 B — không còn TinyUSB.
@@ -251,6 +259,28 @@ executable bằng `$<TARGET_OBJECTS:splc_platform_freertos>`, KHÔNG dùng stati
     driver không an toàn luồng (vd. TinyUSB của task khác): phải đẩy byte vào queue của task
     driver.
 
+17. **Vùng Flash dữ liệu do host khai được:** option `SPLC_FLASH_DATA_ADDR` (tuỳ chọn). Không khai =
+    5 sector cuối của `SPLC_FLASH_SIZE_KB` như cũ (đã kiểm: 256 KB vẫn `0x08036000/3C000/3E000`). Khai =
+    địa chỉ sector thấp nhất của 40 KB: Retain +0/+8K/+16K, Rule B +24K, Rule A +32K; phải chia hết 8 KB và
+    nằm trong bank 2 (`_Static_assert`). `wg_ue` dùng hết 2 MB nên phải khai. Đề xuất bản đồ host: thu 3 slot
+    app 82→80 sector (640 KB), dữ liệu `0x081F0000..0x081F9FFF`, 1 sector trống, Scratch giữ `0x081FC000`.
+    **Chưa kiểm:** bootloader/partition table của host có hard-code kích thước slot không; image app hiện tại
+    có < 640 KB không; bootloader phải build + nạp lại một lần. Sửa `wg_ue` chỉ làm trên bản clone ở sandbox,
+    người dùng tự chuyển sang repo chính sau khi test tốt.
+18. **RS485 master qua callback:** `modbus_serial_port_t {read (không chặn), write (0 = xong, trả về sau khi bit
+    cuối ra khỏi UART), set_tx (NULL nếu port tự điều khiển DE), ctx, baudrate}`; `modbus_rtu_master_init()` copy
+    struct. Layer 3.5 không còn phụ thuộc `sx_uart`/`sx_gpio`. Board gateway không sở hữu ngoại vi nào; host
+    đăng ký tường minh (kiểu `netif_add`, không `weak`). Lưu ý host: `rs485_recv_polling(port, buf, n, 0)` tăng
+    `counters.timeouts` mỗi lần rỗng — bọc callback sẽ làm nhiễu bộ đếm đó (chấp nhận hoặc đọc thẳng stream buffer).
+19. **Nhúng `wg_ue` KHÔNG sửa `usb_netif.c` và `rs485_driver.h`** (người dùng đồng ý): task engine của SimplePLC tự đọc
+    CDC instance 0 mỗi scan → `splc_link_input()`, ghi trả lời vào FIFO TX rồi flush (TinyUSB bật mutex FIFO
+    khi chạy RTOS; chấp nhận trễ tối đa 1 scan 10 ms). Xin cổng RS485 bằng owner có sẵn
+    `RS485_OWNER_MODBUS_MASTER`; host phải dành riêng cổng đó (không cấu hình cho `modbus_master` của host),
+    trùng thì `rs485_port_acquire` lỗi và Remote I/O báo node offline. **Cổng (USART3/6/10 = 0/1/2) do người dùng
+    chọn bằng option trong `splcopts.h`, không fix cứng.** Host chỉ sửa: 1 dòng gọi `splc_host_start()` trong
+    `gateway.c` + CMake build `ports/splc_port/`. Lưu ý `GW_USB_NETIF_ENABLE` mặc định OFF trong CMake của host;
+    USB CDC chỉ tồn tại khi bật. Descriptor host hiện chỉ có 1 ACM (`CFG_TUD_CDC=2`).
+
 ## 4. Việc còn lại / tồn đọng
 
 **A. Nhúng vào firmware chủ (ưu tiên, theo thứ tự — mỗi bước build + kiểm riêng; thiết kế
@@ -292,15 +322,15 @@ executable bằng `$<TARGET_OBJECTS:splc_platform_freertos>`, KHÔNG dùng stati
    (FLASH 80 264 B ở sandbox) và Gateway (57 140 B) không đổi kích thước (linker đã loại đường cũ).
    Còn sót: một số comment lịch sử nhắc `sx_usb_tiny_*`/`modbus_usb` ở `plc_modbus_cfg.h`,
    `modbus_transport.h`, `board.h`, `services/CMakeLists.txt`, `CMakeLists.txt` gốc (không ảnh hưởng build).
-5. **Port vào `wg_ue` + viết lại `board_ethernet_wifi_gateway.c` cho board H563 thật** (hiện
+5. **(Đang làm — xem mục 0 và quyết định 18/19.) Port vào `wg_ue` + viết lại `board_ethernet_wifi_gateway.c` cho board H563 thật** (hiện
    là bản mẫu H523 và dùng transport giả `idle_read`; xem B): file port mẫu gọi
    `splc_link_input()` từ task USB của host và cài `output()` qua queue; trên host
    `SPLC_LOGGER_BUILTIN=0`, không gọi `logger_init`/không khởi UART log. CẦN đọc `wg_ue` TRƯỚC
    khi viết: cờ NMBS thực của host, `CFG_TUD_CDC` + chỉ số ACM, task USB nào gọi
    `tud_task_ext`, và **ai chạy vòng quét engine khi nhúng (task của host hay thư viện)** —
    chưa xét.
-6. Flash cho host: `SPLC_FLASH_SIZE_KB` chưa đủ nếu host đã dùng hết bản đồ Flash — cần
-   option địa chỉ bắt đầu vùng dữ liệu hoặc để host khai vị trí.
+6. ✅ **Flash cho host (A6, xong):** `SPLC_FLASH_DATA_ADDR` (quyết định 17). Còn việc phía host: sửa `libs/bootloader/flash_define.h`
+   + linker của `wg_ue` và kiểm bootloader.
 7. Linker `STM32H523xx_FLASH.ld` khai `LENGTH=512K` (chip 256 KB): nên đặt
    `SPLC_FLASH_SIZE_KB − 40 KB`. File CubeMX sinh — HỎI người dùng trước khi sửa.
 Rủi ro đã biết: chưa đo độ trễ khi task engine và task USB chạy cùng lúc trên phần cứng; kích

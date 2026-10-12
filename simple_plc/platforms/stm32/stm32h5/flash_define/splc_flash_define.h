@@ -12,8 +12,9 @@
  * program a sector and services/plc_retain, services/plc_rule_flash know WHAT
  * goes in each region.
  *
- * The regions are ALWAYS the last 5 sectors of the chip's Flash, counted
- * backwards from its end. The only product input is the chip's Flash size,
+ * The regions are 5 contiguous sectors: by default the last 5 sectors of the
+ * chip's Flash, counted backwards from its end, or -- when a host firmware owns
+ * the end of the Flash -- a 40 KB hole at SPLC_FLASH_DATA_ADDR (splcopts.h). The only product input is the chip's Flash size,
  * SPLC_FLASH_SIZE_KB (splcopts.h, default in config/splc_opt.h); every
  * address below is derived from it, so moving to another STM32H5 part needs
  * no edit in this file. Every stm32h5_*.h file already #includes
@@ -123,8 +124,14 @@ extern "C" {
 #define SPLC_FLASH_RETAIN_SECTOR_COUNT  3U
 #define SPLC_FLASH_RESERVED_SECTORS     (SPLC_FLASH_RULE_TABLE_SECTORS + SPLC_FLASH_RETAIN_SECTOR_COUNT)
 #define SPLC_FLASH_RESERVED_SIZE        (SPLC_FLASH_RESERVED_SECTORS * SPLC_FLASH_SECTOR_SIZE)   /* 40 KB */
-/* Lowest address of the reserved region; the firmware must end below it. */
+/* Lowest address of the reserved region; the firmware must end below it.
+ * Default: the last 5 sectors of the chip. A host that owns the end of the
+ * Flash declares the hole with SPLC_FLASH_DATA_ADDR (config/splc_opt.h). */
+#ifdef SPLC_FLASH_DATA_ADDR
+#define SPLC_FLASH_DATA_BASE_ADDR       ((uint32_t)(SPLC_FLASH_DATA_ADDR))
+#else
 #define SPLC_FLASH_DATA_BASE_ADDR       (SPLC_FLASH_END_ADDR - SPLC_FLASH_RESERVED_SIZE)
+#endif
 
 /* A bad SPLC_FLASH_SIZE_KB must stop the build, not erase code at run time. */
 #ifndef __cplusplus
@@ -134,6 +141,11 @@ _Static_assert((SPLC_FLASH_SIZE_KB) >= 128 && (SPLC_FLASH_SIZE_KB) <= 2048,
                "SPLC_FLASH_SIZE_KB outside the 128..2048 KB range of the STM32H5 family");
 _Static_assert(SPLC_FLASH_RESERVED_SIZE <= SPLC_FLASH_BANK_SIZE,
                "data sectors do not fit in bank 2 of this Flash size");
+_Static_assert(SPLC_FLASH_DATA_BASE_ADDR % SPLC_FLASH_SECTOR_SIZE == 0U,
+               "SPLC_FLASH_DATA_ADDR must be 8 KB (sector) aligned");
+_Static_assert(SPLC_FLASH_DATA_BASE_ADDR >= FLASH_BASE + SPLC_FLASH_BANK_SIZE &&
+               SPLC_FLASH_DATA_BASE_ADDR + SPLC_FLASH_RESERVED_SIZE <= SPLC_FLASH_END_ADDR,
+               "the 5 data sectors must lie entirely inside bank 2 of the Flash");
 #endif
 
 /* --- Rule Table A/B (see services/plc_rule_flash/plc_rule_flash.h) ------
@@ -147,8 +159,8 @@ _Static_assert(SPLC_FLASH_RESERVED_SIZE <= SPLC_FLASH_BANK_SIZE,
  * docs/architecture.md section 2.6.2 for the Modbus staging/commit
  * protocol that produces what eventually gets written here.
  */
-#define SPLC_FLASH_RULE_TABLE_A_ADDR    (SPLC_FLASH_END_ADDR - 1U * SPLC_FLASH_SECTOR_SIZE)
-#define SPLC_FLASH_RULE_TABLE_B_ADDR    (SPLC_FLASH_END_ADDR - 2U * SPLC_FLASH_SECTOR_SIZE)
+#define SPLC_FLASH_RULE_TABLE_A_ADDR    (SPLC_FLASH_DATA_BASE_ADDR + 4U * SPLC_FLASH_SECTOR_SIZE)
+#define SPLC_FLASH_RULE_TABLE_B_ADDR    (SPLC_FLASH_DATA_BASE_ADDR + 3U * SPLC_FLASH_SECTOR_SIZE)
 #define SPLC_FLASH_RULE_TABLE_SIZE      SPLC_FLASH_SECTOR_SIZE   /* 1 sector each, 8 KB */
 
 /* --- Retain (VREG_RETAIN rotating EEPROM-emulation store) ---------------
@@ -168,7 +180,7 @@ _Static_assert(SPLC_FLASH_RESERVED_SIZE <= SPLC_FLASH_BANK_SIZE,
  * ends exactly where SPLC_FLASH_RULE_TABLE_B_ADDR begins (no gap, no
  * overlap -- checked at compile time just below).
  */
-#define SPLC_FLASH_RETAIN_BASE_ADDR     (SPLC_FLASH_END_ADDR - SPLC_FLASH_RESERVED_SECTORS * SPLC_FLASH_SECTOR_SIZE)
+#define SPLC_FLASH_RETAIN_BASE_ADDR     (SPLC_FLASH_DATA_BASE_ADDR)
 #define SPLC_FLASH_RETAIN_TOTAL_SIZE    (SPLC_FLASH_RETAIN_SECTOR_COUNT * SPLC_FLASH_SECTOR_SIZE) /* 24 KB */
 
 #ifndef __cplusplus

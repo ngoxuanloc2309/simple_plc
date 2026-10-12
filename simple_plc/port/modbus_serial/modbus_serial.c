@@ -44,15 +44,18 @@ static uint16_t get_u16(const uint8_t *p)
 static void drain_rx(modbus_rtu_master_t *m)
 {
     uint8_t scratch[16];
-    while (sx_uart_read(m->uart, scratch, (int)sizeof(scratch)) > 0) {
-        /* discard */
+    /* Bounded: a babbling line must not trap the scan cycle here. */
+    for (int i = 0; i < 16; i++) {
+        if (m->port.read(m->port.ctx, scratch, (uint16_t)sizeof(scratch)) <= 0) {
+            break;
+        }
     }
 }
 
 /* 3.5 character times (11 bits each), rounded up, at least 1 ms. */
 static uint32_t frame_gap_ms(const modbus_rtu_master_t *m)
 {
-    uint32_t baud = (m->uart->config != NULL) ? m->uart->config->baudrate : 0U;
+    uint32_t baud = m->port.baudrate;
     if (baud == 0U) {
         return 3U;
     }
@@ -81,12 +84,12 @@ static bool send_frame(modbus_rtu_master_t *m, const uint8_t *frame, uint16_t le
     drain_rx(m);
     m->rx_len = 0U;
 
-    if (m->de_pin != NULL) {
-        sx_gpio_write(m->de_pin, SX_GPIO_HIGH);
+    if (m->port.set_tx != NULL) {
+        m->port.set_tx(m->port.ctx, true);
     }
-    int rc = sx_uart_write(m->uart, frame, (int)len, 50U);
-    if (m->de_pin != NULL) {
-        sx_gpio_write(m->de_pin, SX_GPIO_LOW);
+    int rc = m->port.write(m->port.ctx, frame, len, 50U);
+    if (m->port.set_tx != NULL) {
+        m->port.set_tx(m->port.ctx, false);
     }
     drain_rx(m);   /* echo of our own frame, if the transceiver keeps RX open */
 
@@ -102,7 +105,8 @@ static bool send_frame(modbus_rtu_master_t *m, const uint8_t *frame, uint16_t le
 
 static bool can_start(const modbus_rtu_master_t *m, uint8_t unit)
 {
-    if (m->state != MODBUS_MASTER_IDLE || unit < 1U || unit > 247U) {
+    if (m->port.read == NULL || m->port.write == NULL ||
+        m->state != MODBUS_MASTER_IDLE || unit < 1U || unit > 247U) {
         return false;
     }
     return (int32_t)(sx_get_tick_ms() - m->quiet_until_ms) >= 0;
@@ -110,15 +114,21 @@ static bool can_start(const modbus_rtu_master_t *m, uint8_t unit)
 
 /* --- public API --------------------------------------------------------- */
 
-void modbus_rtu_master_init(modbus_rtu_master_t *m, sx_uart_t *uart, sx_gpio_pin_t *de_pin)
+bool modbus_rtu_master_init(modbus_rtu_master_t *m, const modbus_serial_port_t *port)
 {
-    memset(m, 0, sizeof(*m));
-    m->uart   = uart;
-    m->de_pin = de_pin;
-    m->state  = MODBUS_MASTER_IDLE;
-    if (de_pin != NULL) {
-        sx_gpio_write(de_pin, SX_GPIO_LOW);   /* listen by default */
+    if (m == NULL) {
+        return false;
     }
+    memset(m, 0, sizeof(*m));
+    m->state = MODBUS_MASTER_IDLE;
+    if (port == NULL || port->read == NULL || port->write == NULL) {
+        return false;   /* port stays zeroed: every request is refused */
+    }
+    m->port = *port;
+    if (m->port.set_tx != NULL) {
+        m->port.set_tx(m->port.ctx, false);   /* listen by default */
+    }
+    return true;
 }
 
 bool modbus_rtu_master_read(modbus_rtu_master_t *m, uint8_t unit, uint16_t addr,
@@ -182,7 +192,8 @@ modbus_master_state_t modbus_rtu_master_poll(modbus_rtu_master_t *m)
     }
 
     /* collect whatever arrived */
-    int n = sx_uart_read(m->uart, &m->rx[m->rx_len], (int)(MODBUS_MASTER_FRAME_MAX - m->rx_len));
+    int n = m->port.read(m->port.ctx, &m->rx[m->rx_len],
+                         (uint16_t)(MODBUS_MASTER_FRAME_MAX - m->rx_len));
     if (n > 0) {
         m->rx_len = (uint16_t)(m->rx_len + (uint16_t)n);
     }

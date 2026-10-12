@@ -5,11 +5,6 @@
 #include "board_config.h"
 SPLC_BOARD_CHECK_SELECTED(BOARD_GATEWAY);
 
-#include "main.h"    /* CubeMX: USART1_DE_GPIO_Port / USART1_DE_Pin */
-#include "usart.h"   /* CubeMX: extern UART_HandleTypeDef hlpuart1, huart1 */
-
-#include "sx_gpio.h"
-#include "sx_uart.h"
 #include "splc_log.h"
 #if SPLC_LOGGER_BUILTIN
 #include "logger.h"   /* logger_init(); with SPLC_LOGGER_BUILTIN=0 the host firmware owns the logger */
@@ -23,19 +18,23 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_GATEWAY);
 #include "plc_io.h"
 #include "plc_io_remote.h"
 #include "modbus_serial.h"
+#include "modbus_link.h"     /* splc_link_get_transport() */
 
 /*
  * board_ethernet_wifi_gateway.c - Layer 4
  *
- * Gateway with virtual DI/DO. Peripherals in use: log UART (UART_LOG) and
- * RS485 UART (UART_RS485) -- nothing else is initialised here. The DI/DO
- * tags have no pins: plc_io_remote moves them to the I/O boards listed in
- * GATEWAY_IO_NODES (board_ethernet_wifi_gateway.h) over RS485.
+ * Gateway with virtual DI/DO, built to be EMBEDDED in a host firmware that
+ * owns every peripheral. The DI/DO tags have no pins: plc_io_remote moves
+ * them to the I/O boards listed in GATEWAY_IO_NODES
+ * (board_ethernet_wifi_gateway.h) over RS485.
  *
- * No App<->device link (USB-CDC) is set up by this file: the transport it
- * hands to plc_modbus_cfg is a silent placeholder (no frame ever arrives), so
- * the Modbus config server stays idle. The Ethernet/WiFi link that will carry
- * configuration is added by replacing board_get_modbus_transport().
+ * What the host plugs in (explicitly, before plc_engine_init()):
+ *   - the RS485 byte port:  splc_gateway_set_rs485_port()
+ *   - the App link:         splc_link_register()   (modbus_link.h)
+ * This file touches no UART, GPIO or USB register. With
+ * SPLC_LOGGER_BUILTIN=0 the host's logger is used as well; with 1 the logger
+ * is initialised here with a sink that drops everything (there is no log UART
+ * on this board any more).
  */
 
 static const char *TAG = "BOARD_GATEWAY";
@@ -71,83 +70,47 @@ SPLC_TagLayout board_get_tag_layout(void)
     return s_tag_layout;
 }
 
-/* --- peripherals ------------------------------------------------------- */
+/* --- RS485 port (registered by the host) -------------------------------- */
 
 typedef struct {
-#if SPLC_LOGGER_BUILTIN
-    sx_uart_t           log_uart;
-    sx_uart_config_t    log_uart_cfg;
-#endif
-    sx_uart_t           rs485_uart;
-    sx_uart_config_t    rs485_uart_cfg;
-    sx_gpio_pin_t       rs485_de;
-    modbus_rtu_master_t rs485_master;
+    modbus_serial_port_t port;
+    bool                 port_set;
+    modbus_rtu_master_t  rs485_master;
 } gateway_board_t;
 
 static gateway_board_t s_board;
 
-#if SPLC_LOGGER_BUILTIN
-static uint8_t s_log_rx_buf[128];
-static uint8_t s_log_tx_buf[128];
-#endif
-/* RS485 RX: the longest answer is 37 bytes (16 registers); 128 leaves room
- * for a burst between two scan cycles. */
-static uint8_t s_rs485_rx_buf[128];
-static uint8_t s_rs485_tx_buf[64];
-
-#if SPLC_LOGGER_BUILTIN
-static void board_log_write(const char *s)
+bool splc_gateway_set_rs485_port(const modbus_serial_port_t *port)
 {
-    sx_uart_write(&s_board.log_uart, (const uint8_t *)s, (int)strlen(s), 100);
+    if (port == NULL || port->read == NULL || port->write == NULL) {
+        return false;
+    }
+    s_board.port     = *port;
+    s_board.port_set = true;
+    return true;
 }
 
-static void board_log_uart_init(void)
+#if SPLC_LOGGER_BUILTIN
+static void board_log_write(const char *s) { (void)s; }
+
+static void board_logger_init(void)
 {
-    s_board.log_uart_cfg.pDriver  = &UART_LOG;
-    s_board.log_uart_cfg.baudrate = 115200;
-    s_board.log_uart_cfg.bits     = 8;
-    s_board.log_uart_cfg.parity   = 0;
-    s_board.log_uart_cfg.stopbits = 1;
-
-    s_board.log_uart.rxBuffer     = s_log_rx_buf;
-    s_board.log_uart.rxBufferSize = (int)sizeof(s_log_rx_buf);
-    s_board.log_uart.txBuffer     = s_log_tx_buf;
-    s_board.log_uart.txBufferSize = (int)sizeof(s_log_tx_buf);
-
-    sx_uart_init(&s_board.log_uart, &s_board.log_uart_cfg);
-
     logger_init((LOGGING_LEVELS)SPLC_LOG_LEVEL, board_log_write);
-    log_info(TAG, "Ethernet/WiFi gateway board init start");
 }
 #else
 /* The host firmware initialises its own logger; SimplePLC's log goes there via
- * SPLC_LOG_OUTPUT (config/splc_log.h). No log UART is used by this board. */
-static void board_log_uart_init(void) {}
+ * SPLC_LOG_OUTPUT (config/splc_log.h). */
+static void board_logger_init(void) {}
 #endif
 
-static void board_rs485_init(void)
+static bool board_rs485_init(void)
 {
-    s_board.rs485_uart_cfg.pDriver  = &UART_RS485;
-    s_board.rs485_uart_cfg.baudrate = GATEWAY_RS485_BAUDRATE;
-    s_board.rs485_uart_cfg.bits     = 8;
-    s_board.rs485_uart_cfg.parity   = 0;
-    s_board.rs485_uart_cfg.stopbits = 1;
-
-    s_board.rs485_uart.rxBuffer     = s_rs485_rx_buf;
-    s_board.rs485_uart.rxBufferSize = (int)sizeof(s_rs485_rx_buf);
-    s_board.rs485_uart.txBuffer     = s_rs485_tx_buf;
-    s_board.rs485_uart.txBufferSize = (int)sizeof(s_rs485_tx_buf);
-
-    sx_uart_init(&s_board.rs485_uart, &s_board.rs485_uart_cfg);
-
-    s_board.rs485_de = (sx_gpio_pin_t){
-        .port = GATEWAY_RS485_DE_PORT,
-        .pin  = GATEWAY_RS485_DE_PIN,
-        .mode = SX_GPIO_MODE_OUTPUT_PP
-    };
-    sx_gpio_init(&s_board.rs485_de, SX_GPIO_LOW);   /* receive by default */
-
-    modbus_rtu_master_init(&s_board.rs485_master, &s_board.rs485_uart, &s_board.rs485_de);
+    if (!s_board.port_set) {
+        log_error(TAG, "no RS485 port registered (splc_gateway_set_rs485_port) -- "
+                       "virtual I/O is NOT served");
+        return false;
+    }
+    return modbus_rtu_master_init(&s_board.rs485_master, &s_board.port);
 }
 
 /* --- virtual DI/DO ----------------------------------------------------- */
@@ -228,14 +191,15 @@ static void board_device_info_init(void)
 
 void board_hw_init(void)
 {
-    board_log_uart_init();
+    board_logger_init();
     board_device_info_init();
-    board_rs485_init();
-    log_info(TAG, "RS485 master ready (%u baud)", (unsigned)GATEWAY_RS485_BAUDRATE);
-    board_virtual_io_init();
+    if (board_rs485_init()) {
+        log_info(TAG, "RS485 master ready (%u baud)", (unsigned)s_board.port.baudrate);
+        board_virtual_io_init();
+    }
 }
 
-/* --- App link: placeholder -------------------------------------------- */
+/* --- App link ---------------------------------------------------------- */
 
 static int32_t idle_read(uint8_t *buf, uint16_t count, int32_t timeout_ms, void *ctx)
 {
@@ -251,7 +215,15 @@ static int32_t idle_write(const uint8_t *buf, uint16_t count, int32_t timeout_ms
 
 modbus_transport_t board_get_modbus_transport(void)
 {
+    /* The host registers the App link (splc_link_register) before the engine
+     * starts. If it forgot, say so instead of running a device the App can
+     * never reach. */
     modbus_transport_t t;
+    if (splc_link_get_transport(&t)) {
+        return t;
+    }
+
+    log_error(TAG, "no App link registered -- Modbus config server stays idle");
     t.ctx     = NULL;
     t.read    = idle_read;
     t.write   = idle_write;
