@@ -160,22 +160,10 @@
 #define SPLC_MODBUS_UNIT_ID              1
 #endif
 
-/* LEGACY: byte queues of the old USB path (components/usb_cdc/sx_usb_cdc.c,
- * port/modbus_usb). No board uses them any more: the USB-CDC port module
- * feeds the link ring (SPLC_LINK_RX_BUF_SIZE) instead. They go away together
- * with the old path (docs/handoff.md section 4.A, step A4). */
-#ifndef SPLC_USB_RX_BUF_SIZE
-#define SPLC_USB_RX_BUF_SIZE             256
-#endif
-#ifndef SPLC_USB_TX_BUF_SIZE
-#define SPLC_USB_TX_BUF_SIZE             256
-#endif
-
 /* RX byte ring of the generic App link (port/modbus_link). The port feeds it
  * with splc_link_input(); nanoMODBUS drains it. Must be a power of two and
- * hold at least one maximum Modbus RTU frame (256 bytes). It is a separate
- * option from SPLC_USB_RX_BUF_SIZE on purpose: that one belongs to the
- * built-in USB-CDC driver, this one to every link regardless of transport. */
+ * hold at least one maximum Modbus RTU frame (256 bytes). It is the only RX
+ * buffer of the App link, whatever the transport (USB-CDC, UART, ...). */
 #ifndef SPLC_LINK_RX_BUF_SIZE
 #define SPLC_LINK_RX_BUF_SIZE            512
 #endif
@@ -262,9 +250,6 @@
 #endif
 #if (SPLC_MODBUS_UNIT_ID < 1) || (SPLC_MODBUS_UNIT_ID > 247)
 #error "SPLC_MODBUS_UNIT_ID must be 1..247"
-#endif
-#if (SPLC_USB_RX_BUF_SIZE < 64) || (SPLC_USB_TX_BUF_SIZE < 64)
-#error "SPLC_USB_RX_BUF_SIZE / SPLC_USB_TX_BUF_SIZE must be at least 64 (one USB packet)"
 #endif
 #if (SPLC_LINK_RX_BUF_SIZE < 256) || ((SPLC_LINK_RX_BUF_SIZE & (SPLC_LINK_RX_BUF_SIZE - 1)) != 0)
 #error "SPLC_LINK_RX_BUF_SIZE must be a power of two and at least 256 (one maximum Modbus RTU frame)"

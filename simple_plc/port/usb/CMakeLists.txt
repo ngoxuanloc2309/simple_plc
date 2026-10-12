@@ -11,30 +11,21 @@
 #                      splc_usb_irq() is the interrupt entry the board calls
 #   tusb_config.h,     TinyUSB configuration and the CDC-only descriptors; they
 #   usb_descriptors.c  are compiled into the "tinyusb" target (libs/CMakeLists.txt)
-#   LEGACY (removed once the A4 regression on the board has passed):
-#   components/usb_cdc/sx_usb_cdc.c, port/modbus_usb/modbus_usb.c -- the old
-#   queue + timeout path. No board calls it any more; the linker drops it.
 #
 # Only this module may #include "tusb.h" / call tud_*().
 
 add_library(splc_port_usb_cdc STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/splc_usb_cdc.c
-    # LEGACY (A4)
-    ${CMAKE_CURRENT_SOURCE_DIR}/../modbus_usb/modbus_usb.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../components/usb_cdc/sx_usb_cdc.c
 )
 
-# PUBLIC: the board file includes splc_usb_cdc.h. The legacy headers live in
-# components/usb_cdc (already on the splc_components interface) and
-# port/modbus_usb (modbus_usb.h includes sx_usb_cdc.h).
+# PUBLIC: the board file includes splc_usb_cdc.h.
 target_include_directories(splc_port_usb_cdc PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../modbus_usb
 )
 
 # tinyusb (libs/CMakeLists.txt): tusb.h, the stm32_fsdev driver and
 # tusb_config.h. splc_port: modbus_link.h / modbus_transport.h and the link
-# itself. splc_components: sx_time.h / sx_os.h / cqueue.h / logger include dir.
+# itself. splc_components: sx_time.h / sx_os.h / logger include dir.
 target_link_libraries(splc_port_usb_cdc PUBLIC
     tinyusb
     splc_port

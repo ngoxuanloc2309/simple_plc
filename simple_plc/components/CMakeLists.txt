@@ -6,10 +6,9 @@
 # sx_<peripheral>.h contracts; the actual HAL_*() calls live one layer down,
 # in platforms/, not here.
 #
-# Since step A3 there is NO .c file at this layer: the USB-CDC driver
-# (components/usb_cdc/sx_usb_cdc.c, the old queue + timeout path) is LEGACY and
-# is built by the optional USB-CDC port module (port/usb/CMakeLists.txt, only
-# with SPLC_PORT_USB_CDC = 1). Nothing here depends on TinyUSB any more.
+# There is NO .c file at this layer: the USB-CDC transport is the optional
+# port module port/usb/ (only with SPLC_PORT_USB_CDC = 1), not a Layer 1 driver.
+# Nothing here depends on TinyUSB.
 #
 # i2c/ and timer/ are 0-line placeholder headers today -- not referenced
 # below; add them once they have real content.
@@ -19,8 +18,6 @@ add_library(splc_components INTERFACE)
 # INTERFACE: platforms/stm32/stm32h5/*.c #include these sx_*.h contracts
 # directly (e.g. stm32h5_gpio.c -> sx_gpio.h), and any Layer 3 code calling
 # sx_gpio_read()/sx_uart_write()/etc. needs them too.
-# usb_cdc/ stays on the list for the LEGACY sx_usb_cdc.h only (no TinyUSB
-# header is included from it any more).
 target_include_directories(splc_components INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/gpio
     ${CMAKE_CURRENT_SOURCE_DIR}/adc
@@ -28,7 +25,6 @@ target_include_directories(splc_components INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/uart
     ${CMAKE_CURRENT_SOURCE_DIR}/time
     ${CMAKE_CURRENT_SOURCE_DIR}/os
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb_cdc
     ${CMAKE_CURRENT_SOURCE_DIR}/system
     ${CMAKE_CURRENT_SOURCE_DIR}/rtc
     ${CMAKE_CURRENT_SOURCE_DIR}/pwd

@@ -61,14 +61,13 @@ simple_plc/
 │               board_device/board_<sku>.{c,h} — pin wiring, SPLC_TagLayout, descriptor
 ├── services/   Layer 3: plc_io (+ plc_io_remote: DI/DO ảo của Gateway), plc_retain,
 │               plc_rule_flash, plc_modbus_cfg, plc_fb, plc_rtc
-├── port/       Layer 3.5: modbus_link (ống byte App link kiểu netif, mục 3.1), modbus_usb
-│               (App link qua USB-CDC, đường hiện tại), modbus_serial (RS485 master, Gateway),
-│               modbus_tcp (stub rỗng), modbus_transport (giao diện), usb (tusb_config.h,
-│               usb_descriptors.c)
+├── port/       Layer 3.5: modbus_link (ống byte App link kiểu netif, mục 3.1),
+│               modbus_serial (RS485 master, Gateway), modbus_tcp (stub rỗng), modbus_transport (giao diện), usb (module tùy chọn SPLC_PORT_USB_CDC:
+│               splc_usb_cdc.*, tusb_config.h, usb_descriptors.c)
 ├── core/       Layer 2: plc_tag, plc_rule (+ state machine), plc_internal_rule (eval, action),
 │               plc_device, plc_diag, plc_error, plc_system_cmd
 ├── components/ Layer 1: sx_gpio, sx_adc, sx_flash, sx_uart, sx_time, sx_rtc, sx_pwd,
-│               sx_system, sx_timer, sx_os, sx_usb_cdc (+ .c dùng TinyUSB)
+│               sx_system, sx_timer, sx_os (chỉ header, INTERFACE library, không .c)
 ├── platforms/  Layer 0: stm32/stm32h5/{gpio,adc,flash,flash_define,uart,time,timer,rtc,pwd,
 │               system}, freertos/ (hiện thực sx_os cho FreeRTOS, không gắn chip)
 ├── utils/      Layer U: cqueue, epoch, logger, filter/*
@@ -90,7 +89,7 @@ splc_config/splcopts.h   (gốc repo) — file cấu hình của sản phẩm hi
   (`PLC_SCAN_INTERVAL_MS`, `MAX_RULES` ≤ 100, `PLC_REBOOT_DELAY_MS`), Flash
   (`SPLC_FLASH_SIZE_KB`), retain (`RETAIN_SNAPSHOT_PERIOD_MS`,
   `PLC_PVD_EMERGENCY_SAVE_ENABLE`, `RETAIN_EMERGENCY_MIN_INTERVAL_MS`), link App
-  (`SPLC_MODBUS_UNIT_ID`, `SPLC_USB_RX/TX_BUF_SIZE`, `SPLC_LINK_RX_BUF_SIZE`: lũy thừa của 2,
+  (`SPLC_PORT_USB_CDC`, `SPLC_MODBUS_UNIT_ID`, `SPLC_LINK_RX_BUF_SIZE`: lũy thừa của 2,
   ≥ 256, mặc định 512), Remote I/O (`SPLC_REMOTE_MAX_NODES`,
   `_TIMEOUT_MS`, `_POLL_MS`, `_OFFLINE_AFTER`, `_RETRY_MS`), log (`SPLC_LOG_LEVEL`,
   `SPLC_LOG_BUFFER_SIZE`, `SPLC_LOGGER_BUILTIN`, macro `SPLC_LOG_OUTPUT`).
@@ -152,7 +151,7 @@ chỉ lúc khởi tạo. Byte vào trước khi đăng ký bị bỏ.
 
 | Tình huống | Ống do ai cấp | TinyUSB | nanoMODBUS |
 |---|---|---|---|
-| Board độc lập (Zigbee-IO) | module USB port của SimplePLC, tự đăng ký | SimplePLC build | bản riêng |
+| Board độc lập (Zigbee-IO) | module USB port của SimplePLC (`SPLC_PORT_USB_CDC=1`), tự đăng ký | SimplePLC build | bản riêng |
 | Gateway nhúng vào `wg_ue` | file port của host (`tud_cdc_n_*` qua queue) | host | bản riêng, không đụng host |
 | Đường khác (RS485/TCP) | file port của người dùng | không | bản riêng |
 
@@ -161,15 +160,15 @@ chỉ lúc khởi tạo. Byte vào trước khi đăng ký bị bỏ.
 | Log: `config/splc_log.h` (`log_*` → `SPLC_LOG_OUTPUT`), `SPLC_LOGGER_BUILTIN=0` = logger của host | xong |
 | `port/modbus_link` (A1) | xong: PC test + TSan + build ARM; chưa ai gọi, chưa chạy board |
 | nanoMODBUS bản riêng đổi tên symbol (A2) | xong: 37 symbol, kiểm tự động sau build, test cùng tồn tại trên PC; chưa thử với `wg_ue` thật |
-| Module USB port tùy chọn + dọn layer (A3) | chưa — hiện `sx_usb_cdc.c`/`port/usb` luôn build, Layer 1 còn include `tusb_types.h` và có `#if STM32H5_PLATFORM` |
-| Hồi quy Zigbee-IO trên board rồi xoá đường USB cũ (A4) | chưa |
+| Module USB port tùy chọn + dọn layer (A3) | xong: `port/usb/` (`splc_usb_cdc.*`), cờ `SPLC_PORT_USB_CDC`, board Zigbee-IO chạy đường mới; Layer 1 hết TinyUSB/`#if STM32H5_PLATFORM` |
+| Hồi quy Zigbee-IO trên board rồi xoá đường USB cũ (A4) | xong: `test_fb.py --probe-64`, `test_plc.py`, `test_retain.py` ALL PASS trên board; đã xoá `components/usb_cdc/`, `port/modbus_usb/`, `SPLC_USB_RX/TX_BUF_SIZE` |
 | Port mẫu vào `wg_ue`, board Gateway H563 thật (A5) | chưa |
 | Vị trí vùng Flash dữ liệu do host khai (A6) | chưa |
 
 Đã loại bỏ có chủ đích: selector `SPLC_APP_LINK`, `SPLC_USB_EXTERNAL`,
 `SPLC_NANOMODBUS_BUILTIN`, file board nằm ngoài thư viện, và quy ước "`read` trả ngay khi chưa có
-dữ liệu" (làm mất khung > 64 byte). Lõi (core/services/app) không bao giờ `#include
-"tusb.h"`; hiện chỉ board file được phép, sau A3 chỉ module USB port. Kế hoạch từng bước, điều
+dữ liệu" (làm mất khung > 64 byte). Lõi (core/services/app/board) không bao giờ `#include
+"tusb.h"`; chỉ module USB port (`port/usb/`) được phép Kế hoạch từng bước, điều
 kiện kiểm và rủi ro: `docs/handoff.md` mục 3 (quyết định 13/15/16) và mục 4.A.
 
 ## 4. Chi tiết layer
@@ -243,8 +242,9 @@ datasheet khi dùng chip mới: hai bank bằng nhau.
 (`stdatomic`, `acquire/release`), `read` chờ theo tick thật + `sx_os_yield_wait()`, `write` retry
 `output()` đến hết timeout; chỉ phụ thuộc `sx_time.h`/`sx_os.h`, không có symbol `sx_usb_*`/
 `tud_*`. ~955 B code + 541 B RAM; linker loại bỏ khi chưa ai gọi.
-`port/modbus_usb`: `modbus_usb_read/write` nối nanoMODBUS với `sx_usb_tiny_*` qua giao diện
-`modbus_transport_t`. Hạn chế: `modbus_usb_write()` bỏ qua `timeout_ms`.
+`port/usb` (module tùy chọn, `SPLC_PORT_USB_CDC=1`): `splc_usb_cdc_init/process/irq` — TinyUSB, descriptor,
+ngắt USB; đăng ký ống USB-CDC với `modbus_link` (xem mục 3.1). Chỉ chuyển byte; mọi timeout ở `modbus_link`
+(`write()` dùng timeout idle: đo lại mỗi khi `output()` nhận được byte).
 `port/modbus_serial`: **Modbus RTU master không chặn** trên `sx_uart_t` (FC03 + FC16, một
 request đang chạy mỗi master). `modbus_rtu_master_read/write()` gửi (TX ~1,5 ms), rồi
 `modbus_rtu_master_poll()` mỗi scan gom byte; khung hoàn tất khi đủ độ dài theo function code,

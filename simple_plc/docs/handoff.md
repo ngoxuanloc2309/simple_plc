@@ -44,12 +44,27 @@ phải đọc CẢ HAI repo (`RuleCompiler.cs`, `RuleTableWriter.cs`,
      `splc_link_input`, `output()`; quyết định 13/16), option `SPLC_LINK_RX_BUF_SIZE`.
      Kiểm trên PC (1523 check, ThreadSanitizer sạch) + build ARM sạch. **CHƯA có code nào gọi
      nó** (board vẫn dùng `modbus_transport_usb_create()`), nên chưa có gì để chạy trên board.
+  6. **Module USB port tùy chọn — bước A3 xong:** `port/usb/` (`splc_usb_cdc.{h,c}`, target
+     `splc_port_usb_cdc`), cờ `SPLC_PORT_USB_CDC` (mặc định 0, `splcopts.h` Zigbee-IO đặt 1; CMake đọc
+     như `SPLC_LOGGER_BUILTIN`). Board Zigbee-IO **đã chuyển sang đường mới**: `board_zigbee_io.c` gọi
+     `splc_usb_cdc_init()` (đăng ký ống + `tusb_init`), `splc_usb_irq()` trong `USB_DRD_FS_IRQHandler`,
+     `splc_link_get_transport()` ở `board_get_modbus_transport()`; không còn include `tusb.h`. Thiếu
+     cờ thì board `#error`; có cờ mà thiếu submodule tinyusb thì CMake `FATAL_ERROR` rõ ràng. Đường cũ
+     (`sx_usb_cdc.c`, `modbus_usb.c`, `SPLC_USB_RX/TX_BUF_SIZE`) đã **xoá ở A4**.
+     `components/` giờ là INTERFACE library (không còn .c, không còn phụ thuộc TinyUSB).
+     **Đã chạy trên board (A4)**: `test_fb.py --probe-64`, `test_plc.py`, `test_retain.py` ALL PASS. Kèm theo: `modbus_link` `write()` đổi sang timeout
+     **idle** (hết hạn sau `timeout_ms` KHÔNG có tiến triển, tiến triển thì đo lại), vì nanoMODBUS
+     truyền byte timeout 5 ms cho cả khung trả lời mà USB FS chỉ nhận 64 byte mỗi lần.
   5. **nanoMODBUS bản riêng đổi tên symbol — bước A2 xong:** `libs/splc_nanomodbus/`
      (`splc_nmbs.h/.c`), target CMake `splc_nanomodbus` (thay target `nanomodbus` cũ), script
      `cmake_modules/splc_check_symbols.cmake` chạy sau build (quyết định 15). Mọi file SimplePLC
      include `splc_nmbs.h`, KHÔNG BAO GIỜ `nanomodbus.h`. Build ARM sạch cả Zigbee-IO và Gateway,
      FLASH/RAM không đổi so với trước A2. Các bước còn lại ở mục 4.A.
-- **Số đo build (Release, linker):** Zigbee-IO FLASH 79 256 B / RAM 77 696 B (số này giữ
+- **Số đo sau A3 (ARM Release, arm-none-eabi-gcc 13, build lại trong phiên A3):** Zigbee-IO FLASH
+  80 264 B / RAM 77 664 B (đường mới đang chạy thật trong binary: +~1 KB Flash so với 79 256);
+  Gateway (`SPLC_PORT_USB_CDC=0`, bare-metal) FLASH 57 140 B / RAM 72 672 B — không còn TinyUSB.
+  Cần `-DSPLC_OS_INCLUDE_DIRS` hoặc stm32cubemx cho `SX_OS_USE_FREERTOS=1` (xem bài học 16).
+- **Số đo build (Release, linker, trước A3):** Zigbee-IO FLASH 79 256 B / RAM 77 696 B (số này giữ
   nguyên sau khi thêm `modbus_link`, vì linker loại bỏ nó khi chưa ai gọi); SKU Gateway
   FLASH 69 760 B / RAM 76 696 B (`main` cũ: 76 948 / 76 840). `modbus_link.c.obj` riêng:
   955 B code + 541 B RAM (512 B là ring). Mọi số trong tài liệu cũ (69 KB / 37,4 KB) đã lỗi thời.
@@ -123,7 +138,7 @@ phải đọc CẢ HAI repo (`RuleCompiler.cs`, `RuleTableWriter.cs`,
   board .c kiểm bằng `#error`), `SX_OS_USE_FREERTOS`, `PLC_SCAN_INTERVAL_MS`,
   `MAX_RULES` (chỉ GIẢM, 1..100), `PLC_REBOOT_DELAY_MS`, `RETAIN_SNAPSHOT_PERIOD_MS`,
   `PLC_PVD_EMERGENCY_SAVE_ENABLE`, `RETAIN_EMERGENCY_MIN_INTERVAL_MS`,
-  `SPLC_MODBUS_UNIT_ID`, `SPLC_USB_RX/TX_BUF_SIZE`, `SPLC_LINK_RX_BUF_SIZE` (lũy thừa của 2,
+  `SPLC_PORT_USB_CDC`, `SPLC_MODBUS_UNIT_ID`, `SPLC_LINK_RX_BUF_SIZE` (lũy thừa của 2,
   ≥ 256, mặc định 512), `SPLC_LOG_LEVEL`,
   `SPLC_LOG_BUFFER_SIZE`, `SPLC_LOGGER_BUILTIN`, `SPLC_LOG_OUTPUT` (macro, không có mặc
   định số), `SPLC_FLASH_SIZE_KB`, `SPLC_REMOTE_MAX_NODES/TIMEOUT_MS/POLL_MS/OFFLINE_AFTER/
@@ -203,9 +218,8 @@ executable bằng `$<TARGET_OBJECTS:splc_platform_freertos>`, KHÔNG dùng stati
     LUÔN dùng bản riêng (quyết định 15). Core chỉ thấy một "ống byte" (`modbus_link`); USB,
     RS485 hay Ethernet chỉ là cách khác nhau để cắm vào ống, nên KHÔNG có selector loại đường
     truyền (`SPLC_APP_LINK` đã bị loại) và không có `SPLC_USB_EXTERNAL`/`SPLC_NANOMODBUS_BUILTIN`.
-    Core không được phụ thuộc TinyUSB: `sx_usb_cdc.c`, descriptor, ISR USB và `modbus_usb`
-    trở thành MODULE PORT tùy chọn (cờ trong `splcopts.h`, tên đề xuất `SPLC_PORT_USB_CDC`,
-    CHƯA chốt tên; board cần USB thì `#error` khi cờ = 0). Quy ước cũ "`read` của transport ngoài
+    Core không được phụ thuộc TinyUSB: descriptor, ISR USB và ống USB-CDC là
+    MODULE PORT tùy chọn `port/usb/` (cờ `SPLC_PORT_USB_CDC` trong `splcopts.h`; board cần USB thì `#error` khi cờ = 0). Quy ước cũ "`read` của transport ngoài
     trả NGAY khi chưa có dữ liệu" bị BỎ: nó làm mất khung > 64 byte (đúng bug FC16 73 byte
     từng gặp); logic chờ timeout phải nằm trong core, một chỗ. Điểm nối log vẫn là
     `SPLC_LOG_OUTPUT` (quyết định 14).
@@ -257,16 +271,27 @@ executable bằng `$<TARGET_OBJECTS:splc_platform_freertos>`, KHÔNG dùng stati
    (d) build ARM Release sạch: Zigbee-IO 79 256 B / 77 696 B, Gateway 69 760 B / 76 696 B (không
    đổi). **CHƯA kiểm với nanoMODBUS thật của `wg_ue`** (mới mô phỏng bằng một bản sao đã sửa) —
    làm ở bước A5.
-3. **Module USB port tùy chọn:** gom `components/usb_cdc/sx_usb_cdc.c`, `port/usb/`,
+3. ✅ **Module USB port tùy chọn** (xong, đã chạy board ở A4; mô tả ở mục 0 điểm 6). Kế hoạch gốc: gom `components/usb_cdc/sx_usb_cdc.c`, `port/usb/`,
    `port/modbus_usb`, phần TinyUSB của `libs/CMakeLists.txt` thành một module build khi cờ
    (đề xuất `SPLC_PORT_USB_CDC`) = 1, đọc từ `splcopts.h` như `SPLC_LOGGER_BUILTIN`. Dọn layer:
    `sx_usb_cdc.h` (Layer 1) không include `tusb_types.h`; bỏ `#if STM32H5_PLATFORM` trong file
    .c; `HAL_GetTick()` → `sx_get_tick_ms()`; thêm hàm bọc `splc_usb_irq()` để board khỏi
    include `tusb.h`; module tự `splc_link_register()` trong `board_hw_init()`. GIỮ nguyên đường
-   USB cũ cho tới khi bước 4 qua.
-4. **Hồi quy trên board Zigbee-IO** (người dùng chạy): `test_fb.py --probe-64` (khung 73 byte),
-   `test_plc.py`, `test_retain.py`. Qua rồi mới xoá đường USB cũ (khi đó `modbus_usb_write()`
-   bỏ qua timeout, mục E, cũng hết).
+   USB cũ cho tới khi bước 4 qua. **Quyết định đã chọn khi làm A3 (người dùng xác nhận): board Zigbee-IO
+   chạy ĐƯỜNG MỚI ngay từ A3** (để A4 kiểm đúng đường mới); lùi lại = hoàn tác `board_zigbee_io.c`
+   + `splcopts.h` (bỏ cờ không đủ vì board `#error`). Đường cũ đã xoá ở A4. Kiểm A3 trên PC
+   (harness ở `/tmp`, KHÔNG trong repo; TinyUSB giả + đồng hồ giả, 24 check, đột biến bỏ bước "đo lại
+   idle clock" thì 3 check đỏ): khung 73 byte đến 64+9 byte, trả lời 255 byte qua FIFO 64 byte với host
+   chậm, host im thì ngắt sau đúng một idle timeout, DTR thấp → lỗi cứng, ring RX đầy → đếm drop không
+   treo, `timeout=0` không chờ.
+4. ✅ **Hồi quy trên board Zigbee-IO + xoá đường USB cũ** (xong). Người dùng chạy trên board đã nạp A3:
+   `test_fb.py COM14 --probe-64` ALL PASS (khung 73 byte được trả lời, link vẫn sống sau probe),
+   `test_retain.py COM14` ALL PASS (130 commit, 4 lần REBOOT, xen rule-save/retain-commit),
+   `test_plc.py COM14` rule upload + ACTIVE_RULE_TABLE round-trip OK, DI0 → DO0 chạy đúng. Sau đó xoá
+   `components/usb_cdc/`, `port/modbus_usb/`, `SPLC_USB_RX/TX_BUF_SIZE`; build lại Zigbee-IO
+   (FLASH 80 264 B ở sandbox) và Gateway (57 140 B) không đổi kích thước (linker đã loại đường cũ).
+   Còn sót: một số comment lịch sử nhắc `sx_usb_tiny_*`/`modbus_usb` ở `plc_modbus_cfg.h`,
+   `modbus_transport.h`, `board.h`, `services/CMakeLists.txt`, `CMakeLists.txt` gốc (không ảnh hưởng build).
 5. **Port vào `wg_ue` + viết lại `board_ethernet_wifi_gateway.c` cho board H563 thật** (hiện
    là bản mẫu H523 và dùng transport giả `idle_read`; xem B): file port mẫu gọi
    `splc_link_input()` từ task USB của host và cài `output()` qua queue; trên host
@@ -305,7 +330,7 @@ VREG_RETAIN (giá trị dự phòng 84 sai trên board này, RETAIN bắt đầu
 3.6/3.7 và Wire Contract 9.3 (quyền R/W, `+6`, `rule_ref`); App sinh rule "đúng giờ" `EQ, Lo=Hi`.
 
 **E. Firmware khác:** validate `guard/trigger/action_tag` ∈ `0..MAX_TAGS-1` khi nạp rule (hiện
-index sai chỉ vô hiệu hoá rule âm thầm); `modbus_usb_write()` bỏ qua `timeout_ms` (đường mới `modbus_link` đã tôn trọng timeout; đường cũ còn tới bước A4); chưa ghi
+index sai chỉ vô hiệu hoá rule âm thầm); chưa ghi
 snapshot retain ngay trước REBOOT; lỗi Flash lúc erase trong bước copy A→B huỷ bản cũ trước
 khi biết lỗi; `ACT_WRITE_REMOTE/LOG_EVENT/SEND_ALARM` chưa implement; không có log trước
 `logger_init` (đọc Flash trong `plc_engine_init()` chạy TRƯỚC `board_init()`); `utils/cqueue`
@@ -341,6 +366,13 @@ khi biết lỗi; `ACT_WRITE_REMOTE/LOG_EVENT/SEND_ALARM` chưa implement; khôn
 15. Kế hoạch đổi tên symbol phải dựa trên `nm`, không dựa trên quy ước đặt tên: kế hoạch "đổi
     `nmbs_*`" bỏ sót 7 hàm `recv_*_res` toàn cục; sai một hàm là host link lỗi trùng. Cần một bước
     kiểm TỰ ĐỘNG (script sau build) chứ không dựa vào trí nhớ khi nâng cấp thư viện.
+
+16. Bỏ một phụ thuộc bắc cầu thì build lại MỌI cấu hình, không chỉ cái mình sửa: gỡ `tinyusb` khỏi
+    `splc_components` làm `sx_os_freertos.c` mất `FreeRTOS.h` (nó vốn nhận include từ `stm32cubemx`
+    qua `components → tinyusb → stm32cubemx` một cách vô tình). Đã nối tường minh trong
+    `platforms/freertos/CMakeLists.txt`. Test host với harness giả chưa chứng minh gì về CMake.
+17. Đột biến phải nhắm đúng chỗ: ca "ghi 255 byte, timeout 5 ms" lúc đầu vẫn xanh khi phá bản sửa idle
+    timeout vì host giả thu gói quá nhanh; phải làm host chậm (3 ms/gói) mới đỏ.
 
 ## 6. Quy trình làm việc
 
@@ -400,8 +432,8 @@ trong từng TU. Mô hình giả, chưa phải `wg_ue` thật.
 
 **Ranh giới layer** (`nm -u <file>.o`): Layer 3 không có symbol `sx_usb_*`; Layer 2 không
 có `sx_flash_*`/`sx_usb_*`; `plc_rule_flash.c` PHẢI có `sx_flash_*`; `sx_system_reset` chỉ
-được gọi từ `plc_system_cmd_service.c` (Layer 4); chỉ board file được `#include "tusb.h"`
-(sau bước A3: chỉ module USB port); `modbus_link.c` không có symbol `sx_usb_*`/`tud_*`; không file nào ngoài `libs/splc_nanomodbus/`
+được gọi từ `plc_system_cmd_service.c` (Layer 4); chỉ module USB port (`port/usb/splc_usb_cdc.c`)
+được `#include "tusb.h"` (board file KHÔNG còn, từ A3); `modbus_link.c` không có symbol `sx_usb_*`/`tud_*`; không file nào ngoài `libs/splc_nanomodbus/`
 được `#include "nanomodbus.h"` (dùng `splc_nmbs.h`); `nm` trên `libsplc_nanomodbus.a` không có
 symbol toàn cục nào thiếu tiền tố `splc_`.
 
