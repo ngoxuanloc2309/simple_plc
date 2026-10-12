@@ -49,9 +49,12 @@
  * are whatever CubeMX configured for USART1 (115200 8N1). */
 #define RS485_DE_PORT         USART1_DE_GPIO_Port
 #define RS485_DE_PIN          USART1_DE_Pin
-#define RS485_DE_ACTIVE_HIGH  0      /* 1: DE high = transmit; 0: DE low = transmit (this board: active low) */
+#define RS485_DE_ACTIVE_HIGH  1      /* RDE net drives DE and /RE tied together: HIGH = transmit, LOW = listen (schematic U1) */
 /* Temporary bring-up diagnostics (RX/TX log + a summary every 2 s). Set to 0 once the link works. */
 #define RS485_DIAG            1
+/* Bring-up only: 1 = every 2 s send 8 x 0x55 on the bus (open the PC port in a terminal and
+ * check it receives them -> proves the TX path + DE polarity). Set to 0 once the link works. */
+#define RS485_TX_TEST         1
 #define RS485_TX_TIMEOUT_MS   100U   /* longest frame: 256 bytes = ~22 ms at 115200 */
 
 /* USB CDC (App<->MCU Modbus channel, per docs/architecture.md section 0
