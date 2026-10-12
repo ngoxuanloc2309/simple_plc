@@ -49,7 +49,7 @@
  * are whatever CubeMX configured for USART1 (115200 8N1). */
 #define RS485_DE_PORT         USART1_DE_GPIO_Port
 #define RS485_DE_PIN          USART1_DE_Pin
-#define RS485_DE_ACTIVE_HIGH  1      /* 1: DE high = transmit; 0 if the board is wired inverted */
+#define RS485_DE_ACTIVE_HIGH  0      /* 1: DE high = transmit; 0: DE low = transmit (this board: active low) */
 /* Temporary bring-up diagnostics (RX/TX log + a summary every 2 s). Set to 0 once the link works. */
 #define RS485_DIAG            1
 #define RS485_TX_TIMEOUT_MS   100U   /* longest frame: 256 bytes = ~22 ms at 115200 */
