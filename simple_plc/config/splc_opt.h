@@ -208,6 +208,35 @@
 #endif
 
 /* ======================================================================
+ * MQTT Publish (docs/plc_mqtt_design.md section 9)
+ * ==================================================================== */
+/* 1 = build plc_mqtt and route Modbus 0x0C00..0x0D7F / 0x0E00..0x0E5F to it.
+ * 0 = nothing changes (those addresses keep answering exception 0x02). */
+#ifndef SPLC_MQTT_ENABLE
+#define SPLC_MQTT_ENABLE                 0
+#endif
+
+/* Size of the payload buffer in bytes (including the NUL). */
+#ifndef SPLC_MQTT_PAYLOAD_MAX
+#define SPLC_MQTT_PAYLOAD_MAX            256
+#endif
+
+/* Wait before retrying after the host publish function returned < 0 (ms). */
+#ifndef SPLC_MQTT_RETRY_MS
+#define SPLC_MQTT_RETRY_MS               200U
+#endif
+
+/* Lower bound of interval_ms for PERIODIC blocks (ms). */
+#ifndef SPLC_MQTT_MIN_INTERVAL_MS
+#define SPLC_MQTT_MIN_INTERVAL_MS        100U
+#endif
+
+/* 1 = the host client really does TLS; 0 = COMMIT rejects use_tls=1. */
+#ifndef SPLC_MQTT_TLS_SUPPORTED
+#define SPLC_MQTT_TLS_SUPPORTED          0
+#endif
+
+/* ======================================================================
  * Logging
  * ==================================================================== */
 /* 1 = SimplePLC builds and uses its own logger (utils/logger/logger.c) and the
@@ -296,6 +325,21 @@
 #endif
 #if (SPLC_REMOTE_RETRY_MS < 100)
 #error "SPLC_REMOTE_RETRY_MS below 100 ms would flood a dead RS485 link"
+#endif
+#if (SPLC_MQTT_ENABLE != 0) && (SPLC_MQTT_ENABLE != 1)
+#error "SPLC_MQTT_ENABLE must be 0 or 1"
+#endif
+#if (SPLC_MQTT_PAYLOAD_MAX < 128) || (SPLC_MQTT_PAYLOAD_MAX > 512)
+#error "SPLC_MQTT_PAYLOAD_MAX must be 128..512 (compact JSON worst case is 127 characters + NUL)"
+#endif
+#if (SPLC_MQTT_RETRY_MS < 10)
+#error "SPLC_MQTT_RETRY_MS must be at least 10"
+#endif
+#if (SPLC_MQTT_MIN_INTERVAL_MS < 10)
+#error "SPLC_MQTT_MIN_INTERVAL_MS must be at least 10"
+#endif
+#if (SPLC_MQTT_TLS_SUPPORTED != 0) && (SPLC_MQTT_TLS_SUPPORTED != 1)
+#error "SPLC_MQTT_TLS_SUPPORTED must be 0 or 1"
 #endif
 #if (SPLC_LOGGER_BUILTIN != 0) && (SPLC_LOGGER_BUILTIN != 1)
 #error "SPLC_LOGGER_BUILTIN must be 0 or 1"

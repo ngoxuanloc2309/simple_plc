@@ -47,6 +47,13 @@
 /* #define SPLC_REMOTE_OFFLINE_AFTER     3U */      /* failed requests -> node offline */
 /* #define SPLC_REMOTE_RETRY_MS          1000U */   /* retry period of an offline node */
 
+/* --- MQTT Publish ---------------------------------------------------- */
+/* #define SPLC_MQTT_ENABLE              0 */      /* 1 = build plc_mqtt (Gateway); 0 = no change at all */
+/* #define SPLC_MQTT_PAYLOAD_MAX         256 */    /* 128..512 payload buffer (with NUL) */
+/* #define SPLC_MQTT_RETRY_MS            200U */   /* wait before retrying after publish returned < 0 */
+/* #define SPLC_MQTT_MIN_INTERVAL_MS     100U */   /* floor of interval_ms for PERIODIC blocks */
+/* #define SPLC_MQTT_TLS_SUPPORTED       0 */      /* 1 only if the host client really does TLS */
+
 /* --- Logging --------------------------------------------------------- */
 /* #define SPLC_RTC_BUILTIN              1 */      /* 0 = host supplies sx_rtc_*() (no CubeMX RTC needed) */
 /* #define SPLC_ADC_BUILTIN              1 */      /* 0 = host supplies sx_adc_*() (no CubeMX ADC needed) */
