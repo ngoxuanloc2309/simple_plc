@@ -16,6 +16,7 @@ set(SPLC_SERVICES_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_modbus_cfg/plc_modbus_cfg.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rtc/plc_rtc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_fb/plc_fb.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_mqtt/plc_mqtt.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule_flash/plc_rule_flash.c
 )
 
@@ -32,6 +33,7 @@ target_include_directories(splc_services PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_modbus_cfg
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rtc
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_fb
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_mqtt
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule_flash
 )
 
@@ -42,6 +44,14 @@ target_include_directories(splc_services PUBLIC
 # through splc_components.
 target_include_directories(splc_services PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../utils/epoch
+)
+
+# plc_mqtt.c includes splc_mqtt_fmt.h (Layer U, utils/mqtt_fmt/): same story as
+# splc_epoch.h above, only the header path is needed; splc_mqtt_fmt.c is
+# compiled from utils/CMakeLists.txt. The whole file is empty unless
+# SPLC_MQTT_ENABLE is 1.
+target_include_directories(splc_services PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../utils/mqtt_fmt
 )
 
 # splc_core (Layer 2) supplies plc_tag.h, which both plc_io.c and

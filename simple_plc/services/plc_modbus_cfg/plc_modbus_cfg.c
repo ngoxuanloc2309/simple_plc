@@ -10,6 +10,7 @@
 #include "plc_retain.h"     /* retain_snapshot_write(), called from CMD_COMMIT_RETAIN */
 #include "plc_rtc.h"        /* RTC block 0x0810..0x0813, see cb_write_multiple_registers() */
 #include "plc_fb.h"         /* FB block 0x0B00..0x0B7F, see cb_write_multiple_registers() */
+#include "plc_mqtt.h"       /* MQTT blocks 0x0C00..0x0D7F / 0x0E00..0x0E5F (SPLC_MQTT_ENABLE=1 only) */
 #include "sx_time.h"
 #include "splc_log.h"
 
@@ -994,8 +995,27 @@ static void write_commit_command(uint16_t value)
         /* A COMMIT attempt is over, so the FB draft that went with it is
          * dropped: the next Deploy writes its FB config again from scratch. */
         plc_fb_discard_draft();
+#if SPLC_MQTT_ENABLE
+        plc_mqtt_discard_draft();
+#endif
         return;
     }
+
+#if SPLC_MQTT_ENABLE
+    /*
+     * MQTT draft: checked as a whole BEFORE anything is applied, so a bad
+     * block or broker rejects the entire COMMIT (rules, FB and MQTT stay as
+     * they were) -- docs/plc_mqtt_design.md section 5.
+     */
+    if (!plc_mqtt_validate_draft()) {
+        log_warn(TAG, "commit rejected: MQTT draft failed validation");
+        s_config_status     = CONFIG_STATUS_ERROR;
+        s_config_error_code = SPLC_ERROR_INVALID_PARAMETER;
+        plc_fb_discard_draft();
+        plc_mqtt_discard_draft();
+        return;
+    }
+#endif
 
     bool ok = rule_table_commit((const uint8_t *)s_staging_rule_table, s_rule_count_staged);
 
@@ -1005,6 +1025,9 @@ static void write_commit_command(uint16_t value)
         s_config_status     = CONFIG_STATUS_ERROR;
         s_config_error_code = SPLC_ERROR_INVALID_PARAMETER; /* e.g. rule_count_staged > MAX_RULES */
         plc_fb_discard_draft();   /* same reason as the CRC-mismatch path above */
+#if SPLC_MQTT_ENABLE
+        plc_mqtt_discard_draft();
+#endif
         return;
     }
 
@@ -1016,6 +1039,11 @@ static void write_commit_command(uint16_t value)
      * carries rules and FB config together.
      */
     plc_fb_commit_draft();
+#if SPLC_MQTT_ENABLE
+    /* Blocks/broker the Host wrote take their draft; the others keep what runs
+     * (unlike FB). NOTE: not saved to Flash yet -- step E.3. */
+    plc_mqtt_commit_draft();
+#endif
 
     /*
      * Flash save happens HERE, synchronously, as part of this same
@@ -1117,6 +1145,10 @@ static const modbus_block_t s_blocks[] = {
     { 0x0A01, 0x0A02, true,  read_system_command_result,  NULL },
     { 0x0A20, 0x0A24, true,  read_diag_block,             NULL },   /* 0x0A20 writes handled in cb_write_*, not here */
     { 0x0B00, 0x0B7F, true,  plc_fb_read,                 NULL },   /* FC16 writes handled in cb_write_multiple_registers (needs distinct exceptions) */
+#if SPLC_MQTT_ENABLE
+    { 0x0C00, 0x0D7F, true,  plc_mqtt_telemetry_read,     NULL },   /* FC16 writes handled in cb_write_multiple_registers */
+    { 0x0E00, 0x0E5F, true,  plc_mqtt_broker_read,        NULL },   /* 0x0E54..0x0E5F read-only status; FC16 writes handled in cb_write_multiple_registers */
+#endif
 
     { 0x9000, 0x9000, true,  read_config_status,          NULL },
     { 0x9001, 0x9001, true,  read_config_error_code,      NULL },
@@ -1236,6 +1268,27 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
             default:                       return NMBS_EXCEPTION_SERVER_DEVICE_FAILURE;
         }
     }
+
+#if SPLC_MQTT_ENABLE
+    /*
+     * MQTT telemetry blocks and broker config (docs/plc_mqtt_design.md section
+     * 5). Writes go to the draft; content errors are caught at COMMIT, so a
+     * write inside the map always ACKs. Only a request that runs past the end
+     * of its area is rejected (0x02). A request that starts below 0x0C00 /
+     * 0x0E00 and runs into the area starts in an unmapped gap and is rejected
+     * by the generic table path below.
+     */
+    if (address >= PLC_MQTT_TELEMETRY_BASE &&
+        address < PLC_MQTT_TELEMETRY_BASE + PLC_MQTT_TELEMETRY_REGS) {
+        return (plc_mqtt_telemetry_write((uint16_t)(address - PLC_MQTT_TELEMETRY_BASE), quantity, registers)
+                == PLC_MQTT_WRITE_OK) ? NMBS_ERROR_NONE : NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+    }
+    if (address >= PLC_MQTT_BROKER_BASE &&
+        address < PLC_MQTT_BROKER_BASE + PLC_MQTT_BROKER_REGS) {
+        return (plc_mqtt_broker_write((uint16_t)(address - PLC_MQTT_BROKER_BASE), quantity, registers)
+                == PLC_MQTT_WRITE_OK) ? NMBS_ERROR_NONE : NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+    }
+#endif
 
     if (address == SPLC_ADDR_DIAG_BLOCK) {
         if (quantity != 1U) {

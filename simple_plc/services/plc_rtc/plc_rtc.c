@@ -101,3 +101,13 @@ bool plc_rtc_get_local_hhmm(uint16_t *hhmm)
     *hhmm = splc_epoch_to_hhmm(epoch, s_tz_offset_min);
     return true;
 }
+
+bool plc_rtc_get_epoch(uint32_t *epoch)
+{
+    uint32_t now;
+    if (epoch == NULL || !sx_rtc_is_synced() || !sx_rtc_get_epoch(&now)) {
+        return false;
+    }
+    *epoch = now;
+    return true;
+}

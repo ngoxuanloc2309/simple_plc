@@ -86,6 +86,14 @@ plc_rtc_write_result_t plc_rtc_write(uint16_t offset, uint16_t quantity,
  */
 bool plc_rtc_get_local_hhmm(uint16_t *hhmm);
 
+/*
+ * Current UTC epoch seconds (for the MQTT {ts} token). Returns false (and
+ * leaves *epoch untouched) unless the clock is SYNCED and could be read, so
+ * a caller never publishes the RTC's free-running count from 2000-01-01 as
+ * if it were real time. Does not need the timezone offset.
+ */
+bool plc_rtc_get_epoch(uint32_t *epoch);
+
 #ifdef __cplusplus
 }
 #endif
