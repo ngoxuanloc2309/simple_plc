@@ -7,16 +7,24 @@
 > **Quy tắc vàng:** trước khi tin điều gì dưới đây, chạy `git pull && git log --oneline -10`.
 > Code lệch file này thì tin code và sửa file này.
 
-**Nguồn tài liệu** (V2.0 là strict superset của V1.9). Mâu thuẫn về HÀNH VI → Wire Contract
-thắng; về struct/memory map → Structs thắng:
-1. `docs/SimplePLC_App_MCU_Structs_v2.0_Self_Describing_Profile.md`
-2. `docs/SimplePLC_Wire_Contract_V2_Draft.md`
-3. `docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md` — chỉ còn đúng cho LOGIC rule
-   (Trigger→Compare→Dwell→Guard→Action); struct/CRC/Time Window/retain đã bị ghi đè.
+**Nguồn tài liệu** (V2.0 là strict superset của V1.9). `SimplePLC_Wire_Contract_V2_Draft.md` ĐÃ BỊ XOÁ khỏi repo
+(commit `bc777ae`); nội dung hành vi nay nằm trong Structs và Conformance. Mâu thuẫn giữa các tài liệu → tin code
+thật của App (`paa`) và firmware, rồi sửa tài liệu:
+1. `docs/SimplePLC_App_MCU_Structs_v2.0_Self_Describing_Profile.md` — struct/memory map (nguồn chính).
+2. `docs/SimplePLC_App_MCU_Structs_MQTT_IIoT_Profile.md` — khối MQTT (Telemetry `0x0C00`, Broker `0x0E00`);
+   layout đúng = Structs 3.9/3.10 + `docs/firmware/splc_mqtt_wire.h` + golden vector (quyết định 33).
+3. `docs/firmware/MCU_CONFORMANCE_SPECIFICATION_V2_0.md` — checklist tuân thủ (chưa có mục MQTT; mục 11.2 ghi nhầm
+   FC16 là `0x16`, đúng là `0x10`; còn giả định 124 tag cố định của Remote I/O).
+4. `docs/firmware/SPLC_SPEC_MQTT_001_TELEMETRY_ICD.md` — **layout khối Telemetry SAI** so với Header/Structs và code
+   mẫu `memcpy` thẳng vào struct (sai thứ tự byte, không kiểm biên). KHÔNG dùng làm nguồn; chờ sửa (quyết định 33).
+5. `docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md` — chỉ còn đúng cho LOGIC rule (Trigger→Compare→Dwell→Guard→Action);
+   struct/CRC/Time Window/retain đã bị ghi đè.
+Các tài liệu MQTT dẫn link `g:/HoaNV/...` (máy của đội App) — không mở được; file thật nằm trong repo `paa`.
 
 **Repo liên quan**
-- App: `ngoxuanloc2309/paa` (.NET, SimplePLC.Studio). Bug xuyên App+firmware phải đọc CẢ HAI
-  repo (`RuleCompiler.cs`, `RuleTableWriter.cs`, `FunctionBlockGateway.cs`).
+- App: `ngoxuanloc2309/paa` (.NET, SimplePLC.Studio; bản đã đọc: `main` `8056a62`). Bug xuyên App+firmware phải
+  đọc CẢ HAI repo (`RuleCompiler.cs`, `RuleTableWriter.cs`, `FunctionBlockGateway.cs`, `MqttTelemetryCodec.cs`,
+  `MqttBrokerConfigCodec.cs`). Luôn `git pull` App trước khi kết luận "App chưa có X" (bài học 27).
 - Firmware gateway thật (host nhúng SimplePLC): `ngoxuanloc2309/wg_ue` (STM32H563, FreeRTOS +
   lwIP, 3 cổng RS485 USART3/6/10, TinyUSB do `usb_netif_task` sở hữu).
 
@@ -81,9 +89,9 @@ và hiệu số, đừng so từng byte FLASH giữa hai máy. Preset `Release` 
 **Đã chạy trên board gateway (phiên bring-up RS485, người dùng chạy):** App link RS485 qua USART6 (quyết định 30) —
 `python test_plc.py COM35 --period 1000 --baud 115200 --unit 1` → **6/6 phản hồi hợp lệ**, mỗi phản hồi 25 B
 `01 03 14 00 03 00 01 00 01 00 00 00 ...` (thanh ghi đầu `0x0003` = `device_class` GATEWAY). Mới 6 mẫu, chưa soak.
-Chỉ chạy được sau khi **thay IC MAX485 mới** (chi tiết và triệu chứng ở cuối quyết định 30). Sau đó Studio nối được
-tới tầng đọc descriptor nhưng **từ chối thiết bị**: `Incompatible device: Device class 0x0003 is not supported`
-(App chưa có hồ sơ Gateway — xem mục 4.A bước 9).
+Chỉ chạy được sau khi **thay IC MAX485 mới** (chi tiết và triệu chứng ở cuối quyết định 30). Sau đó bản Studio cũ (`254ae0a`) nối được
+tới tầng đọc descriptor nhưng từ chối class 3 (`Device class 0x0003 is not supported`). App `8056a62` đã thêm hồ sơ
+`GatewayRs485EthV2_0` (`SupportedDeviceProfile.cs`) — **chưa kết nối lại để xác nhận** (mục 4.A bước 9).
 
 **Chưa chạy trên board:** đường RS485 của Zigbee-IO (quyết định 29; `test_plc → test_fb --probe-64 → test_retain` qua dongle USB-RS485, `python test_plc.py COMx`, baud 115200, unit 1).
 
@@ -94,6 +102,8 @@ sau các thay đổi đổi-tên/config/OS/Flash/logger; Remote I/O với board 
 nhả chân DE); FreeRTOS kernel thật (độ trễ task lúc erase Flash); PVD thật; mất điện giữa lúc
 ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với bản của `wg_ue` thật
 (mới thử bằng bản sao giả).
+
+**MQTT — mới ở giai đoạn THIẾT KẾ, chưa có dòng code nào:** hướng đã chốt ở quyết định 31–34; việc tiếp theo và các điểm còn mở ở mục 4.E.
 
 ## 1. Cơ chế cần giữ (không sửa lại trừ khi có lý do mới)
 
@@ -148,7 +158,7 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
 
 ## 2. Quyết định đã chốt (người dùng xác nhận — ĐỪNG tự đổi, hỏi lại nếu nghi)
 
-1. `protocol_version = 2` ("Protocol Version: 1" trong Wire Contract là lỗi đánh máy).
+1. `protocol_version = 2` ("Protocol Version: 1" trong Wire Contract cũ — đã xoá — là lỗi đánh máy).
 2. RTC = RTC nội STM32H5, clock **LSI**, không VBAT/LSE; mất điện → chưa đồng bộ, reset mềm giữ
    giờ. Linker `--wrap=HAL_RTC_SetTime/SetDate` để `MX_RTC_Init()` không xoá giờ. `status_flags`
    (`0x0813`) RO do firmware tính; `tz_offset_min` chỉ trong RAM (sau REBOOT về 0, Time Window im
@@ -177,7 +187,7 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
 9. **Không sửa file CubeMX tự sinh, kể cả khối `USER CODE`.** Cần hành vi khác → chặn ở lớp thấp
    (linker `--wrap`, lớp `sx_*`), giữ ở Layer 0 + CMake. Thấy bug thật trong file sinh (vd.
    `STM32H523xx_FLASH.ld` khai `LENGTH=512K` trên chip 256 KB) → báo người dùng, HỎI trước khi sửa.
-10. `0x0A20` đọc trả lệnh cuối đã ghi (khớp GV-005) dù Wire Contract ghi WO. Layout tag board
+10. `0x0A20` đọc trả lệnh cuối đã ghi (khớp GV-005) dù Wire Contract cũ (đã xoá) ghi WO. Layout tag board
     Zigbee-IO là DENSE (DI 0-3, DO 4-7, VFLAG 8-39, VREG 40-71, RETAIN 72-103, COUNTER 104-111),
     khác bảng cố định Structs mục 4 — code validate theo KIND nên đúng cho cả hai; test script
     tính index từ `DeviceResourceInfo`.
@@ -387,6 +397,11 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
     thật.** Còn mở nhỏ: với IC mới, sau mỗi lần phát `hello` vẫn có `rx_bytes +1` kèm `hw_err +1` (nghi glitch lúc DE nhả, liên quan
     bus rảnh yếu R40/R28 ở trên); chưa điều tra, không ảnh hưởng khung Modbus nếu nằm ngoài khung.
 
+31. **Khối MQTT: SimplePLC chỉ làm LOGIC và GIỮ DỮ LIỆU, không có client mạng (người dùng chốt).** Không TCP/TLS/MQTT client trong lib; truyền mạng do user cắm vào qua ống kiểu `netif` (cùng triết lý `modbus_link`, quyết định 13/16): dự kiến `ops.publish(topic, payload, len, qos, retain, ctx)` chạy ở ngữ cảnh engine, KHÔNG chặn, trả `<0` = bận/lỗi (thử lại scan sau). Service lõi `services/plc_mqtt` (Layer 3): thanh ghi `0x0C00/0x0E00`, COV/chu kỳ, dựng topic + payload; bật bằng `SPLC_MQTT_ENABLE` (mặc định 0, Zigbee-IO không bị ảnh hưởng). **Lib GIỮ cấu hình broker** (host, port, client_id, user, pass, TLS, clean session, keepalive, version) vì App gửi `0x0E00` ở mọi lần deploy (`MqttBrokerEnabled` mặc định `true`): struct C thường `splc_mqtt_broker_t`, user đọc qua `splc_mqtt_get_broker(&generation)`; `generation` chỉ tăng khi cấu hình THẬT SỰ đổi (tránh reconnect sau mỗi lần nạp rule). Password đọc lại qua Modbus luôn trả 0 (nhưng nằm nguyên văn trong Flash — ghi rõ khi giao tài liệu). Host cập nhật struct trạng thái (`splc_mqtt_set_status`: CONNECTED/TLS_ACTIVE/AUTH_OK, latency, last_error), lib phản chiếu ra `0x0E54..0x0E5F`; lib chỉ publish khi CONNECTED. Cấu hình web `g_sys_config.mqtt` của `wg_ue`: việc của port (dùng cái nào/ghi đè), lib không can thiệp. **Chưa duyệt thiết kế chi tiết.**
+32. **Lưu/áp dụng cấu hình MQTT (ĐỀ XUẤT, đồng ý hướng chung; chi tiết chờ duyệt).** Đã đọc `RuleTableWriter.cs`: App ghi Timer `0x0B00` → Counter `0x0B40` → Telemetry `0x0C00` (khối thừa bị tắt) → Broker `0x0E00` → rồi staging/commit rule; mỗi khối 96 reg bị cắt thành nhiều frame FC16 nhỏ; không có try/catch riêng cho nhóm ghi MQTT (một exception làm hỏng cả deploy). Vì vậy: ghi vào BẢN NHÁP (kiểm rẻ từng mảnh, địa chỉ ngoài bản đồ → `0x02`), kiểm nội dung cả bộ lúc COMMIT, áp dụng nguyên tử, lưu Flash cùng Rule Table (một CRC; cờ "có MQTT" dự kiến bit 13 của `rule_count`; ước ≈ 3,2 KB rule + 128 B FB + 768 B telemetry + ~170 B broker < sector 8 KB). Khối KHÔNG được ghi trong nháp thì GIỮ cấu hình đang chạy (KHÁC FB, quyết định 8). Vùng `0x0E00..0x0E53` luôn ACK, không trả exception. Nên để App chỉ gửi MQTT khi thiết bị hỗ trợ (thăm dò `0x0E54`) — chưa trao đổi với đội App.
+33. **Layout khối MQTT:** Header `splc_mqtt_wire.h` + Structs 3.9/3.10 + golden vector là đúng (Header có `en_tag_index`, `tag_count`; ICD thì không). `MqttTelemetryCodec.cs` của App khớp Header. ICD `SPLC_SPEC_MQTT_001` sai — chờ đội App sửa.
+34. **MQTT Subscribe (chiều nhận) chưa có wire format.** App có UI/parser Subscribe (`MqttSubscriptionParser`, `MqttSubscriptionConfigDto`) nhưng không có thanh ghi/codec nào trong `Infrastructure`/`Protocol/Constants` nạp nó xuống MCU (grep `paa` `8056a62`) — hiện chỉ chạy phía App. KHÔNG làm firmware Subscribe cho tới khi đội App chốt spec. Hướng dự kiến: ống đối xứng `splc_mqtt_input(topic, payload, len)`.
+
 ## 3. Quy trình làm việc
 
 - Trao đổi **tiếng Việt**, code/comment **tiếng Anh**.
@@ -456,14 +471,10 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
 8. *(cần phần cứng)* Nạp + test: bật `GW_USB_NETIF_ENABLE=1`, WiFi lên IP, mở COM bằng Studio,
    chạy `test_plc.py`; đo độ trễ khi task engine và task USB chạy cùng lúc; kích thước ring phải
    đủ khung dài nhất (256 B RTU) khi engine ngủ một scan 10 ms.
-9. *(cần người dùng chọn)* **Studio (`ngoxuanloc2309/paa`, đọc `main` commit `254ae0a`) từ chối gateway:** `Incompatible device:
-   Device class 0x0003 is not supported`. Firmware đúng thiết kế (descriptor: class 3 = `SPLC_DEVICE_CLASS_GATEWAY`, variant 1 =
-   `RS485_ETH`, protocol 2, rule_format 7; enum `GATEWAY=3`/`VARIANT_RS485_ETH=1` có sẵn ở cả hai phía). Nguyên nhân phía App:
-   `StandardDeviceCompatibilityValidator` chỉ chấp nhận thiết bị khớp `SupportedDeviceProfile.DefaultProfiles`
-   (`src/SimplePLC.Application/Models/SupportedDeviceProfile.cs`), hiện chỉ có Remote I/O class 1 (V1.7 và V2.0). Hai hướng:
-   (a) **đề xuất:** thêm hồ sơ `(DeviceClass=3, DeviceVariant=1, ProtocolVersion=2, RuleFormatVersion=7)` vào App + test; còn phải kiểm
-   `DeviceResourceInfo`/tag catalog của gateway (tag I/O ảo từ `GATEWAY_IO_NODES`) có chạy qua các bước sau cổng này không (chưa
-   kiểm); (b) tạm cho gateway báo class 1 — chỉ là thủ thuật, làm sai nghĩa descriptor, KHÔNG chọn nếu chưa hỏi người dùng. Chưa chọn.
+9. *(chờ xác nhận)* **Studio nhận gateway:** `paa` `8056a62` đã có hồ sơ `GatewayRs485EthV2_0` (class 3, variant 1,
+   protocol 2, rule_format 7) — CHƯA kết nối lại gateway bằng bản mới. Việc: kết nối lại; kiểm danh mục tag gateway
+   (112 tag, layout dense: DI 0-3, DO 4-7, VFLAG 8-39, VREG 40-71, RETAIN 72-103, COUNTER 104-111); kiểm trần
+   DI/DO/AI khi dựng profile (trước đây 8/8/4 cho mọi class — gateway nhiều board IO có thể vượt).
 
 **A'. Rủi ro của port đã thấy khi đối chiếu `wg_ue` (chưa đo):**
 - Task `SPLC` priority 6 trùng `UART_LOG` (6), thấp hơn MODBUS/BROKER/SHELL (11) và NETWORK (12) → khi
@@ -484,10 +495,9 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
 **B. Remote I/O còn mở:** chưa phát hiện trùng `unit_id` giữa hai hàng bảng trên cùng bus; chưa có
 tag báo "node offline" cho App.
 
-**C. App + spec (không gấp):** `RuleCompiler.cs` (~dòng 260) chỉ gửi `retainTagIndex` khi CV là
-VREG_RETAIN (giá trị dự phòng 84 sai trên board này, RETAIN bắt đầu ở tag 72); đọc `0x0B00..0x0B7F`
-một FC03 128 reg bị từ chối (tối đa 125) → App tách 64+64; sửa Structs 3.6/3.7 và Wire Contract
-9.3 (quyền R/W, `+6`, `rule_ref`); App sinh rule "đúng giờ" `EQ, Lo=Hi`.
+**C. App + spec (không gấp):** (đã đọc code `paa` `8056a62`, chưa chạy) `RuleCompiler.cs` dùng CV tag đã resolve làm
+`retainTagIndex` (hết giá trị dự phòng 84); `FunctionBlockGateway` chia 64+64 khi đọc `0x0B00..0x0B7F`. Còn lại: App sinh rule
+"đúng giờ" `EQ, Lo=Hi` (chưa kiểm); Structs mục 4 (bảng 124 tag cố định) chỉ đúng cho Remote I/O V1.
 
 **D. Firmware khác:** (`components/usb_cdc/` và `port/modbus_usb/` ĐÃ xoá trong vài commit gần nhất;
 đã kiểm bằng `ls`) validate `guard/trigger/action_tag` ∈ `0..MAX_TAGS-1` khi nạp rule (hiện index
@@ -498,6 +508,13 @@ implement; không có log trước `logger_init` (đọc Flash trong `plc_engine
 (chip 256 KB — HỎI người dùng trước khi sửa, quyết định 9); comment cũ nhắc `modbus_usb`/
 `sx_usb_cdc`/`FREE_RTOS` còn ở `plc_modbus_cfg.h`, `services/CMakeLists.txt`, `app/CMakeLists.txt`,
 `modbus_transport.h`, `splc_board.h`.
+
+**E. MQTT (theo thứ tự):**
+1. Viết thiết kế chi tiết `plc_mqtt` (phần Publish): API ống publish, struct trạng thái, bản đồ nháp/COMMIT, thuật toán COV/chu kỳ, dựng payload, ước lượng RAM/Flash → người dùng duyệt → mới code. Mỗi bước: build ARM Zigbee-IO (với `SPLC_MQTT_ENABLE=0` phải ra ĐÚNG số đo chuẩn) và Gateway.
+2. *(người dùng)* Kết nối lại gateway bằng App mới (bước 4.A.9). Hỏi đội App: (a) Subscribe nạp xuống MCU bằng khối thanh ghi nào; (b) thăm dò hỗ trợ MQTT (đọc `0x0E54`) và chỉ gửi MQTT khi hỗ trợ; (c) sửa ICD cho khớp Header/Structs.
+3. Điểm kỹ thuật chưa chốt: `{ts}` khi chưa có giờ (gateway dùng stub RTC, quyết định 23); tag là `int32` nên `{val}` ra số nguyên, deadband float so với `int32` chưa có scale; RAM khối MQTT ước ≈ 2,5–3 KB tĩnh trong khi host chỉ dư 2 992 B (quyết định 26) → có thể phải hạ heap thêm (ước lượng, chưa đo).
+4. Host `wg_ue` đã có `apps/mqtt_client` + `data_broker` (chưa đọc lại phiên này): cần quyết định bật cái nào và QoS/retain theo từng khối.
+5. Ghi nhớ: `0x0C00..0x0C06` trên slave board IO (Remote I/O, architecture mục 5.1) trùng SỐ với Telemetry Block 0 của gateway — khác thiết bị/bus nên không xung đột thật, nhưng dễ nhầm.
 
 ## 5. Bài học (luật rút ra — đừng lặp lại)
 
@@ -561,6 +578,9 @@ implement; không có log trước `logger_init` (đọc Flash trong `plc_engine
     mô phỏng "đảo cực" khớp từng byte, rồi bias, rồi break dài; cuối cùng chỉ thay IC MAX485 là hết. Mô phỏng khớp ≠ nguyên nhân gốc.
     Khi nghi phần cứng: đổi linh kiện/dongle/dây, đo A−B và chân RO bằng đồng hồ/scope trước khi đưa kết luận. Log `RS485_DIAG` chỉ in
     16 byte đầu của khung cuối, đừng suy ra nội dung các khung trước; số cạnh lấy mẫu 1 ms vô nghĩa ở 115200 baud.
+
+27. **Pull repo liên quan trước khi kết luận "App chưa có X".** Đã có lần kết luận App chưa có MQTT trên commit cũ (`254ae0a`); sau khi pull, `cdc0738`..`8056a62` đã có đủ codec, UI, Subscribe. Pull rồi grep mọi loại file và nêu rõ commit đã đọc.
+28. **Tài liệu spec có thể tự mâu thuẫn — chọn bản đúng bằng code codec thật.** ICD MQTT xếp khác Header/Structs; chỉ code codec của App cho biết bản nào đang chạy. Không lấy code mẫu trong tài liệu làm nguồn.
 
 ## 6. Verify & test
 

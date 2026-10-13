@@ -3,8 +3,9 @@
 > Tài liệu tham chiếu kiến trúc, **đồng bộ với code nhánh `board_dev_gw` và
 > Wire Profile V2.0**. Trạng thái/việc đang làm: `docs/handoff.md`. Nguồn sự thật cho
 > wire format: `SimplePLC_App_MCU_Structs_v2.0_Self_Describing_Profile.md` (struct, memory
-> map) và `SimplePLC_Wire_Contract_V2_Draft.md` (hành vi). Khi file này mâu thuẫn với
-> chúng, chúng thắng. `SimplePLC_RuleStruct_MCU_Spec_v0.1.md` chỉ còn đúng cho logic
+> map) và `firmware/MCU_CONFORMANCE_SPECIFICATION_V2_0.md` (hành vi; Wire Contract cũ đã bị
+> xoá). Khi file này mâu thuẫn với chúng, chúng thắng (trừ chỗ chúng mâu thuẫn code thật — xem
+> `handoff.md`). `SimplePLC_RuleStruct_MCU_Spec_v0.1.md` chỉ còn đúng cho logic
 > Rule Engine (5 bước Trigger→Compare→Dwell→Guard→Action).
 
 ## 0. Bối cảnh
