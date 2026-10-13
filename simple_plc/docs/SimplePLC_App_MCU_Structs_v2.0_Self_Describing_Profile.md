@@ -7,8 +7,9 @@
 **Wire Profile:** `2` (Diagnostic Control & Dedicated IEC 61131-3 FB Subsystem)  
 **Target Audience:** Senior Embedded Firmware Engineers (STM32, ESP32, RP2040, GD32) & System Integrators  
 **Associated Deliverables:**
-* Authoritative C/C++ Header: [`src/SimplePLC.Protocol/Firmware/simpleplc_protocol_v2_0.h`](file:///g:/HoaNV/Projects/SimplePLC/src/SimplePLC.Protocol/Firmware/simpleplc_protocol_v2_0.h)
+* Authoritative C/C++ Header: [`src/SimplePLC.Protocol/Firmware/simpleplc_protocol_v2_0.h`](file:///g:/HoaNV/Projects/SimplePLC/src/SimplePLC.Protocol/Firmware/simpleplc_protocol_v2_0.h) & [`docs/firmware/splc_mqtt_wire.h`](file:///g:/HoaNV/Projects/SimplePLC/docs/firmware/splc_mqtt_wire.h)
 * Conformance Specification: [`docs/firmware/MCU_CONFORMANCE_SPECIFICATION_V2_0.md`](file:///g:/HoaNV/Projects/SimplePLC/docs/firmware/MCU_CONFORMANCE_SPECIFICATION_V2_0.md)
+* MQTT IIoT Platform Specification: [`docs/platform/SimplePLC_App_MCU_Structs_MQTT_IIoT_Profile.md`](file:///g:/HoaNV/Projects/SimplePLC/docs/platform/SimplePLC_App_MCU_Structs_MQTT_IIoT_Profile.md)
 * Golden Test Vectors: [`tests/SimplePLC.Protocol.Tests/GoldenVectors/golden_vectors_v2_0.json`](file:///g:/HoaNV/Projects/SimplePLC/tests/SimplePLC.Protocol.Tests/GoldenVectors/golden_vectors_v2_0.json)
 
 ---
@@ -37,6 +38,9 @@ Tài liệu này xác lập đặc tả cấu trúc dữ liệu nhị phân cấ
 |   ├───────────────────────────────┤     ├─────────────────────────────────────┤   |
 |   │ Real-Time Clock RTC (0x0810)  │     │ Atomic Staging & Commit (0x9000)    │   |
 |   │ Epoch UTC + Timezone Offset   │     │ Double-Buffer RAM & Flash Retain    │   |
+|   ├───────────────────────────────┤     ├─────────────────────────────────────┤   |
+|   │ MQTT Broker Config (0x0E00)   │     │ MQTT Telemetry Blocks (0x0C00)      │   |
+|   │ Host, Port, TLS, Credentials  │     │ 4x Blocks, COV Deadband, JSON Mẫu   │   |
 |   └───────────────────────────────┘     └─────────────────────────────────────┘   |
 +-----------------------------------------------------------------------------------+
 ```
@@ -75,6 +79,8 @@ Tài liệu này xác lập đặc tả cấu trúc dữ liệu nhị phân cấ
 | `0x0A20..0x0A24` | **Diagnostic Control Block**| R/W | FC03/FC06/FC16| 5 regs (10 B) | Phân hệ chẩn đoán: `Command` (0x0A20), `State` (0x0A21), `Flags` (0x0A22), `LeaseMs` (0x0A23), `ErrorCode` (0x0A24). |
 | `0x0B00..0x0B3F` | **FB Timers (TON/TOF/TP)**| R/W | FC03/FC16 | 64 regs (128 B) | 8 Timers IEC 61131-3, mỗi khối 8 thanh ghi. Ghi cấu hình (Mode, PT) qua FC16; đọc viễn trắc (Status, ET) qua FC03. |
 | `0x0B40..0x0B7F` | **FB Counters (CTU/CTD)** | R/W | FC03/FC16 | 64 regs (128 B) | 8 Counters IEC 61131-3, mỗi khối 8 thanh ghi. Ghi cấu hình (Mode, PV, RetainTag) qua FC16; đọc viễn trắc (Status, CV) qua FC03. |
+| `0x0C00..0x0D7F` | **MQTT Telemetry Blocks**  | R/W | FC03/FC16 | 384 regs (768 B) | Cấu hình 4 khối xuất bản dữ liệu viễn trắc MQTT IIoT (SPLC-SPEC-MQTT-001). Mỗi khối 96 thanh ghi (192 bytes) gồm: Flags/Topic/Timing (32 regs) và Payload Template JSON (64 regs). |
+| `0x0E00..0x0E5F` | **MQTT Broker Configuration**| R/W | FC03/FC16 | 96 regs (192 B) | Cấu hình kết nối mạng máy chủ MQTT Broker cấp hệ thống: Host/IP (64B), Port, TLS/SSL, Client ID, Username, Password, KeepAlive và 12 regs phản hồi trạng thái Live. |
 | `0x9000..0x9005` | **Staging Handshake** | R/W | FC03/FC16 | 6 regs (12 B) | Trạng thái bắt tay nạp Rule: Status, ErrorCode, StagedCount, ExpectedCRC, ActiveCount, ActiveCRC. |
 | `0x9010..0x964F` | **Staging Rule Buffer** | W | FC16 | Max 1600 regs | RAM đệm nạp Rule mới (nạp theo từng block tối đa 120 thanh ghi). |
 | `0xA000` | **Commit Command** | W | FC06/FC16 | 1 reg (2 B) | Ghi `0xA5A5` (`SPLC_COMMIT_MAGIC`) để MCU kiểm tra CRC và hoán đổi con trỏ bảng Rule. |
@@ -185,13 +191,20 @@ Bảng viễn trắc 8 khối Timer chuẩn IEC 61131-3 (TON, TOF, TP). Địa c
 
 ```c
 typedef struct SPLC_PACKED {
-    uint16_t status_bits;         /* 0x00: Bit 0: IN, Bit 1: Q, Bit 2: RESET, Bit 3: RUNNING */
+    uint16_t status_bits;         /* 0x00: Bit 0: IN, Bit 1: Q, Bit 2: RESET, Bit 3: RUNNING (Read-Only) */
     uint16_t mode;                /* 0x02: SPLC_TimerMode_t (1=TON, 2=TOF, 3=TP) */
     uint32_t pt_ms;               /* 0x04: Preset Time tính bằng ms (High Word trước) */
-    uint32_t et_ms;               /* 0x08: Elapsed Time tính bằng ms (High Word trước) */
-    uint16_t reserved[2];         /* 0x0C: Dự phòng, luôn ghi 0x0000 */
+    uint32_t et_ms;               /* 0x08: Elapsed Time tính bằng ms (High Word trước, Read-Only) */
+    uint16_t rule_ref;            /* 0x0C: 1-based index của rule đếm giờ (1..100, 0=unlinked/không dùng, R/W) */
+    uint16_t reserved;            /* 0x0E: Dự phòng, luôn ghi 0x0000 */
 } SPLC_FbTimerRecord_t;
 ```
+* **Ý nghĩa trường `rule_ref` (Offset +6 / 0x0C)**:
+  * Được App tính toán sau khi đã chốt thứ tự cuối cùng của bảng Rule: `rule_ref = (vị trí rule đếm giờ trong bảng rule gửi xuống, tính từ 0) + 1` (1-based index: 1..100).
+  * Timer không dùng hoặc không có rule đếm giờ: ghi `0`.
+  * Dải hợp lệ: `0..100` (ngoài dải firmware trả exception `0x03`).
+  * Firmware dùng `rule_ref` để tra cứu bộ đếm thời gian thực của Rule Engine và phản hồi `ET`, `RUNNING`, `Q`, `IN` về thanh ghi `0x0B00 + (8 * i)`.
+
 
 ### 3.7. `SPLC_FbCounterRecord_t` (0x0B40..0x0B7F, 8 Counters × 8 regs = 16 Bytes)
 Bảng viễn trắc 8 khối Counter chuẩn IEC 61131-3 (CTU, CTD). Địa chỉ Counter `i`: `0x0B40 + (i * 8)`.
@@ -225,6 +238,51 @@ typedef struct SPLC_PACKED {
     uint8_t  action_type;         /* [12L]    SPLC_ActionType_t */
     uint8_t  reserved[6];         /* [13..15] Luôn ghi 0x00; receiver bỏ qua */
 } SPLC_RuleRecord_t;
+```
+
+### 3.9. `SPLC_MqttTelemetryBlock_t` (0x0C00..0x0D7F, 4 blocks × 96 regs = 192 Bytes/block)
+Cấu trúc khối xuất bản dữ liệu viễn trắc MQTT IIoT qua mạng công nghiệp (SPLC-SPEC-MQTT-001). Địa chỉ Block $i$: `0x0C00 + (i * 96)`.
+
+```c
+typedef struct SPLC_PACKED {
+    /* --- HEADER (32 thanh ghi = 64 Bytes) --- */
+    uint16_t control_flags;        /* 0x00: Bit 0: Enable, Bit 1..2: Mode (0=Event, 1=COV, 2=Periodic), Bit 3..4: QoS, Bit 5: Retain, Bit 6..7: Payload */
+    uint16_t en_tag_index;         /* 0x02: Tag cho phép kích hoạt (0xFFFF nếu luôn cho phép) */
+    uint32_t interval_ms;          /* 0x04: Chu kỳ xuất bản định kỳ (ms, High Word trước) */
+    float    deadband;             /* 0x08: Ngưỡng biến thiên COV (Float32 IEEE 754, High Word trước) */
+    uint16_t tag_count;            /* 0x0C: Số lượng Tag liên kết (1..8) */
+    uint16_t bound_tags[8];        /* 0x0E: Mảng 8 TagIndex liên kết (0xFFFF nếu slot trống) */
+    uint16_t reserved_header;      /* 0x1E: Dự phòng (0x0000) */
+    char     topic[32];            /* 0x20: Topic MQTT (32 ký tự ASCII, 2 bytes/reg Big-Endian null-padded) */
+
+    /* --- PAYLOAD TEMPLATE (64 thanh ghi = 128 Bytes) --- */
+    char     payload_template[128];/* 0x40: Bản mẫu JSON tùy chỉnh (128 ký tự ASCII null-padded) */
+} SPLC_MqttTelemetryBlock_t;
+```
+*Chi tiết cơ chế COV Deadband, Token Replacement (`{val}`, `{tag}`, `{ts}`, `{device}`) xem tại [`docs/platform/SimplePLC_App_MCU_Structs_MQTT_IIoT_Profile.md`](file:///g:/HoaNV/Projects/SimplePLC/docs/platform/SimplePLC_App_MCU_Structs_MQTT_IIoT_Profile.md).*
+
+### 3.10. `SPLC_MqttBrokerConfig_t` (0x0E00..0x0E5F, 96 thanh ghi = 192 Bytes)
+Cấu trúc cấu hình máy chủ MQTT Broker cấp hệ thống và phản hồi trạng thái viễn trắc trực tiếp từ MCU:
+
+```c
+typedef struct SPLC_PACKED {
+    uint16_t broker_control;       /* 0x00: Bit 0: Enable, Bit 1: TLS (8883), Bit 2: CleanSession, Bit 3..4: Protocol (0=v3.1.1, 1=v5.0) */
+    uint16_t broker_port;          /* 0x02: Port TCP (1883 hoặc 8883) */
+    uint16_t keepalive_sec;        /* 0x04: Chu kỳ Ping PINGREQ (mặc định 60s) */
+    uint16_t reserved_0;           /* 0x06: Dự phòng (0x0000) */
+    char     broker_host[64];      /* 0x08: Host IP/Domain (64 ký tự ASCII null-padded) */
+    char     client_id[32];        /* 0x48: Client ID gửi trong CONNECT (32 ký tự ASCII) */
+    char     username[32];         /* 0x68: Tên đăng nhập xác thực (32 ký tự ASCII) */
+    char     password[32];         /* 0x88: Mật khẩu xác thực (32 ký tự ASCII) */
+
+    /* --- LIVE FEEDBACK (MCU cập nhật trực tiếp tại 0x0E54..0x0E5F, Read-Only) --- */
+    uint16_t status_flags;         /* 0xA8 (0x0E54): Bit 0: Connected, Bit 1: TLS Active, Bit 2: Auth OK */
+    uint16_t connection_latency;   /* 0xAA (0x0E55): Round-trip Ping latency (ms) */
+    uint32_t tx_message_count;     /* 0xAC (0x0E56): Tổng số gói tin đã xuất bản (High Word trước) */
+    uint32_t tx_byte_count;        /* 0xB0 (0x0E58): Tổng dung lượng byte đã truyền (High Word trước) */
+    uint16_t last_error_code;      /* 0xB4 (0x0E5A): 0=OK, 1=DNS, 2=TCP Reset, 3=Auth Fail, 4=Timeout */
+    uint16_t reserved_status[5];   /* 0xB6 (0x0E5B): Dự phòng */
+} SPLC_MqttBrokerConfig_t;
 ```
 
 ---
@@ -270,9 +328,10 @@ Host (Studio)                                    MCU Firmware
      │  - Mở khóa phân hệ Function Block (0x0B00)     │
      │                                                │
      ├─ 3a. FC03 Đọc 0x0810..0x0813 (4 regs) ────────>│ Đọc trạng thái RTC (Giờ hiện tại, HW_PRESENT, BATTERY_LOW, SYNCED)
-     │                                                │ Studio phân tích độ lệch giờ và cờ pin
+     │                                                │ Studio chỉ Read-Only để hiển thị giờ thực tế lên thanh trạng thái.
+     │                                                │ (Tuyệt đối KHÔNG tự ý ghi đè giờ PC xuống MCU khi vừa kết nối).
      │                                                │
-     ├─ 3b. [Có điều kiện] FC16 Ghi 0x0810..0x0813 ──>│ Đồng bộ giờ PC nếu lệch > 2s hoặc !IsSynced:
+     ├─ 3b. [Kỹ sư kích hoạt] FC16 Ghi 0x0810..0x0813>│ Chỉ ghi khi Kỹ sư mở hộp thoại Sync RTC & chọn Múi giờ:
      │     [EpochUtcSeconds, TzOffset, StatusFlags]   │ Studio BẢO TOÀN cờ HW_PRESENT & BATTERY_LOW, bật SYNCED=1
      │                                                │
      └─ 4. Bắt đầu chu kỳ quét viễn trắc (100ms) ────>│ MCU phản hồi Health (0x0800) & Tags (0x0900)
