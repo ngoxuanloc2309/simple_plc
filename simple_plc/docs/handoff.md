@@ -78,7 +78,14 @@ và hiệu số, đừng so từng byte FLASH giữa hai máy. Preset `Release` 
 (`PLC_RULE_FLASH` bảng rule rỗng, `BOARD_GATEWAY: RS485 master ready (115200 baud)`); `PLC_IO_REMOTE` báo node 0
 (unit 1) offline vì chưa có firmware slave. CDC chưa kiểm được vì USB tắt. Sau đó bật USB netif: TinyUSB init OK, `USB netif ready`, nhưng PC báo Unknown USB Device (quyết định 28).
 
-**Chưa chạy trên board:** App link RS485 của Gateway (quyết định 30; `python test_plc.py COMx` qua dongle ở cổng `SPLC_HOST_APP_RS485_PORT`, 115200 8N1, unit 1); đường RS485 của Zigbee-IO (quyết định 29; `test_plc → test_fb --probe-64 → test_retain` qua dongle USB-RS485, `python test_plc.py COMx`, baud 115200, unit 1).
+**Đã chạy trên board gateway (phiên bring-up RS485, người dùng chạy):** App link RS485 qua USART6 (quyết định 30) —
+`python test_plc.py COM35 --period 1000 --baud 115200 --unit 1` → **6/6 phản hồi hợp lệ**, mỗi phản hồi 25 B
+`01 03 14 00 03 00 01 00 01 00 00 00 ...` (thanh ghi đầu `0x0003` = `device_class` GATEWAY). Mới 6 mẫu, chưa soak.
+Chỉ chạy được sau khi **thay IC MAX485 mới** (chi tiết và triệu chứng ở cuối quyết định 30). Sau đó Studio nối được
+tới tầng đọc descriptor nhưng **từ chối thiết bị**: `Incompatible device: Device class 0x0003 is not supported`
+(App chưa có hồ sơ Gateway — xem mục 4.A bước 9).
+
+**Chưa chạy trên board:** đường RS485 của Zigbee-IO (quyết định 29; `test_plc → test_fb --probe-64 → test_retain` qua dongle USB-RS485, `python test_plc.py COMx`, baud 115200, unit 1).
 
 **Chưa làm:** bản đồ Flash host (bước 5), firmware slave cho board IO. Khoá Flash chung với OTA: hoãn (quyết định 27). Chi tiết ở mục 4.
 
@@ -360,6 +367,25 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
     khung đầu tiên sau lúc rảnh bị hỏng; (b) R17 10K kéo `RE/DE` lên 3V3 ⇒ lúc reset / trước khi `MX_GPIO_Init` chạy, MAX485 đang ở
     chế độ PHÁT và giữ bus ở mức mark. Về nhãn: đầu ra `RS4853_P` đi qua cuộn chặn tới chân B (7) của MAX485 và `RS4853_N` tới chân
     A (6), tức tên ngoài đảo so với tên trong `RS48511_P/N`; nhãn A/B của dongle tuỳ hãng, nếu không có phản hồi thì đảo hai dây.
+    **Bring-up trên board (phiên này; dongle USB-RS485 ở COM35, cổng USART6, 115200 8N1).** Kết quả cuối: xem mục 0 (6/6 OK).
+    Triệu chứng lần lượt, theo log người dùng (nguyên nhân nêu ở dưới là SUY LUẬN, chưa đo bằng scope):
+    (1) dây như ban đầu: khung `01 03 00 00 00 0A C5 CD` vào MCU thành `7F 7E FF FF EB 75 19` (2 byte cuối lỗi framing),
+    `<CR><LF>` thành `79 3D`; `hello` từ gateway ra PC thành rác. Mô phỏng UART 8N1 với đường bị đảo mức khớp từng byte phần
+    nhận của MCU. (2) đảo A/B: `hello` gateway → PC ra ĐÚNG, nhưng PC → gateway gần như không vào: chân RX (PC7) bị kéo
+    thấp từng ~1 s, mỗi lần chỉ ra 1 byte `00` lỗi framing (break), khung Modbus mất hết; bơm `UUUU` từ Hercules thì ra hàng trăm
+    byte lỗi framing. (3) **thay IC MAX485 mới → hết**: khung vào đúng `Rx[8]=01 03 00 00 00 0A C5 CD`, bộ ghi sóng ra các
+    đoạn mức là bội của ~8,7 µs, rồi `test_plc` 6/6. Quy kết IC cũ lỗi vì thay xong hết triệu chứng; mô phỏng "đảo cực" khớp
+    byte nhưng KHÔNG chứng minh được nguyên nhân (bài học 26). **Hướng đấu A/B của dongle sau khi thay IC: CHƯA ghi nhận**
+    (người dùng chưa xác nhận dây đang đảo hay nguyên bản) — ghi lại khi biết.
+    **Công cụ diag** (`wg_ue/ports/splc_port/gw_rs485_diag.c`, người dùng đã chép đè và chạy; mình chỉ kiểm cú pháp bằng header
+    giả, chưa build ARM): `gw_rs485_diag_poll()` log dòng `RS485_DIAG` (số đếm + 16 byte đầu của khung cuối); ở chế độ drain
+    (`GW_RS485_DIAG_DRAIN`) nó nuốt hết byte nên SimplePLC KHÔNG nhận được gì → phải tắt khi test thật. Phiên này thêm:
+    `GW_RS485_DIAG_TX_TEST` (gửi `hello\r\n` mỗi `GW_RS485_DIAG_TX_PERIOD_MS`=2000 qua `rs485_send`, log kết quả), đọc mức chân
+    RX `PC7` (`GW_RS485_DIAG_RXPIN_PORT/PIN`; số `edges` lấy mẫu ~1 ms nên VÔ NGHĨA với 115200 baud, chỉ xem `lo/hi`), và
+    `GW_RS485_DIAG_CAPTURE` (bộ ghi sóng phần mềm: chờ tối đa 1,5 s cạnh xuống đầu tiên trên PC7, tắt ngắt 2 ms, in độ dài các
+    đoạn mức theo µs bằng DWT; **CHẶN task SPLC** trong lúc chờ). **Cả hai cờ mặc định = 1 → đặt 0 (hoặc gỡ) trước khi commit/chạy
+    thật.** Còn mở nhỏ: với IC mới, sau mỗi lần phát `hello` vẫn có `rx_bytes +1` kèm `hw_err +1` (nghi glitch lúc DE nhả, liên quan
+    bus rảnh yếu R40/R28 ở trên); chưa điều tra, không ảnh hưởng khung Modbus nếu nằm ngoài khung.
 
 ## 3. Quy trình làm việc
 
@@ -430,6 +456,14 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
 8. *(cần phần cứng)* Nạp + test: bật `GW_USB_NETIF_ENABLE=1`, WiFi lên IP, mở COM bằng Studio,
    chạy `test_plc.py`; đo độ trễ khi task engine và task USB chạy cùng lúc; kích thước ring phải
    đủ khung dài nhất (256 B RTU) khi engine ngủ một scan 10 ms.
+9. *(cần người dùng chọn)* **Studio (`ngoxuanloc2309/paa`, đọc `main` commit `254ae0a`) từ chối gateway:** `Incompatible device:
+   Device class 0x0003 is not supported`. Firmware đúng thiết kế (descriptor: class 3 = `SPLC_DEVICE_CLASS_GATEWAY`, variant 1 =
+   `RS485_ETH`, protocol 2, rule_format 7; enum `GATEWAY=3`/`VARIANT_RS485_ETH=1` có sẵn ở cả hai phía). Nguyên nhân phía App:
+   `StandardDeviceCompatibilityValidator` chỉ chấp nhận thiết bị khớp `SupportedDeviceProfile.DefaultProfiles`
+   (`src/SimplePLC.Application/Models/SupportedDeviceProfile.cs`), hiện chỉ có Remote I/O class 1 (V1.7 và V2.0). Hai hướng:
+   (a) **đề xuất:** thêm hồ sơ `(DeviceClass=3, DeviceVariant=1, ProtocolVersion=2, RuleFormatVersion=7)` vào App + test; còn phải kiểm
+   `DeviceResourceInfo`/tag catalog của gateway (tag I/O ảo từ `GATEWAY_IO_NODES`) có chạy qua các bước sau cổng này không (chưa
+   kiểm); (b) tạm cho gateway báo class 1 — chỉ là thủ thuật, làm sai nghĩa descriptor, KHÔNG chọn nếu chưa hỏi người dùng. Chưa chọn.
 
 **A'. Rủi ro của port đã thấy khi đối chiếu `wg_ue` (chưa đo):**
 - Task `SPLC` priority 6 trùng `UART_LOG` (6), thấp hơn MODBUS/BROKER/SHELL (11) và NETWORK (12) → khi
@@ -523,6 +557,10 @@ implement; không có log trước `logger_init` (đọc Flash trong `plc_engine
     `build\` → phải xoá `build\` (`build_gw.bat rebuild`). `apps\CMakeLists.txt` và `apps\main\CMakeLists.txt`
     dễ nhầm: chỉ file thứ hai định nghĩa `apps_main`. Trong khối `( )` của batch, `%ERRORLEVEL%` bị thay
     ngay lúc đọc khối — dùng `if errorlevel`/`exit /b 1`.
+26. **Triệu chứng bus lạ → loại trừ linh kiện trước khi dựng giả thuyết.** Bring-up RS485 gateway (quyết định 30) mất nhiều vòng:
+    mô phỏng "đảo cực" khớp từng byte, rồi bias, rồi break dài; cuối cùng chỉ thay IC MAX485 là hết. Mô phỏng khớp ≠ nguyên nhân gốc.
+    Khi nghi phần cứng: đổi linh kiện/dongle/dây, đo A−B và chân RO bằng đồng hồ/scope trước khi đưa kết luận. Log `RS485_DIAG` chỉ in
+    16 byte đầu của khung cuối, đừng suy ra nội dung các khung trước; số cạnh lấy mẫu 1 ms vô nghĩa ở 115200 baud.
 
 ## 6. Verify & test
 
