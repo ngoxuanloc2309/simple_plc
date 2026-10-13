@@ -78,7 +78,7 @@ và hiệu số, đừng so từng byte FLASH giữa hai máy. Preset `Release` 
 (`PLC_RULE_FLASH` bảng rule rỗng, `BOARD_GATEWAY: RS485 master ready (115200 baud)`); `PLC_IO_REMOTE` báo node 0
 (unit 1) offline vì chưa có firmware slave. CDC chưa kiểm được vì USB tắt. Sau đó bật USB netif: TinyUSB init OK, `USB netif ready`, nhưng PC báo Unknown USB Device (quyết định 28).
 
-**Chưa chạy trên board:** đường RS485 của Zigbee-IO (quyết định 29; `test_plc → test_fb --probe-64 → test_retain` qua dongle USB-RS485, `python test_plc.py COMx`, baud 115200, unit 1).
+**Chưa chạy trên board:** App link RS485 của Gateway (quyết định 30; `python test_plc.py COMx` qua dongle ở cổng `SPLC_HOST_APP_RS485_PORT`, 115200 8N1, unit 1); đường RS485 của Zigbee-IO (quyết định 29; `test_plc → test_fb --probe-64 → test_retain` qua dongle USB-RS485, `python test_plc.py COMx`, baud 115200, unit 1).
 
 **Chưa làm:** bản đồ Flash host (bước 5), firmware slave cho board IO. Khoá Flash chung với OTA: hoãn (quyết định 27). Chi tiết ở mục 4.
 
@@ -330,6 +330,36 @@ ghi Flash; `test_rtc.py --reboot`; nanoMODBUS riêng cùng tồn tại với b�
     Build ARM: Zigbee-IO RS485 FLASH 70 860 B / RAM 77 048 B; Zigbee-IO USB FLASH 80 248 B / RAM 77 664 B
     (+48 B so với số chuẩn 80 200 B, do khoá ngắt); Gateway chuẩn 55 356 / 72 624 giống từng byte.
     **Chưa chạy trên board.**
+
+30. **Gateway nói chuyện với App qua RS485 (người dùng yêu cầu, phiên này) — làm ở glue của HOST, SimplePLC KHÔNG đổi.**
+    Gateway không sở hữu ngoại vi (quyết định 12/18/19), nên App link RS485 là hai hàm trong `wg_ue/ports/splc_port/`
+    (bản chuẩn; `port_gw/` ở repo này là bản nháp cũ, không còn đồng bộ): `app_output()` = `rs485_send()` (driver host tự
+    điều khiển DE, đợi TC), `app_process()` = `rs485_recv_polling(...,0)` rồi `splc_link_input()`. Cổng RS485 THỨ HAI, khác
+    cổng bus board IO: option `SPLC_HOST_APP_RS485_PORT` (0/1/2 = USART3/6/10; âm = USB CDC, mặc định) + `_BAUD/_PARITY`
+    trong `splcopts.h`; nhận cổng với owner `RS485_OWNER_MODBUS_GATEWAY` (owner tính theo cổng, nên dùng chung id với cổng
+    IO được), giữ cấu hình bằng `splc_check_port()` đã khái quát hoá theo từng cổng (mỗi 1 s, như cổng IO). `#error` khi: cổng
+    App trùng cổng IO, hoặc `GW_USB_CDC_ENABLE=ON` cùng RS485 (phải build `-DGW_USB_CDC_ENABLE=OFF`; `build_gw.bat` hiện
+    đặt ON nên cần tắt). Không thêm UART/ngắt/CubeMX nào: ngắt RX, stream buffer, DE, lỗi UART đều của `rs485_driver`; hai
+    sửa `sx_uart` của quyết định 29 KHÔNG liên quan đường này (host dùng driver riêng). Phát CHẶN `rs485_send` (~3,6 ms/41 B,
+    ~22 ms/250 B ở 115200), engine không scan lúc đó và cũng trễ poll bus IO tương ứng. MAX485 chung DE//RE nên không có echo.
+    Ràng buộc host: cổng App không được cấp cho `modbus_master`/`serial_tcp_server` (web/shell); lỗi sẽ log `owned by another
+    host service`. Build `wg_ue` ARM (sandbox, đã vá lỗi hoa/thường Linux như quyết định 25, NETIF=OFF CDC=OFF): FLASH
+    605 124 B / RAM 651 368 B; so bản USB CDC-only 607 672 / 647 752: RAM +3,6 KB do host vẫn link lớp USB network mặc định
+    khi tắt CDC-only (`_netd_epbuf` 3 344 B), KHÔNG do glue RS485 (+~216 B code `splc_check_port`). **Chưa chạy trên board**;
+    người dùng chọn USART6 (index 1) làm cổng App cho test nạp rule, nên bus board IO được DỜI sang USART3 (index 0) trong `splcopts.h`
+    (`SPLC_HOST_RS485_PORT 0`; board IO thật phải nối lại đầu USART3, hiện chưa có firmware slave nên node vẫn offline). Lưu ý nhãn:
+    tài liệu phần cứng `wg_ue` gọi USART6 là "RS485 Port 2" (USART3 = Port 1), còn người dùng gọi USART6 là "rs485 1": đã theo tên UART.
+    **Schematic khối RS485 của gateway (người dùng cung cấp, 3 cổng giống nhau):** `/RE` và `DE` của MAX485 nối chung một chân
+    GPIO (`RE/DE`) ⇒ DE **tích cực cao** (cao = phát, thấp = nhận), khớp `rs485_set_de()` của host và `MX_GPIO_Init` (khởi tạo
+    thấp); thu bị tắt khi phát ⇒ không có echo. Vậy cực DE đã được xác nhận (dòng "To verify" ở `wg_ue/Documents/Hardware/
+    02_PINOUT_AND_INTERFACES.md` có thể đóng). VCC của MAX485 lấy từ 3V3 qua R25 (R26 sang +5 là phương án khác, không lắp): nếu
+    linh kiện lắp thật đúng là MAX485 5V thì chạy 3,3 V là ngoài dải datasheet (4,75–5,25 V) — cần kiểm BOM xem là MAX3485/SP3485.
+    Hai điểm phần cứng ảnh hưởng độ tin cậy, chưa đo, KHÔNG chặn việc nạp rule: (a) phân cực bus rảnh là R40 10K lên +5 và R28 10K
+    xuống GND qua R34 120R ⇒ chênh lệch A−B lúc rảnh chỉ ~30 mV (còn ~15 mV khi đầu xa cũng có 120R), thấp hơn ngưỡng ±200 mV
+    của MAX485, nên bus rảnh không được đảm bảo ở mức mark: có thể sinh byte rác (counter `rx_bytes` tăng khi không ai gửi) làm
+    khung đầu tiên sau lúc rảnh bị hỏng; (b) R17 10K kéo `RE/DE` lên 3V3 ⇒ lúc reset / trước khi `MX_GPIO_Init` chạy, MAX485 đang ở
+    chế độ PHÁT và giữ bus ở mức mark. Về nhãn: đầu ra `RS4853_P` đi qua cuộn chặn tới chân B (7) của MAX485 và `RS4853_N` tới chân
+    A (6), tức tên ngoài đảo so với tên trong `RS48511_P/N`; nhãn A/B của dongle tuỳ hãng, nếu không có phản hồi thì đảo hai dây.
 
 ## 3. Quy trình làm việc
 
