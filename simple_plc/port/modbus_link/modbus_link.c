@@ -100,7 +100,17 @@ static void link_process(void *ctx)
 
 /* nanoMODBUS platform.read contract: return the bytes read (0..count); fewer
  * than count means the timeout elapsed. timeout_ms == 0: only what is already
- * there. timeout_ms < 0: wait forever. */
+ * there. timeout_ms < 0: wait forever.
+ *
+ * The timeout is an IDLE timeout (like link_write): it restarts every time at
+ * least one byte arrives, and only a link that delivers nothing for timeout_ms
+ * ends the read. nanoMODBUS asks for the whole rest of a request in ONE read()
+ * (e.g. 98 bytes of an FC16 with 48 registers) and passes its BYTE timeout
+ * (5 ms in plc_modbus_cfg). As a total budget that is too short on a serial
+ * line: 98 bytes take 8.5 ms at 115200 baud, so a request still arriving when
+ * the scan polls it was cut off, nanoMODBUS dropped the part it had read, and
+ * the tail was misparsed as a new request (no reply at all). With an idle
+ * timeout the length of the frame no longer matters, only a gap inside it. */
 static int32_t link_read(uint8_t *buf, uint16_t count, int32_t timeout_ms, void *ctx)
 {
     (void)ctx;
@@ -113,9 +123,13 @@ static int32_t link_read(uint8_t *buf, uint16_t count, int32_t timeout_ms, void 
     uint32_t got   = 0U;
 
     while (got < count) {
-        got += rx_pop(buf + got, (uint32_t)count - got);
+        uint32_t n = rx_pop(buf + got, (uint32_t)count - got);
+        got += n;
         if (got >= count) {
             break;
+        }
+        if (n > 0U) {
+            start = sx_get_tick_ms();        /* progress: restart the idle clock */
         }
         if (timeout_ms >= 0 &&
             (uint32_t)(sx_get_tick_ms() - start) >= (uint32_t)timeout_ms) {

@@ -49,10 +49,26 @@ Checks, in order:
      engine (Q4), resume after DIAG, baseline after the broker config changes.
  10. Cleanup (CLEAR_RULES).
 
+Link errors (changed vs the first version of this script): pymodbus' hidden
+resend of writes is OFF (retries=0). Idempotent writes (draft FC06/FC16, staging)
+are repeated by the script itself; COMMIT and REBOOT are never resent. A request
+whose outcome is unknown (e.g. COMMIT reply lost) aborts the run with exit code 3
+("link error") instead of producing a cascade of false FAILs. Exit codes:
+0 = ALL PASS, 1 = a check failed, 2 = cannot open port, 3 = link error (inconclusive).
+
+Stress mode (measures request loss on the App link, no pass/fail on firmware logic):
+  python test_mqtt.py COM35 --stress 300                 (blocks disabled)
+  python test_mqtt.py COM35 --stress 300 --stress-mqtt   (+ 4 blocks PERIODIC 200 ms)
+  Each iteration = FC03 x96 (block 0) + FC16 x48 (draft write-back of block 0), the
+  same frame sizes the full test uses. It runs CLEAR_RULES first (writes Flash) and
+  at the end. With --stress-mqtt the gateway publishes splctest/xxxx/s0..s3 to ITS
+  OWN broker (App broker stays disabled), up to ~5 msg/s: use a dev setup.
+
 Usage:
   python test_mqtt.py COM35
   python test_mqtt.py COM35 --reboot
   python test_mqtt.py COM35 --reboot --broker 192.168.1.10:1883 [--mqtt-user U --mqtt-pass P]
+  (PowerShell: write --broker host:1883 WITHOUT quotes around the host part only)
 """
 import argparse
 import inspect
@@ -76,6 +92,8 @@ REG_RULE_COUNT_STAGED = 0x9002
 REG_EXPECTED_CRC = 0x9003
 REG_STAGING = 0x9010
 REG_COMMIT = 0xA000
+REG_VERSION = 0xA001         # active rule version, bumps on a successful COMMIT
+REG_HEALTH = 0x0800
 COMMIT_MAGIC = 0xA5A5
 REG_TEL = 0x0C00
 TEL_BLOCKS, BLOCK_REGS = 4, 96
@@ -188,12 +206,37 @@ def make_broker(enabled=False, tls=False, clean=True, version=0, port=1883,
 
 
 # ----------------------------------------------------------------- device I/O
+class LinkError(RuntimeError):
+    """A request was lost (timeout/framing) and its outcome matters. Never a firmware verdict."""
+
+
 class ErrResp:
-    def __init__(self, code=-1):
+    def __init__(self, code=-1, link=False):
         self.exception_code = code
+        self.link = link
+        self.text = ""
 
     def isError(self):
         return True
+
+    def __str__(self):
+        return self.text or f"exception {self.exception_code}"
+
+
+def make_client(port, baudrate):
+    """Serial client with pymodbus' own resend DISABLED (retries=0): a write is never
+    sent twice behind the script's back."""
+    from pymodbus.client import ModbusSerialClient
+    kw = dict(port=port, baudrate=baudrate, parity="N", stopbits=1, bytesize=8, timeout=1.0)
+    try:
+        return ModbusSerialClient(retries=0, **kw)
+    except TypeError:
+        return ModbusSerialClient(**kw)
+
+
+def _is_io_error(resp):
+    """pymodbus versions differ: a timeout is raised, or returned as ModbusIOException."""
+    return type(resp).__name__ == "ModbusIOException"
 
 
 def _unit_kwarg(client, unit):
@@ -210,12 +253,14 @@ def exc_code(resp):
 
 
 class Dev:
-    """Modbus access with a bounded retry on READS (RS485 bring-up showed rare
-    lost frames). The retry count is printed at the end so noise stays visible."""
+    """Modbus access. READS and idempotent writes are repeated on a lost frame; COMMIT and
+    system commands are not. The retry counts are printed at the end so noise stays visible."""
 
     chunk = 48          # registers per FC16 when writing blocks (RS485 frame <= 256 B)
     retries = 2
+    write_retries = 2
     retried = 0
+    retried_w = 0
 
     def __init__(self, client, unit):
         self.c, self.unit = client, unit
@@ -227,8 +272,14 @@ class Dev:
             try:
                 rr = self.c.read_holding_registers(address=addr, count=count, **self.kw)
             except Exception as e:      # timeout / framing
-                last = ErrResp(-1)
+                last = ErrResp(-1, link=True)
                 last.text = str(e)
+                Dev.retried += 1
+                time.sleep(0.05)
+                continue
+            if _is_io_error(rr):
+                last = ErrResp(-1, link=True)
+                last.text = str(rr)
                 Dev.retried += 1
                 time.sleep(0.05)
                 continue
@@ -240,24 +291,40 @@ class Dev:
     def read(self, addr, count):
         regs, err = self.try_read(addr, count)
         if err is not None:
-            raise RuntimeError(f"read 0x{addr:04X} x{count} failed: {err}")
+            msg = f"read 0x{addr:04X} x{count} failed: {err}"
+            if getattr(err, "link", False):
+                raise LinkError(msg)
+            raise RuntimeError(msg)
         return regs
 
-    def fc06(self, addr, value):
-        try:
-            return self.c.write_register(address=addr, value=value, **self.kw)
-        except Exception as e:
-            r = ErrResp(-1)
-            r.text = str(e)
+    def _write(self, call, what, safe):
+        """One FC06/FC16. Raises LinkError when the frame is lost for good; a Modbus
+        exception response is RETURNED (the caller decides whether it was expected)."""
+        tries = (Dev.write_retries if safe else 0) + 1
+        last = None
+        for _ in range(tries):
+            try:
+                r = call()
+            except Exception as e:
+                last = str(e)
+                Dev.retried_w += 1
+                time.sleep(0.05)
+                continue
+            if _is_io_error(r):
+                last = str(r)
+                Dev.retried_w += 1
+                time.sleep(0.05)
+                continue
             return r
+        raise LinkError(f"{what}: no valid reply ({last})" + ("" if safe else " [not resent: not idempotent]"))
 
-    def fc16(self, addr, values):
-        try:
-            return self.c.write_registers(address=addr, values=values, **self.kw)
-        except Exception as e:
-            r = ErrResp(-1)
-            r.text = str(e)
-            return r
+    def fc06(self, addr, value, safe=True):
+        return self._write(lambda: self.c.write_register(address=addr, value=value, **self.kw),
+                           f"FC06 0x{addr:04X}", safe)
+
+    def fc16(self, addr, values, safe=True):
+        return self._write(lambda: self.c.write_registers(address=addr, values=values, **self.kw),
+                           f"FC16 0x{addr:04X} x{len(values)}", safe)
 
     def write_regs(self, addr, regs):
         """FC16 in chunks; returns the first error response or None."""
@@ -270,7 +337,7 @@ class Dev:
     def reboot(self, args):
         print("  ... REBOOT, waiting for the board to come back")
         try:
-            self.fc06(REG_SYSCMD, SYS_REBOOT)
+            self.fc06(REG_SYSCMD, SYS_REBOOT, safe=False)
         except Exception:
             pass
         time.sleep(0.5)
@@ -278,14 +345,12 @@ class Dev:
             self.c.close()
         except Exception:
             pass
-        from pymodbus.client import ModbusSerialClient
         port = args.port_after or args.port
         deadline = time.time() + 25.0
         while time.time() < deadline:
             time.sleep(1.0)
             try:
-                c = ModbusSerialClient(port=port, baudrate=args.baudrate, parity="N",
-                                       stopbits=1, bytesize=8, timeout=1.0)
+                c = make_client(port, args.baudrate)
                 if not c.connect():
                     continue
                 nd = Dev(c, args.unit)
@@ -306,11 +371,19 @@ def rule_count(d):
 def commit(d, rules):
     """Stage + COMMIT like the App's Deploy; returns (config_status, error_code)."""
     crc = crc16_modbus(b"".join(rule_bytes(r) for r in rules))
+    v0 = d.read(REG_VERSION, 1)[0]
     d.fc06(REG_RULE_COUNT_STAGED, len(rules))
     for i, rule in enumerate(rules):
         d.fc16(REG_STAGING + i * 16, rule)
     d.fc06(REG_EXPECTED_CRC, crc)
-    d.fc06(REG_COMMIT, COMMIT_MAGIC)
+    try:
+        d.fc06(REG_COMMIT, COMMIT_MAGIC, safe=False)     # NOT idempotent: never resent
+    except LinkError:
+        # The request or its reply was lost. If the active version moved, the COMMIT
+        # was applied; otherwise rejected-or-never-received cannot be told apart.
+        time.sleep(0.3)
+        if d.read(REG_VERSION, 1)[0] == v0:
+            raise LinkError("COMMIT lost: outcome unknown (rejected or never received)")
     time.sleep(0.1)
     st, err = d.read(REG_STATUS, 2)
     t0 = time.time()
@@ -321,7 +394,7 @@ def commit(d, rules):
 
 
 def run_syscmd(d, cmd, timeout=3.0):
-    resp = d.fc06(REG_SYSCMD, cmd)
+    resp = d.fc06(REG_SYSCMD, cmd, safe=(cmd != SYS_REBOOT))
     if resp.isError():
         return None, None
     t0 = time.time()
@@ -375,6 +448,8 @@ def run(d, args):
     # ------------------------------------------------------------------ 0
     print("\n0. MQTT probe")
     regs, err = d.try_read(REG_BSTATUS, 12)
+    if err is not None and getattr(err, "link", False):
+        raise LinkError(f"probe 0x0E54: {err}")
     if err is not None:
         print(f"  0x0E54 not readable ({err}): firmware built with SPLC_MQTT_ENABLE=0?")
         check(False, "MQTT status area readable")
@@ -480,22 +555,39 @@ def run(d, args):
         ("broker version 2", make_broker(True, version=2, host="h.example", client_id="c")),
     ]
     before = [read_block(d, i) for i in range(TEL_BLOCKS)]
-    before_b = read_broker(d)[:BK_STATUS_OFF]
-    n_before = rule_count(d)
+    before_b = [read_broker(d)[:BK_STATUS_OFF]]
+    n_before = [rule_count(d)]
     toggle = list(before[0])
     toggle[0] ^= 0x0020          # flip retain of block 0: a GOOD change riding with the bad one
     two_rules = [noop_rule(), noop_rule()]
 
     def expect_reject(name, writes):
+        # write_regs raises LinkError if a frame is lost for good: a draft that silently
+        # misses the BAD block would be committed (only the good toggle) and look like a bug.
         for addr, regs in writes:
             d.write_regs(addr, regs)
         s, e = commit(d, two_rules)
-        same = all(read_block(d, i) == before[i] for i in range(TEL_BLOCKS))
-        same = same and read_broker(d)[:BK_STATUS_OFF] == before_b
+        diffs = []
+        for i in range(TEL_BLOCKS):
+            cur = read_block(d, i)
+            if cur != before[i]:
+                diffs.append(f"block {i} regs {diff_regs(cur, before[i])}")
+        cur_b = read_broker(d)[:BK_STATUS_OFF]
+        if cur_b != before_b[0]:
+            diffs.append(f"broker regs {diff_regs(cur_b, before_b[0])}")
+        rc = rule_count(d)
+        if rc != n_before[0]:
+            diffs.append(f"rule count {rc} (was {n_before[0]})")
         check(s != CFG_READY and e == ERR_INVALID_PARAMETER,
               f"{name}: rejected (status {s}, error {e}; expect error 2)")
-        check(same and rule_count(d) == n_before,
-              f"{name}: nothing applied (blocks, broker and rule count unchanged)")
+        check(not diffs, f"{name}: nothing applied (blocks, broker and rule count unchanged)"
+              + (f" - CHANGED: {'; '.join(diffs)}" if diffs else ""))
+        if diffs:
+            # one real defect must not turn every later case into a FAIL
+            before[:] = [read_block(d, i) for i in range(TEL_BLOCKS)]
+            before_b[0] = read_broker(d)[:BK_STATUS_OFF]
+            n_before[0] = rule_count(d)
+            info("state diverged: baseline re-read, later cases compare against the new state")
 
     for name, idx, regs in bad:
         expect_reject(name, [(REG_TEL, toggle), (REG_TEL + idx * BLOCK_REGS, regs)])
@@ -508,6 +600,7 @@ def run(d, args):
     s, e = commit(d, [noop_rule()])                        # no MQTT write this time
     check(s == CFG_READY and all(read_block(d, i) == before[i] for i in range(TEL_BLOCKS)),
           "next Deploy without MQTT writes: old draft is gone, config unchanged")
+    n_before[0] = rule_count(d)
 
     print("  -- a DISABLED block is not content-checked")
     junk = make_block(False, topic_bytes=b"/#+\x07", tag_count=0, raw_tags=[7] * 8)
@@ -819,6 +912,99 @@ def run_broker(d, args, va, vb, base):
     return d
 
 
+# ---------------------------------------------------------------------- stress
+def health(d):
+    r = d.read(REG_HEALTH, 10)
+    return {"uptime": (r[0] << 16) | r[1], "scan": (r[6] << 16) | r[7],
+            "max_scan": (r[8] << 16) | r[9]}
+
+
+def stress_loop(d, n, label):
+    """n x (FC03 x96 of block 0 + FC16 x48 write-back into its draft). Raw requests, NO
+    retry: every lost frame is counted. The write-back repeats the RUNNING content, so the
+    draft never differs from it (it is dropped by the next COMMIT or CLEAR_RULES)."""
+    print(f"\n  -- {label}: {n} iterations")
+    ref = None
+    st = {"rd": 0, "wr": 0, "rd_lost": 0, "wr_lost": 0, "bad": 0, "lat": []}
+    h0 = health(d)
+    t_start = time.time()
+    for i in range(n):
+        t0 = time.time()
+        try:
+            rr = d.c.read_holding_registers(address=REG_TEL, count=BLOCK_REGS, **d.kw)
+            if _is_io_error(rr) or rr.isError():
+                raise IOError(str(rr))
+            st["rd"] += 1
+            regs = list(rr.registers)
+            if ref is None:
+                ref = regs
+            elif regs != ref:
+                st["bad"] += 1
+        except Exception:
+            st["rd_lost"] += 1
+            time.sleep(0.2)
+            continue
+        st["lat"].append(time.time() - t0)
+        if ref is None:
+            continue
+        t0 = time.time()
+        try:
+            rw = d.c.write_registers(address=REG_TEL, values=ref[:48], **d.kw)
+            if _is_io_error(rw) or rw.isError():
+                raise IOError(str(rw))
+            st["wr"] += 1
+            st["lat"].append(time.time() - t0)
+        except Exception:
+            st["wr_lost"] += 1
+            time.sleep(0.2)
+        if (i + 1) % 100 == 0:
+            print(f"     {i + 1}/{n}  lost so far: read {st['rd_lost']}, write {st['wr_lost']}")
+    h1 = health(d)
+    dur = time.time() - t_start
+    lat = sorted(st["lat"])
+    tot = st["rd"] + st["wr"] + st["rd_lost"] + st["wr_lost"]
+    lost = st["rd_lost"] + st["wr_lost"]
+    info(f"{tot} requests in {dur:.1f} s: lost read {st['rd_lost']}, lost write {st['wr_lost']} "
+         f"({100.0 * lost / max(tot, 1):.2f} %), content mismatches {st['bad']}")
+    if lat:
+        info(f"latency ms: min {lat[0] * 1000:.0f}  median {lat[len(lat) // 2] * 1000:.0f}  "
+             f"p95 {lat[int(len(lat) * 0.95)] * 1000:.0f}  max {lat[-1] * 1000:.0f}")
+    info(f"health: uptime {h0['uptime']} -> {h1['uptime']} s, scan_time {h1['scan']} ms, "
+         f"max_scan_time {h0['max_scan']} -> {h1['max_scan']} ms")
+    check(h1["uptime"] >= h0["uptime"], f"{label}: board did not reboot during the loop")
+    check(lost == 0, f"{label}: no lost frame ({lost} of {tot})")
+    check(st["bad"] == 0, f"{label}: block 0 content stable ({st['bad']} mismatches)")
+    return lost
+
+
+def run_stress(d, args):
+    r = d.read(REG_RESOURCE, 10)
+    di, do, ai, vflag = r[3], r[4], r[5], r[6]
+    va = di + do + ai + vflag
+    base = "splctest/%04x" % random.randrange(0x10000)
+    print("Stress: request loss on the App link")
+    s0 = broker_status(d)
+    info(f"status: flags=0x{s0['flags']:04X} tx_msgs={s0['tx_msgs']}")
+    run_syscmd(d, SYS_CLEAR_RULES)
+    stress_loop(d, args.stress, "A) MQTT blocks disabled")
+    if args.stress_mqtt:
+        blocks = [make_block(True, MODE_PERIODIC, qos=0, interval=200, tags=[va],
+                             topic=f"{base}/s{i}") for i in range(TEL_BLOCKS)]
+        d.write_regs(REG_TEL, [x for b in blocks for x in b])
+        s, e = commit(d, [encode_rule(TRG_INTERVAL, OP_NONE, ACT_INC, 0, va, for_ms=200, action_param=1)])
+        check(s == CFG_READY and e == 0, f"B) 4 blocks PERIODIC 200 ms deployed (status {s}, error {e})")
+        tx0 = broker_status(d)["tx_msgs"]
+        time.sleep(1.0)
+        lost = stress_loop(d, args.stress, "B) 4 blocks publishing")
+        st = broker_status(d)
+        info(f"publishes accepted by the host during B: {st['tx_msgs'] - tx0} (flags=0x{st['flags']:04X})")
+        if st["tx_msgs"] == tx0:
+            info("NO publish happened (host not connected to its broker): B did not load the "
+                 "network task, its result says nothing about MQTT load")
+    run_syscmd(d, SYS_CLEAR_RULES)
+    print("\n  Compare A and B: loss only in B -> task/network load; in both -> frame size or pacing.")
+
+
 # ------------------------------------------------------------------------ main
 def main():
     global _failures
@@ -834,27 +1020,47 @@ def main():
     p.add_argument("--broker", default=None, metavar="HOST[:PORT]",
                    help="run the real publish tests against this broker (needs paho-mqtt; the "
                         "gateway must be able to reach it)")
+    p.add_argument("--stress", type=int, default=0, metavar="N",
+                   help="measure request loss: N iterations of FC03 x96 + FC16 x48 (no firmware verdict)")
+    p.add_argument("--stress-mqtt", action="store_true",
+                   help="with --stress: repeat the loop with 4 PERIODIC blocks publishing")
     p.add_argument("--mqtt-user", default=None)
     p.add_argument("--mqtt-pass", default=None)
     args = p.parse_args()
     Dev.chunk = max(1, min(args.chunk, 120))
+    if args.stress_mqtt and not args.stress:
+        args.stress = 300
 
-    from pymodbus.client import ModbusSerialClient
-    client = ModbusSerialClient(port=args.port, baudrate=args.baudrate, parity="N",
-                                stopbits=1, bytesize=8, timeout=1.0)
+    client = make_client(args.port, args.baudrate)
     if not client.connect():
         print(f"Cannot open {args.port}")
         sys.exit(2)
     d = Dev(client, args.unit)
+    link_error = None
     try:
-        run(d, args)
+        if args.stress:
+            run_stress(d, args)
+        else:
+            run(d, args)
+    except LinkError as e:
+        link_error = e
+        print(f"\n  [LINK] {e}")
+        try:                                # best effort: leave no test config on the board
+            run_syscmd(d, SYS_CLEAR_RULES)
+        except Exception:
+            pass
     finally:
         try:
             d.c.close()
         except Exception:
             pass
-    if Dev.retried:
-        print(f"\n(info) {Dev.retried} read attempt(s) needed a retry: check the RS485 bus if this is not 0")
+    if Dev.retried or Dev.retried_w:
+        print(f"\n(info) lost frames needing a retry: {Dev.retried} read(s), {Dev.retried_w} write(s):"
+              " check the RS485 bus / engine load if this is not 0 (see --stress)")
+    if link_error is not None:
+        print("\nINCONCLUSIVE: a request outcome was unknown (link error), NOT a firmware failure."
+              f" {_failures} check(s) failed before it. Run it again; use --stress to measure the loss.")
+        sys.exit(3)
     print("\nALL PASS" if _failures == 0 else f"\n{_failures} CHECK(S) FAILED")
     sys.exit(0 if _failures == 0 else 1)
 
