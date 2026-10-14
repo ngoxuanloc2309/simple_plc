@@ -778,9 +778,16 @@ def run_broker(d, args, va, vb, base):
     cid2 = ("splc_t2_%04x" % random.randrange(0x10000))
     topics = [f"{base}/b{i}" for i in range(4)]
 
-    sub = Sub(host, port, args.mqtt_user, args.mqtt_pass, [base + "/#"])
+    try:
+        sub = Sub(host, port, args.mqtt_user, args.mqtt_pass, [base + "/#"])
+    except Exception as ex:
+        check(False, f"test subscriber connected to {host}:{port} (PC -> broker): {ex}")
+        info("is the broker running, listening on that address (not only 127.0.0.1) and "
+             "allowed by the PC firewall?")
+        return d
     check(sub.ready, f"test subscriber connected to {host}:{port} (PC -> broker)")
     if not sub.ready:
+        sub.close()
         return d
 
     # va is bumped by 1 every 200 ms (5/s) by an INTERVAL rule.
@@ -1005,6 +1012,15 @@ def run_stress(d, args):
     print("\n  Compare A and B: loss only in B -> task/network load; in both -> frame size or pacing.")
 
 
+def cleanup_after_abort(d):
+    """Best effort: leave no test config (and no test broker password) on the board."""
+    try:
+        s, e = run_syscmd(d, SYS_CLEAR_RULES)
+        print(f"  (cleanup) CLEAR_RULES after abort: result {s}/{e}")
+    except Exception as ex:
+        print(f"  (cleanup) CLEAR_RULES after abort FAILED ({ex}): the test config may still be on the board")
+
+
 # ------------------------------------------------------------------------ main
 def main():
     global _failures
@@ -1045,10 +1061,13 @@ def main():
     except LinkError as e:
         link_error = e
         print(f"\n  [LINK] {e}")
-        try:                                # best effort: leave no test config on the board
-            run_syscmd(d, SYS_CLEAR_RULES)
-        except Exception:
-            pass
+        cleanup_after_abort(d)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        print("\n  [ERROR] unexpected exception in the test script (not a firmware verdict)")
+        cleanup_after_abort(d)
+        _failures += 1
     finally:
         try:
             d.c.close()
