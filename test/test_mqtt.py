@@ -68,6 +68,11 @@ Usage:
   python test_mqtt.py COM35
   python test_mqtt.py COM35 --reboot
   python test_mqtt.py COM35 --reboot --broker 192.168.1.10:1883 [--mqtt-user U --mqtt-pass P]
+  python test_mqtt.py COM35 --unit 1 --baudrate 115200 --broker broker.emqx.io:1883 --broker-only
+      Sends ONLY the App broker config (Enabled=1, host, port, client_id), COMMITs it, reads
+      0x0E00.. back and checks Enabled/port/host, then waits for the gateway to connect.
+      It does NOT clean up: the broker stays configured on the board (add --clear to remove it).
+      No paho-mqtt needed. Use this to debug "App broker not applied".
   (PowerShell: write --broker host:1883 WITHOUT quotes around the host part only)
 """
 import argparse
@@ -429,6 +434,72 @@ def diff_regs(a, b):
 
 
 # ----------------------------------------------------------------------- tests
+def parse_hostport(text):
+    """'host[:port]' -> (host, port). The host must fit the gateway's buffer (63 chars)."""
+    host, _, port = text.partition(":")
+    port = int(port) if port else 1883
+    if not host or len(host) > 63 or not (1 <= port <= 65535):
+        raise SystemExit(f"bad --broker value {text!r} (host 1..63 chars, port 1..65535)")
+    return host, port
+
+
+def send_broker_config(d, args, host, port, client_id, rule):
+    """Write the App broker config (Enabled=1) + COMMIT, then READ IT BACK and check that the
+    firmware really took it (broker_control bit0 = Enabled, port, host). Returns True if the
+    gateway now holds the config (the library's app_configured=1)."""
+    brk = make_broker(True, port=port, keepalive=30, host=host, client_id=client_id,
+                      user=args.mqtt_user or "", password=args.mqtt_pass or "")
+    info(f"sending broker config: control=0x{brk[0]:04X} host={host!r} port={port} "
+         f"client_id={client_id!r} user={(args.mqtt_user or '')!r}")
+    d.write_regs(REG_BROKER, brk)
+    s, e = commit(d, [rule])
+    ok = s == CFG_READY and e == 0
+    check(ok, f"COMMIT with the App broker accepted (status {s}, error {e})")
+    if not ok:
+        return False
+    got = read_broker(d)
+    check(got[0] & 1 == 1, f"broker ENABLED=1 reads back (control=0x{got[0]:04X}): "
+                           "firmware has app_configured=1")
+    check(got[1] == port, f"broker port reads back ({got[1]} == {port})")
+    check(regs_str(got[4:36]) == host, f"broker host reads back ({regs_str(got[4:36])!r} == {host!r})")
+    check(broker_cfg_equal(got, brk), f"whole broker config reads back {diff_regs(got[:68], brk[:68]) or ''}")
+    return got[0] & 1 == 1
+
+
+def run_broker_only(d, args):
+    print("\nBroker-only: send the App broker config and verify it")
+    regs, err = d.try_read(REG_BSTATUS, 12)
+    if err is not None:
+        check(False, f"0x0E54 readable (firmware built with SPLC_MQTT_ENABLE=0?): {err}")
+        return
+    r = d.read(REG_RESOURCE, 10)
+    va = r[3] + r[4] + r[5] + r[6]                 # first VREG tag (dense layout)
+    if r[7] < 1:
+        check(False, "at least 1 VREG tag for the (harmless) rule the COMMIT needs")
+        return
+    host, port = parse_hostport(args.broker)
+    cid = "splc_dev_%04x" % random.randrange(0x10000)
+    rule = encode_rule(TRG_INTERVAL, OP_NONE, ACT_INC, 0, va, for_ms=60000, action_param=1)
+    before = read_broker(d)
+    info(f"before: control=0x{before[0]:04X} host={regs_str(before[4:36])!r} port={before[1]}")
+    if not send_broker_config(d, args, host, port, cid, rule):
+        return
+    print("  waiting for the gateway to connect to the App broker (up to 60 s) ...")
+    ok = wait_connected(d, 60.0)
+    st = broker_status(d)
+    check(ok, f"gateway reports CONNECTED (flags=0x{st['flags']:04X}, last_err={st['last_err']}, "
+              f"tx_msgs={st['tx_msgs']})")
+    if not ok:
+        info("Enabled=1 is on the board, so the firmware side is fine. If it does not connect: "
+             "look at the gateway log for 'broker config generation ... reconnecting' / "
+             "'App broker not applied', DNS and credentials.")
+    if args.clear:
+        s, e = run_syscmd(d, SYS_CLEAR_RULES)
+        check(s == ST_DONE and e == 0, f"CLEAR_RULES result {s}/{e} (broker removed)")
+    else:
+        info("config left on the board (use --clear to remove it)")
+
+
 def run(d, args):
     r = d.read(REG_RESOURCE, 10)
     di, do, ai, vflag, vreg = r[3], r[4], r[5], r[6], r[7]
@@ -767,16 +838,26 @@ def by_topic(msgs, topic):
 
 def run_broker(d, args, va, vb, base):
     print("\n9. Real publishing through the gateway (--broker)")
+    host, port = parse_hostport(args.broker)
+    cid1 = ("splc_t1_%04x" % random.randrange(0x10000))
+    cid2 = ("splc_t2_%04x" % random.randrange(0x10000))
+    topics = [f"{base}/b{i}" for i in range(4)]
+
+    def fallback_only(why):
+        # The PC side cannot subscribe, but the broker config is still sent and verified,
+        # so a missing paho / unreachable PC->broker never hides a broker-config problem.
+        info(f"{why}: sending the App broker config anyway (no publish checks)")
+        rule = encode_rule(TRG_INTERVAL, OP_NONE, ACT_INC, 0, va, for_ms=60000, action_param=1)
+        if send_broker_config(d, args, host, port, cid1, rule):
+            ok = wait_connected(d, 60.0)
+            check(ok, "gateway reports CONNECTED to the test broker")
+        return d
+
     try:
         import paho.mqtt.client  # noqa: F401
     except ImportError:
         check(False, "paho-mqtt installed (pip install paho-mqtt)")
-        return d
-    host, _, port = args.broker.partition(":")
-    port = int(port) if port else 1883
-    cid1 = ("splc_t1_%04x" % random.randrange(0x10000))
-    cid2 = ("splc_t2_%04x" % random.randrange(0x10000))
-    topics = [f"{base}/b{i}" for i in range(4)]
+        return fallback_only("paho-mqtt missing")
 
     try:
         sub = Sub(host, port, args.mqtt_user, args.mqtt_pass, [base + "/#"])
@@ -784,11 +865,11 @@ def run_broker(d, args, va, vb, base):
         check(False, f"test subscriber connected to {host}:{port} (PC -> broker): {ex}")
         info("is the broker running, listening on that address (not only 127.0.0.1) and "
              "allowed by the PC firewall?")
-        return d
+        return fallback_only("subscriber failed")
     check(sub.ready, f"test subscriber connected to {host}:{port} (PC -> broker)")
     if not sub.ready:
         sub.close()
-        return d
+        return fallback_only("subscriber not ready")
 
     # va is bumped by 1 every 200 ms (5/s) by an INTERVAL rule.
     inc_rule = encode_rule(TRG_INTERVAL, OP_NONE, ACT_INC, 0, va, for_ms=200, action_param=1)
@@ -808,11 +889,16 @@ def run_broker(d, args, va, vb, base):
         d.write_regs(REG_BROKER, brk)
         return commit(d, [inc_rule])
 
+    info(f"sending broker config: host={host!r} port={port} client_id={cid1!r}")
     s, e = deploy(cid1)
     check(s == CFG_READY and e == 0, f"Deploy with the test broker as App broker (status {s}, error {e})")
     if s != CFG_READY:
         sub.close()
         return d
+    got = read_broker(d)
+    check(got[0] & 1 == 1 and got[1] == port and regs_str(got[4:36]) == host,
+          f"App broker reads back from 0x0E00 (control=0x{got[0]:04X}, port={got[1]}, "
+          f"host={regs_str(got[4:36])!r}): firmware has app_configured=1")
     st0 = broker_status(d)
     ok = wait_connected(d, 45.0)
     check(ok, "gateway reports CONNECTED to the test broker (status flags bit 0); "
@@ -1036,6 +1122,11 @@ def main():
     p.add_argument("--broker", default=None, metavar="HOST[:PORT]",
                    help="run the real publish tests against this broker (needs paho-mqtt; the "
                         "gateway must be able to reach it)")
+    p.add_argument("--broker-only", action="store_true",
+                   help="with --broker: ONLY send + verify the App broker config and wait for "
+                        "CONNECTED (no other tests, no paho needed); the config stays on the board")
+    p.add_argument("--clear", action="store_true",
+                   help="with --broker-only: CLEAR_RULES at the end (removes the broker)")
     p.add_argument("--stress", type=int, default=0, metavar="N",
                    help="measure request loss: N iterations of FC03 x96 + FC16 x48 (no firmware verdict)")
     p.add_argument("--stress-mqtt", action="store_true",
@@ -1046,6 +1137,8 @@ def main():
     Dev.chunk = max(1, min(args.chunk, 120))
     if args.stress_mqtt and not args.stress:
         args.stress = 300
+    if args.broker_only and not args.broker:
+        p.error("--broker-only needs --broker HOST[:PORT]")
 
     client = make_client(args.port, args.baudrate)
     if not client.connect():
@@ -1054,14 +1147,17 @@ def main():
     d = Dev(client, args.unit)
     link_error = None
     try:
-        if args.stress:
+        if args.broker_only:
+            run_broker_only(d, args)
+        elif args.stress:
             run_stress(d, args)
         else:
             run(d, args)
     except LinkError as e:
         link_error = e
         print(f"\n  [LINK] {e}")
-        cleanup_after_abort(d)
+        if not args.broker_only:
+            cleanup_after_abort(d)
     except Exception:
         import traceback
         traceback.print_exc()
