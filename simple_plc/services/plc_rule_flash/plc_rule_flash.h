@@ -43,7 +43,11 @@
  *                                      bit 14 = FB section is the 128-byte
  *                                               V2 image (Step 8d; clear =
  *                                               legacy 112 bytes),
- *                                      bits 0..13 = the real rule count
+ *                                      bit 13 = MQTT section present (Step
+ *                                               E.3; builds with
+ *                                               SPLC_MQTT_ENABLE=0 do not
+ *                                               know it, see below),
+ *                                      bits 0..12 = the real rule count
  *   offset 6..7   uint16_t crc16
  *   offset 8..    rule_count x 32-byte WIRE image, via rule_record_to_wire()
  *                 (plc_modbus_cfg.c) -- the exact same per-record byte
@@ -53,6 +57,11 @@
  *                 Function Block config image (plc_fb_export()): 128 bytes
  *                 with bit 14 set, 112 bytes (legacy, no Timer rule
  *                 binding) with it clear.
+ *   then, only when the MQTT flag (bit 13) is set:
+ *                 MQTT config image (plc_mqtt_export()): 960 bytes = 4
+ *                 telemetry blocks x 192 B + broker image 192 B. It holds
+ *                 the broker PASSWORD in clear text. Record layout:
+ *                 header | rules | FB | MQTT; one crc16 covers all of it.
  *
  * The FB section lives INSIDE the one record on purpose (Step 8b): one
  * crc16 covers rules and FB together, so after a power loss during a save
@@ -65,9 +74,17 @@
  * flags as rule_count > MAX_RULES and treats the record as corrupt, and
  * 8b/8c firmware does the same for bit 14 (downgrading needs a fresh Deploy).
  *
- * All code reading the field MUST split it first: field & 0x3FFF is the
- * count, field & 0x8000 / field & 0x4000 the flags (SPLC_RULE_FLASH_COUNT_MASK,
- * _FB_FLAG, _FB_V2_FLAG). Comparing the raw field against
+ * A build with SPLC_MQTT_ENABLE=0 keeps the old 14-bit count (bit 13 stays
+ * part of the count), so it rejects an MQTT-carrying record as corrupt
+ * ("count > MAX_RULES") -- the same downgrade rule as for the FB flags; this
+ * keeps that build the same size as before E.3. A record without the MQTT
+ * flag (older firmware, or MQTT off) still loads in an MQTT build; its MQTT
+ * config stays DISABLED.
+ *
+ * All code reading the field MUST split it first: field &
+ * SPLC_RULE_FLASH_COUNT_MASK is the count (0x1FFF with MQTT, 0x3FFF without),
+ * field & 0x8000 / 0x4000 / 0x2000 the flags (_FB_FLAG, _FB_V2_FLAG,
+ * _MQTT_FLAG). Comparing the raw field against
  * MAX_RULES would reject every record that carries FB data.
  *
  * crc16 is a field-embedded CRC-16/MODBUS computed over the WHOLE record

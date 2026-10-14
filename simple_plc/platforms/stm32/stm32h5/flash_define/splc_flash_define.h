@@ -291,6 +291,8 @@ _Static_assert(SPLC_FLASH_RETAIN_BASE_ADDR == SPLC_FLASH_DATA_BASE_ADDR,
  *       // then, only if the FB flag is set: the Function Block config
  *       // image (plc_fb_export(): 128 bytes, or 112 bytes in a record
  *       // written before Step 8d), covered by the same crc16.
+ *       // then, only if the MQTT flag (bit 13) is set: the MQTT config
+ *       // image (plc_mqtt_export(): 960 bytes), covered by the same crc16.
  *   };
  *
  * As with the Retain record layout above, this file intentionally does
@@ -312,8 +314,25 @@ _Static_assert(SPLC_FLASH_RETAIN_BASE_ADDR == SPLC_FLASH_DATA_BASE_ADDR,
 #define SPLC_RULE_FLASH_FB_SIZE_V1        112U  /* Legacy image (before Step 8d: no Timer rule binding), read-only (plc_fb.h PLC_FB_FLASH_SIZE_V1) */
 #define SPLC_RULE_FLASH_FB_FLAG           0x8000U /* bit 15 of the rule_count field: FB section present */
 #define SPLC_RULE_FLASH_FB_V2_FLAG        0x4000U /* bit 14 of the rule_count field: the FB section is the 128-byte image (else 112) */
+/* Bit 13 of the rule_count field: an MQTT section (SPLC_RULE_FLASH_MQTT_SIZE
+ * bytes, docs/plc_mqtt_design.md section 6) follows the FB section. Only a
+ * build with SPLC_MQTT_ENABLE=1 knows this flag. A build with it 0 keeps the
+ * old 14-bit count mask, so it reads such a record as "count > MAX_RULES" and
+ * rejects it exactly like any other record it does not understand (the same
+ * downgrade rule as for the FB flags: a fresh Deploy is needed). That keeps
+ * the MQTT=0 build byte-for-byte the same size as before. */
+#define SPLC_RULE_FLASH_MQTT_FLAG         0x2000U /* bit 13 of the rule_count field: MQTT section present */
+#define SPLC_RULE_FLASH_MQTT_SIZE         960U    /* 4 telemetry blocks x 192 B + broker image 192 B; cross-checked against PLC_MQTT_FLASH_SIZE in plc_rule_flash.c */
+#if SPLC_MQTT_ENABLE
+#define SPLC_RULE_FLASH_COUNT_MASK        0x1FFFU /* bits 0..12 of the rule_count field: the real count */
+#define SPLC_RULE_FLASH_MQTT_RESERVE      SPLC_RULE_FLASH_MQTT_SIZE
+#else
 #define SPLC_RULE_FLASH_COUNT_MASK        0x3FFFU /* bits 0..13 of the rule_count field: the real count */
-#define SPLC_RULE_FLASH_RECORD_MAX_SIZE   (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE + SPLC_RULE_FLASH_FB_SIZE) /* 3336 bytes at MAX_RULES = 100 */
+#define SPLC_RULE_FLASH_MQTT_RESERVE      0U
+#endif
+#define SPLC_RULE_FLASH_RECORD_MAX_SIZE   (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE + SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE) /* 3336 bytes at MAX_RULES = 100 (4296 with SPLC_MQTT_ENABLE=1) */
+_Static_assert(SPLC_RULE_FLASH_RECORD_MAX_SIZE <= SPLC_FLASH_SECTOR_SIZE,
+               "a rule record must fit in one Flash sector");
 
 #endif // STM32H5_PLATFORM
 

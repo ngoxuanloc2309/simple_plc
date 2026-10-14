@@ -416,6 +416,65 @@ void plc_mqtt_clear_all(void)
     s_draft_mask = 0U;
 }
 
+/* ------------------------------------------------------------------ Flash image (step E.3) */
+
+#define IMG_TEL_BYTES    (BLOCKS * BLOCK_REGS * 2U)
+#define IMG_BROKER_REGS  PLC_MQTT_BROKER_REGS     /* 96: 84 config + 12 reserved zero */
+_Static_assert(IMG_TEL_BYTES + IMG_BROKER_REGS * 2U == PLC_MQTT_FLASH_SIZE,
+               "PLC_MQTT_FLASH_SIZE must equal telemetry + broker register images");
+
+static void put_regs_be(uint8_t *out, const uint16_t *regs, size_t n)
+{
+    for (size_t i = 0; i < n; i++) {
+        out[2U * i]      = (uint8_t)(regs[i] >> 8);
+        out[2U * i + 1U] = (uint8_t)(regs[i] & 0xFFU);
+    }
+}
+
+static void get_regs_be(const uint8_t *in, uint16_t *regs, size_t n)
+{
+    for (size_t i = 0; i < n; i++) {
+        regs[i] = (uint16_t)(((uint16_t)in[2U * i] << 8) | in[2U * i + 1U]);
+    }
+}
+
+void plc_mqtt_export(uint8_t *out)
+{
+    put_regs_be(out, &s_tel[0][0], BLOCKS * BLOCK_REGS);
+    memset(out + IMG_TEL_BYTES, 0, IMG_BROKER_REGS * 2U);
+    put_regs_be(out + IMG_TEL_BYTES, s_brk, PLC_MQTT_BROKER_CFG_REGS);
+}
+
+bool plc_mqtt_import(const uint8_t *in)
+{
+    /* Decode into the DRAFT arrays (free scratch space), validate everything,
+     * and only then touch the running config. Every block is checked, also
+     * the ones the image holds as disabled (block_valid() returns early). */
+    get_regs_be(in, &s_tel_draft[0][0], BLOCKS * BLOCK_REGS);
+    get_regs_be(in + IMG_TEL_BYTES, s_brk_draft, PLC_MQTT_BROKER_CFG_REGS);
+
+    bool ok = true;
+    for (unsigned i = 0; i < BLOCKS && ok; i++) {
+        ok = block_valid(s_tel_draft[i], i);
+    }
+    ok = ok && broker_valid(s_brk_draft);
+    /* The 12 registers after the config are reserved and always written as 0. */
+    for (size_t i = 0; ok && i < (IMG_BROKER_REGS - PLC_MQTT_BROKER_CFG_REGS) * 2U; i++) {
+        ok = (in[IMG_TEL_BYTES + PLC_MQTT_BROKER_CFG_REGS * 2U + i] == 0U);
+    }
+
+    if (!ok) {
+        s_draft_mask = 0U;
+        log_warn(TAG, "Flash MQTT image failed validation -- MQTT config left as it was");
+        return false;
+    }
+
+    memcpy(s_tel, s_tel_draft, sizeof(s_tel));
+    broker_apply(s_brk_draft);
+    s_draft_mask = 0U;
+    return true;
+}
+
 /* ------------------------------------------------------------------ host-facing API */
 
 void splc_mqtt_set_status(const splc_mqtt_status_t *st)

@@ -6,9 +6,11 @@
  *
  * MQTT Publish configuration (docs/plc_mqtt_design.md). SimplePLC only does
  * the LOGIC and HOLDS the data: there is no network client in this library
- * (decision 31). This header is step E.2: the configuration blocks, their
- * draft + COMMIT cycle, the Modbus register access and the status block.
- * Scanning / publishing (E.4) and Flash persistence (E.3) are NOT here yet.
+ * (decision 31). This header covers step E.2 (the configuration blocks,
+ * their draft + COMMIT cycle, the Modbus register access and the status
+ * block) and step E.3 (the Flash image: plc_mqtt_export/import, stored by
+ * plc_rule_flash inside the Rule Table record). Scanning / publishing
+ * (E.4) is NOT here yet.
  *
  * Register map (Structs MQTT profile, splc_mqtt_wire.h):
  *   0x0C00 + i*96   (i = 0..3)  Telemetry block i, 96 registers   R/W
@@ -110,6 +112,27 @@ void plc_mqtt_commit_draft(void);
 
 /* Drop the draft and its flags; the running config is untouched. */
 void plc_mqtt_discard_draft(void);
+
+/* ------------------------------------------------------------------ Flash image (step E.3) */
+
+/* Size of the image below: 4 telemetry blocks x 192 B + broker 192 B.
+ * plc_rule_flash.c cross-checks it with SPLC_RULE_FLASH_MQTT_SIZE. */
+#define PLC_MQTT_FLASH_SIZE   960U
+
+/* Serialise the RUNNING config (never the draft) into `out`
+ * (PLC_MQTT_FLASH_SIZE bytes): 4 x 96 telemetry registers, then 96 broker
+ * registers (84 config + 12 zero), each register big-endian, exactly the
+ * words FC03 would carry. The password IS stored (it lives in Flash in clear
+ * text; reading it back over Modbus still returns 0). */
+void plc_mqtt_export(uint8_t *out);
+
+/* Load an image written by plc_mqtt_export(). The whole image is checked
+ * with the same rules as COMMIT; if any block fails, NOTHING is applied
+ * (config stays as it was) and false is returned. On success the running
+ * config is replaced, `generation` moves if app_configured changed, and any
+ * draft is dropped. Used at boot (before the engine runs) and to roll back a
+ * failed CLEAR_RULES. */
+bool plc_mqtt_import(const uint8_t *in);
 
 /* CLEAR_RULES / FACTORY_RESET: every block DISABLED, broker "not configured"
  * (generation moves if app_configured was true), draft dropped. */

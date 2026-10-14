@@ -260,7 +260,8 @@ timeout bằng tick thật, CRC bằng `nmbs_crc_calc()` (byte-swapped, ghi big-
   rule (staging → verify CRC16 → commit nguyên tử), Diag Control (ENTER/HEARTBEAT/EXIT,
   lease, ghi tag trong diag, retain draft), RTC, FB, System Command.
 - **`plc_rule_flash`**: lưu Rule Table A/B (xem handoff mục 1 về thứ tự và recovery); bản
-  ghi = header 8 B (seq_num, rule_count + cờ FB, crc16) + rule wire + đoạn FB 128 B.
+  ghi = header 8 B (seq_num, rule_count + cờ FB/MQTT, crc16) + rule wire + đoạn FB 128 B [+ đoạn MQTT 960 B, bit 13,
+  chỉ khi `SPLC_MQTT_ENABLE=1`].
 - **`plc_retain`**: snapshot xoay vòng cho VREG_RETAIN (record 208 B: seq, count, crc16,
   tag_idx+value); khôi phục lúc boot lấy record CRC-hợp-lệ có seq lớn nhất; lưu theo
   COMMIT_RETAIN, chu kỳ, và PVD khẩn cấp (ISR).

@@ -115,7 +115,11 @@ void splc_mqtt_set_default_device_name(const char *name);      /* dự phòng ch
   khôi phục B→A như cũ. Tối đa 3 336 + 960 = 4 296 B → làm tròn **4 304 B** (bội 16 B) < sector 8 KB.
 - **Password nằm nguyên văn trong Flash** — ghi rõ khi giao tài liệu.
 - Mọi thao tác Flash đi qua đường `plc_rule_flash` hiện có (đã bọc `retain_flash_op_begin/end()`).
-- [CHƯA KIỂM] Cách `plc_rule_flash` tính độ dài bản ghi theo `rule_count`: vị trí đoạn MQTT phụ thuộc vào đó; đọc kỹ khi code.
+- [ĐÃ KIỂM ở E.3] Độ dài bản ghi = `8 + rule_count×32 + FB (0/112/128) + MQTT (0/960)`; đoạn MQTT nằm SAU đoạn FB, nên
+  offset = `8 + rule_count×32 + fb_size`. Bản `SPLC_MQTT_ENABLE=0` giữ mask 0x3FFF (bit 13 vẫn là số rule) nên coi bản ghi
+  có MQTT là hỏng (hạ firmware cần Deploy lại) và không tốn thêm byte code/RAM. Đoạn MQTT = 4×192 B telemetry + 192 B
+  broker (84 thanh ghi cấu hình + 12 thanh ghi dành riêng luôn 0); `plc_mqtt_import()` kiểm cả bộ như COMMIT, sai thì
+  không áp gì.
 
 ## 7. Thuật toán mỗi scan
 
