@@ -38,4 +38,7 @@
 /* Logging */
 #define SPLC_LOG_LEVEL                4
 
+/*ON MQTT*/
+#define SPLC_MQTT_ENABLE              1
+
 #endif /* SPLCOPTS_H */
