@@ -16,6 +16,9 @@
 #include "plc_rule.h"       /* SPLC_RuleRecord, MAX_RULES, rule_table_commit() */
 #include "plc_modbus_cfg.h" /* rule_record_to_wire(), rule_table_wire_crc16(), crc16_modbus_update() */
 #include "plc_fb.h"         /* plc_fb_export()/plc_fb_import(): Function Block config image */
+#if SPLC_MQTT_ENABLE
+#include "plc_mqtt.h"       /* plc_mqtt_export()/plc_mqtt_import(): MQTT config image (step E.3) */
+#endif
 #include "plc_retain.h"     /* retain_flash_op_begin()/end(): keeps the PVD write off the Flash during this one */
 #include "splc_log.h"
 
@@ -26,8 +29,8 @@ static const char *TAG = "PLC_RULE_FLASH";
  * drifting if either formula is edited. */
 _Static_assert(SPLC_RULE_FLASH_RECORD_MAX_SIZE ==
                (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE +
-                SPLC_RULE_FLASH_FB_SIZE),
-               "SPLC_RULE_FLASH_RECORD_MAX_SIZE out of sync with MAX_RULES / FB size");
+                SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE),
+               "SPLC_RULE_FLASH_RECORD_MAX_SIZE out of sync with MAX_RULES / FB / MQTT size");
 
 /* Same literal-duplication story for the FB image sizes. */
 _Static_assert(SPLC_RULE_FLASH_FB_SIZE == PLC_FB_FLASH_SIZE,
@@ -35,12 +38,26 @@ _Static_assert(SPLC_RULE_FLASH_FB_SIZE == PLC_FB_FLASH_SIZE,
 _Static_assert(SPLC_RULE_FLASH_FB_SIZE_V1 == PLC_FB_FLASH_SIZE_V1,
                "SPLC_RULE_FLASH_FB_SIZE_V1 out of sync with PLC_FB_FLASH_SIZE_V1");
 
-/* The two flags and the count share one 16-bit field and must not overlap. */
+/* The flags and the count share one 16-bit field and must not overlap. */
+#if SPLC_MQTT_ENABLE
+_Static_assert(SPLC_RULE_FLASH_MQTT_SIZE == PLC_MQTT_FLASH_SIZE,
+               "SPLC_RULE_FLASH_MQTT_SIZE out of sync with PLC_MQTT_FLASH_SIZE");
+_Static_assert((SPLC_RULE_FLASH_FB_FLAG & SPLC_RULE_FLASH_FB_V2_FLAG) == 0U &&
+               (SPLC_RULE_FLASH_FB_FLAG & SPLC_RULE_FLASH_MQTT_FLAG) == 0U &&
+               (SPLC_RULE_FLASH_FB_V2_FLAG & SPLC_RULE_FLASH_MQTT_FLAG) == 0U &&
+               (SPLC_RULE_FLASH_FB_FLAG & SPLC_RULE_FLASH_COUNT_MASK) == 0U &&
+               (SPLC_RULE_FLASH_FB_V2_FLAG & SPLC_RULE_FLASH_COUNT_MASK) == 0U &&
+               (SPLC_RULE_FLASH_MQTT_FLAG & SPLC_RULE_FLASH_COUNT_MASK) == 0U &&
+               (SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG |
+                SPLC_RULE_FLASH_MQTT_FLAG | SPLC_RULE_FLASH_COUNT_MASK) == 0xFFFFU,
+               "FB / FB V2 / MQTT flags and the count mask must partition the rule_count field");
+#else
 _Static_assert((SPLC_RULE_FLASH_FB_FLAG & SPLC_RULE_FLASH_FB_V2_FLAG) == 0U &&
                (SPLC_RULE_FLASH_FB_FLAG & SPLC_RULE_FLASH_COUNT_MASK) == 0U &&
                (SPLC_RULE_FLASH_FB_V2_FLAG & SPLC_RULE_FLASH_COUNT_MASK) == 0U &&
                (SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG | SPLC_RULE_FLASH_COUNT_MASK) == 0xFFFFU,
                "FB flag / FB V2 flag / count mask must partition the rule_count field");
+#endif
 
 #define RULE_FLASH_SEQ_OFFSET         0U
 #define RULE_FLASH_COUNT_OFFSET       4U
@@ -48,9 +65,9 @@ _Static_assert((SPLC_RULE_FLASH_FB_FLAG & SPLC_RULE_FLASH_FB_V2_FLAG) == 0U &&
 #define RULE_FLASH_DATA_OFFSET        SPLC_RULE_FLASH_HEADER_SIZE
 
 /* Working buffer for one full-size record (header + up to MAX_RULES
- * records' wire bytes + the FB section). Static, not stack-allocated: this
+ * records' wire bytes + the FB section + the MQTT section). Static, not stack-allocated: this
  * is Layer 3 running on a small MCU with a bounded stack budget, and this
- * buffer (3336 bytes) is large enough that putting it on the stack of a
+ * buffer (3336 bytes, 4296 with MQTT) is large enough that putting it on the stack of a
  * function called from write_commit_command() would be a needless risk. */
 static uint8_t s_rule_flash_buf[SPLC_RULE_FLASH_RECORD_MAX_SIZE];
 
@@ -84,38 +101,54 @@ static void write_u16_be(uint8_t *p, uint16_t v)
     p[1] = (uint8_t)v;
 }
 
+/* What the header's 16-bit field says about a record: how many rules, and how
+ * many bytes the optional trailing sections take. */
+typedef struct {
+    uint16_t rule_count;
+    uint32_t fb_size;     /* 0 (none), 112 (legacy) or 128 (V2) */
+    uint32_t mqtt_size;   /* 0 (none) or 960; always 0 when SPLC_MQTT_ENABLE = 0 */
+} rule_flash_layout_t;
+
 /*
- * The 16-bit field at RULE_FLASH_COUNT_OFFSET carries three things:
+ * The 16-bit field at RULE_FLASH_COUNT_OFFSET carries four things:
  *   bit 15      "FB section present"
  *   bit 14      "FB section is the 128-byte V2 image" (Step 8d; only
  *               meaningful together with bit 15, absent = legacy 112 bytes)
- *   bits 0..13  the real rule count
+ *   bit 13      "MQTT section present" (Step E.3; ONLY in a build with
+ *               SPLC_MQTT_ENABLE = 1 -- otherwise bit 13 is part of the count)
+ *   bits 0..12  the real rule count (0..13 without MQTT: SPLC_RULE_FLASH_COUNT_MASK)
  * Every reader goes through this split -- comparing the raw field against
  * MAX_RULES would reject every record that carries FB data (0xC002 reads as
- * 49154). An erased/garbage field (0xFFFF) splits into both flags set and
- * count = 0x3FFF, which the callers' "count > MAX_RULES" check then rejects.
- *
- * `*fb_size` is the byte size of the FB section: 0 (none), 112 (legacy) or
- * 128 (V2).
+ * 49154). An erased/garbage field (0xFFFF) splits into all flags set and
+ * count = mask, which the callers' "count > MAX_RULES" check then rejects.
+ * An MQTT=0 build therefore rejects an MQTT-carrying record as corrupt (bit 13
+ * lands in its count): the same downgrade rule as for the FB flags.
  */
-static void rule_flash_split_field(uint16_t field, uint16_t *rule_count, uint32_t *fb_size)
+static void rule_flash_split_field(uint16_t field, rule_flash_layout_t *l)
 {
-    *rule_count = (uint16_t)(field & SPLC_RULE_FLASH_COUNT_MASK);
+    l->rule_count = (uint16_t)(field & SPLC_RULE_FLASH_COUNT_MASK);
     if ((field & SPLC_RULE_FLASH_FB_FLAG) == 0U) {
-        *fb_size = 0U;
+        l->fb_size = 0U;
     } else if ((field & SPLC_RULE_FLASH_FB_V2_FLAG) != 0U) {
-        *fb_size = SPLC_RULE_FLASH_FB_SIZE;
+        l->fb_size = SPLC_RULE_FLASH_FB_SIZE;
     } else {
-        *fb_size = SPLC_RULE_FLASH_FB_SIZE_V1;
+        l->fb_size = SPLC_RULE_FLASH_FB_SIZE_V1;
     }
+#if SPLC_MQTT_ENABLE
+    l->mqtt_size = ((field & SPLC_RULE_FLASH_MQTT_FLAG) != 0U) ? SPLC_RULE_FLASH_MQTT_SIZE : 0U;
+#else
+    l->mqtt_size = 0U;
+#endif
 }
 
-/* Total bytes of a record: header + rules [+ FB section of `fb_size` bytes]. */
-static uint32_t rule_flash_record_size(uint16_t rule_count, uint32_t fb_size)
+/* Total bytes of a record: header + rules [+ FB section] [+ MQTT section].
+ * Layout: header | rules | FB | MQTT, so the MQTT section starts at
+ * RULE_FLASH_DATA_OFFSET + rule_count * 32 + fb_size. */
+static uint32_t rule_flash_record_size(const rule_flash_layout_t *l)
 {
     return RULE_FLASH_DATA_OFFSET +
-           (uint32_t)rule_count * SPLC_RULE_FLASH_RECORD_WIRE_SIZE +
-           fb_size;
+           (uint32_t)l->rule_count * SPLC_RULE_FLASH_RECORD_WIRE_SIZE +
+           l->fb_size + l->mqtt_size;
 }
 
 /*
@@ -152,34 +185,47 @@ static uint16_t rule_flash_record_crc(uint8_t *buf, uint32_t record_size)
 }
 
 /*
- * Builds a full record (header + rule_count x 32-byte wire data) into
- * s_rule_flash_buf from the CURRENT in-RAM g_rule_table[], with the given
- * seq_num. Returns the record's total size in bytes (header +
- * rule_count * 32) -- the exact number of bytes that should be written
- * to/read from Flash for this record, NOT SPLC_RULE_FLASH_RECORD_MAX_SIZE.
+ * Builds a full record (header + rule_count x 32-byte wire data + FB section
+ * [+ MQTT section]) into s_rule_flash_buf from the CURRENT in-RAM state, with
+ * the given seq_num. Returns the record's total size in bytes -- the exact
+ * number of bytes that should be written to/read from Flash for this record,
+ * NOT SPLC_RULE_FLASH_RECORD_MAX_SIZE.
  */
 static uint32_t rule_flash_build_record(uint32_t seq_num)
 {
-    uint16_t rule_count = g_rule_count.rule_count;
+    rule_flash_layout_t layout = {
+        .rule_count = g_rule_count.rule_count,
+        .fb_size    = SPLC_RULE_FLASH_FB_SIZE,
+        .mqtt_size  = SPLC_RULE_FLASH_MQTT_RESERVE,   /* 960 with MQTT, else 0 */
+    };
+    uint16_t field = (uint16_t)(layout.rule_count | SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG);
+#if SPLC_MQTT_ENABLE
+    field |= SPLC_RULE_FLASH_MQTT_FLAG;   /* every save of an MQTT build carries the MQTT section */
+#endif
 
     write_u32_be(&s_rule_flash_buf[RULE_FLASH_SEQ_OFFSET], seq_num);
     /* Every save carries the FB section in the V2 (128-byte) layout, so both
-     * flags are always set here. */
-    write_u16_be(&s_rule_flash_buf[RULE_FLASH_COUNT_OFFSET],
-                 (uint16_t)(rule_count | SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG));
+     * FB flags are always set here. */
+    write_u16_be(&s_rule_flash_buf[RULE_FLASH_COUNT_OFFSET], field);
 
-    for (uint16_t i = 0; i < rule_count; i++) {
+    for (uint16_t i = 0; i < layout.rule_count; i++) {
         rule_record_to_wire(&g_rule_table[i],
                              &s_rule_flash_buf[RULE_FLASH_DATA_OFFSET + (uint32_t)i * SPLC_RULE_FLASH_RECORD_WIRE_SIZE]);
     }
 
     /* FB section: the RUNNING config (plc_fb_commit_draft() has already
      * promoted the draft by the time a COMMIT gets here). */
-    plc_fb_export(&s_rule_flash_buf[RULE_FLASH_DATA_OFFSET +
-                                    (uint32_t)rule_count * SPLC_RULE_FLASH_RECORD_WIRE_SIZE]);
+    const uint32_t fb_off = RULE_FLASH_DATA_OFFSET +
+                            (uint32_t)layout.rule_count * SPLC_RULE_FLASH_RECORD_WIRE_SIZE;
+    plc_fb_export(&s_rule_flash_buf[fb_off]);
+#if SPLC_MQTT_ENABLE
+    /* MQTT section: the RUNNING config too (plc_mqtt_commit_draft() has already
+     * run). It holds the broker password in clear text. */
+    plc_mqtt_export(&s_rule_flash_buf[fb_off + SPLC_RULE_FLASH_FB_SIZE]);
+#endif
 
-    /* The one CRC covers header + rules + FB section. */
-    uint32_t record_size = rule_flash_record_size(rule_count, SPLC_RULE_FLASH_FB_SIZE);
+    /* The one CRC covers header + rules + FB section + MQTT section. */
+    uint32_t record_size = rule_flash_record_size(&layout);
     uint16_t crc = rule_flash_record_crc(s_rule_flash_buf, record_size);
     write_u16_be(&s_rule_flash_buf[RULE_FLASH_CRC_OFFSET], crc);
 
@@ -224,12 +270,11 @@ static void rule_wire_to_record(const uint8_t in[32], SPLC_RuleRecord *r)
 
 /*
  * Reads the header (only SPLC_RULE_FLASH_HEADER_SIZE bytes) from sector
- * `addr`, to learn rule_count before deciding how many more bytes to
+ * `addr`, to learn the layout before deciding how many more bytes to
  * read for the full record. Does not validate CRC -- that requires the
  * full record, done by rule_flash_read_and_validate() below.
  */
-static void rule_flash_read_header(uint32_t addr, uint32_t *seq_num_out, uint16_t *rule_count_out,
-                                   uint32_t *fb_size_out)
+static void rule_flash_read_header(uint32_t addr, uint32_t *seq_num_out, rule_flash_layout_t *layout_out)
 {
     uint8_t header[SPLC_RULE_FLASH_HEADER_SIZE];
     sx_flash_read(addr, header, SPLC_RULE_FLASH_HEADER_SIZE);
@@ -237,43 +282,34 @@ static void rule_flash_read_header(uint32_t addr, uint32_t *seq_num_out, uint16_
     if (seq_num_out != NULL) {
         *seq_num_out = read_u32_be(&header[RULE_FLASH_SEQ_OFFSET]);
     }
-    uint16_t rule_count;
-    uint32_t fb_size;
-    rule_flash_split_field(read_u16_be(&header[RULE_FLASH_COUNT_OFFSET]), &rule_count, &fb_size);
-    if (rule_count_out != NULL) {
-        *rule_count_out = rule_count;
-    }
-    if (fb_size_out != NULL) {
-        *fb_size_out = fb_size;
+    if (layout_out != NULL) {
+        rule_flash_split_field(read_u16_be(&header[RULE_FLASH_COUNT_OFFSET]), layout_out);
     }
 }
 
 /*
  * Reads the full record at `addr` into s_rule_flash_buf and validates its
- * CRC. Returns true (and fills the seq_num/rule_count out-params) only if:
- *   - the header's rule_count (flag bit already split off) is within
- *     0..MAX_RULES (a corrupted count
- *     read as a huge number must not be used to size a further read --
- *     same defensive bound as retain_store_restore()'s count clamp), AND
+ * CRC. Returns true (and fills the out-params) only if:
+ *   - the header's rule_count (flags already split off) is within
+ *     0..MAX_RULES (a corrupted count read as a huge number must not be used
+ *     to size a further read -- same defensive bound as
+ *     retain_store_restore()'s count clamp), AND
  *   - the record's field-embedded CRC-16/MODBUS matches.
  *
- * Blank/erased Flash (reads back as all-0xFF) fails the CRC check here,
- * same as plc_retain.c's retain_record_is_valid() -- there is no need to
- * special-case "blank" separately from "corrupted"; both are simply
- * "not a valid record".
+ * Blank/erased Flash (reads back as all-0xFF) fails the check here, same as
+ * plc_retain.c's retain_record_is_valid() -- there is no need to special-case
+ * "blank" separately from "corrupted"; both are simply "not a valid record".
  */
-static bool rule_flash_read_and_validate(uint32_t addr, uint32_t *seq_num_out, uint16_t *rule_count_out,
-                                         uint32_t *fb_size_out)
+static bool rule_flash_read_and_validate(uint32_t addr, uint32_t *seq_num_out, rule_flash_layout_t *layout_out)
 {
-    uint16_t rule_count;
-    uint32_t fb_size;
-    rule_flash_read_header(addr, NULL, &rule_count, &fb_size);
+    rule_flash_layout_t layout;
+    rule_flash_read_header(addr, NULL, &layout);
 
-    if (rule_count > MAX_RULES) {
+    if (layout.rule_count > MAX_RULES) {
         return false;
     }
 
-    uint32_t record_size = rule_flash_record_size(rule_count, fb_size);
+    uint32_t record_size = rule_flash_record_size(&layout);
     sx_flash_read(addr, s_rule_flash_buf, record_size);
 
     uint16_t stored_crc   = read_u16_be(&s_rule_flash_buf[RULE_FLASH_CRC_OFFSET]);
@@ -286,11 +322,8 @@ static bool rule_flash_read_and_validate(uint32_t addr, uint32_t *seq_num_out, u
     if (seq_num_out != NULL) {
         *seq_num_out = read_u32_be(&s_rule_flash_buf[RULE_FLASH_SEQ_OFFSET]);
     }
-    if (rule_count_out != NULL) {
-        *rule_count_out = rule_count;
-    }
-    if (fb_size_out != NULL) {
-        *fb_size_out = fb_size;
+    if (layout_out != NULL) {
+        *layout_out = layout;
     }
     return true;
 }
@@ -331,16 +364,18 @@ static void rule_flash_write_sector(uint32_t dst_addr, uint32_t size)
  */
 static void rule_flash_copy_sector(uint32_t src_addr, uint32_t dst_addr)
 {
-    uint16_t rule_count;
-    uint32_t fb_size;
-    rule_flash_read_header(src_addr, NULL, &rule_count, &fb_size);
-    if (rule_count > MAX_RULES) {
-        rule_count = MAX_RULES; /* defensive clamp, same rationale as rule_flash_read_and_validate() */
+    rule_flash_layout_t layout;
+    rule_flash_read_header(src_addr, NULL, &layout);
+    if (layout.rule_count > MAX_RULES) {
+        layout.rule_count = MAX_RULES; /* defensive clamp, same rationale as rule_flash_read_and_validate() */
     }
 
-    /* The FB section must be copied too: dropping it here would silently
-     * lose the FB config on every A->B sync / B->A restore. */
-    uint32_t size = rule_flash_record_size(rule_count, fb_size);
+    /* The FB and MQTT sections must be copied too: dropping them here would
+     * silently lose that config on every A->B sync / B->A restore. */
+    uint32_t size = rule_flash_record_size(&layout);
+    if (size > SPLC_RULE_FLASH_RECORD_MAX_SIZE) {
+        size = SPLC_RULE_FLASH_RECORD_MAX_SIZE;   /* garbage header (flags without a record): stay inside the buffer */
+    }
     sx_flash_read(src_addr, s_rule_flash_buf, size);
     rule_flash_write_sector(dst_addr, size);
 }
@@ -348,61 +383,74 @@ static void rule_flash_copy_sector(uint32_t src_addr, uint32_t dst_addr)
 /*
  * Applies the record currently sitting (already CRC-validated) in
  * s_rule_flash_buf: decodes the rules into RAM-struct layout and commits
- * them, then restores the Function Block config if the record carries one.
+ * them, then restores the Function Block config and the MQTT config if the
+ * record carries them.
  *
  * A record with no FB section (written before Step 8b) leaves the FB config
  * DISABLED (plc_fb_init() already put it there). A FB image that fails
  * validation -- e.g. a retain tag that no longer exists because the board's
  * tag layout changed -- also leaves it DISABLED; that is logged but is not a
- * reason to drop the rules, which passed their own checks.
+ * reason to drop the rules, which passed their own checks. The MQTT section
+ * is treated the same way: absent or invalid -> the MQTT config stays as
+ * plc_mqtt_init() left it (every block DISABLED, broker not configured);
+ * plc_mqtt_import() applies nothing when any part of the image is bad.
  */
-static void rule_flash_apply_buffer(uint16_t rule_count, uint32_t fb_size, const char *from)
+static void rule_flash_apply_buffer(const rule_flash_layout_t *l, const char *from)
 {
+    const uint16_t rule_count = l->rule_count;
     for (uint16_t i = 0; i < rule_count; i++) {
         rule_wire_to_record(&s_rule_flash_buf[RULE_FLASH_DATA_OFFSET + (uint32_t)i * SPLC_RULE_FLASH_RECORD_WIRE_SIZE],
                              &s_rule_flash_decoded[i]);
     }
     rule_table_commit((const uint8_t *)s_rule_flash_decoded, rule_count);
 
-    if (fb_size == 0U) {
-        log_info(TAG, "Flash %s has no FB section (pre-8b record) -- FB config left DISABLED", from);
-        return;
-    }
-
     const uint8_t *fb = &s_rule_flash_buf[RULE_FLASH_DATA_OFFSET +
                                           (uint32_t)rule_count * SPLC_RULE_FLASH_RECORD_WIRE_SIZE];
-    /* A legacy 112-byte image (written before Step 8d) has no Timer rule
-     * binding: its Timers load unbound. The next save rewrites the record in
-     * the 128-byte layout. */
-    bool imported = (fb_size == SPLC_RULE_FLASH_FB_SIZE) ? plc_fb_import(fb) : plc_fb_import_v1(fb);
-    if (imported) {
-        log_info(TAG, "FB config restored from Flash %s", from);
+    if (l->fb_size == 0U) {
+        log_info(TAG, "Flash %s has no FB section (pre-8b record) -- FB config left DISABLED", from);
     } else {
-        log_warn(TAG, "FB section in Flash %s failed validation -- FB config left DISABLED", from);
+        /* A legacy 112-byte image (written before Step 8d) has no Timer rule
+         * binding: its Timers load unbound. The next save rewrites the record
+         * in the 128-byte layout. */
+        bool imported = (l->fb_size == SPLC_RULE_FLASH_FB_SIZE) ? plc_fb_import(fb) : plc_fb_import_v1(fb);
+        if (imported) {
+            log_info(TAG, "FB config restored from Flash %s", from);
+        } else {
+            log_warn(TAG, "FB section in Flash %s failed validation -- FB config left DISABLED", from);
+        }
     }
+
+#if SPLC_MQTT_ENABLE
+    if (l->mqtt_size == 0U) {
+        log_info(TAG, "Flash %s has no MQTT section -- MQTT config left DISABLED", from);
+    } else if (plc_mqtt_import(fb + l->fb_size)) {
+        log_info(TAG, "MQTT config restored from Flash %s", from);
+    } else {
+        log_warn(TAG, "MQTT section in Flash %s failed validation -- MQTT config left DISABLED", from);
+    }
+#endif
 }
 
 void plc_rule_flash_load(void)
 {
     uint32_t seq_num;
-    uint16_t rule_count;
-    uint32_t fb_size;
+    rule_flash_layout_t layout;
 
-    if (rule_flash_read_and_validate(SPLC_FLASH_RULE_TABLE_A_ADDR, &seq_num, &rule_count, &fb_size)) {
+    if (rule_flash_read_and_validate(SPLC_FLASH_RULE_TABLE_A_ADDR, &seq_num, &layout)) {
         /* A is good: the normal, steady-state boot path. The record is in
          * s_rule_flash_buf; rule_flash_apply_buffer() decodes each rule's
          * 32-byte wire image back into RAM-struct layout before calling
          * rule_table_commit() -- see rule_wire_to_record()'s comment for
          * why (rule_table_commit() expects native struct bytes). */
-        rule_flash_apply_buffer(rule_count, fb_size, "A");
+        rule_flash_apply_buffer(&layout, "A");
         log_info(TAG, "loaded %u rule(s) from Flash A (seq_num=%lu)",
-                 rule_count, (unsigned long)seq_num);
+                 layout.rule_count, (unsigned long)seq_num);
         return;
     }
 
     log_warn(TAG, "Flash A invalid or blank, trying B");
 
-    if (rule_flash_read_and_validate(SPLC_FLASH_RULE_TABLE_B_ADDR, &seq_num, &rule_count, &fb_size)) {
+    if (rule_flash_read_and_validate(SPLC_FLASH_RULE_TABLE_B_ADDR, &seq_num, &layout)) {
         /* B is good but A was not: restore A from B before committing to
          * RAM, so the running/backup pair is back in sync on disk before
          * anything else touches Flash. The copy re-reads B into
@@ -411,15 +459,16 @@ void plc_rule_flash_load(void)
                  (unsigned long)seq_num);
         rule_flash_copy_sector(SPLC_FLASH_RULE_TABLE_B_ADDR, SPLC_FLASH_RULE_TABLE_A_ADDR);
 
-        rule_flash_apply_buffer(rule_count, fb_size, "B");
-        log_info(TAG, "loaded %u rule(s) from Flash B (A restored)", rule_count);
+        rule_flash_apply_buffer(&layout, "B");
+        log_info(TAG, "loaded %u rule(s) from Flash B (A restored)", layout.rule_count);
         return;
     }
 
     /* Neither A nor B holds a valid record -- first boot ever, or both
      * sectors blank/corrupted. Not an error: rule_table_load_from_flash()
-     * (Layer 2) already left g_rule_table[] empty and plc_fb_init() left the
-     * FB config DISABLED, so there is nothing further to do. */
+     * (Layer 2) already left g_rule_table[] empty, plc_fb_init() left the FB
+     * config DISABLED and plc_mqtt_init() the MQTT config, so there is
+     * nothing further to do. */
     log_info(TAG, "no valid rule table found on Flash (A or B) -- starting with an empty rule table");
 }
 
@@ -447,7 +496,7 @@ bool plc_rule_flash_save(void)
      * make the data dependency explicit: B is now guaranteed to hold
      * whatever A held a moment ago. */
     uint32_t old_seq_num;
-    rule_flash_read_header(SPLC_FLASH_RULE_TABLE_B_ADDR, &old_seq_num, NULL, NULL);
+    rule_flash_read_header(SPLC_FLASH_RULE_TABLE_B_ADDR, &old_seq_num, NULL);
     uint32_t new_seq_num = old_seq_num + 1U;
 
     /* Step 2: Clear A, write the new rule table (already committed in
@@ -465,7 +514,7 @@ bool plc_rule_flash_save(void)
      * carries old_seq_num, never new_seq_num (= old + 1), so comparing the
      * two tells "new record is in A" from "old record survived". */
     uint32_t written_seq_num = 0U;
-    if (rule_flash_read_and_validate(SPLC_FLASH_RULE_TABLE_A_ADDR, &written_seq_num, NULL, NULL) &&
+    if (rule_flash_read_and_validate(SPLC_FLASH_RULE_TABLE_A_ADDR, &written_seq_num, NULL) &&
         written_seq_num == new_seq_num) {
         /* New record verified: re-sync B = A, so B is ready as the backup
          * for the next save. */
@@ -492,7 +541,7 @@ bool plc_rule_flash_save(void)
      * once A is CONFIRMED to hold a valid table again -- whether that
      * came from the direct write (above) or this restore.
      */
-    if (rule_flash_read_and_validate(SPLC_FLASH_RULE_TABLE_A_ADDR, NULL, NULL, NULL)) {
+    if (rule_flash_read_and_validate(SPLC_FLASH_RULE_TABLE_A_ADDR, NULL, NULL)) {
         log_warn(TAG, "rule table NOT newly saved (Flash A write failed), "
                  "but restored to previous good state (seq_num=%lu)",
                  (unsigned long)old_seq_num);

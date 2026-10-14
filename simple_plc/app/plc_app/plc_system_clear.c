@@ -9,6 +9,10 @@
 #include "plc_rule_flash.h"
 #include "plc_retain.h"
 #include "plc_fb.h"
+#include "splc_opt.h"
+#if SPLC_MQTT_ENABLE
+#include "plc_mqtt.h"
+#endif
 #include "splc_log.h"
 
 /*
@@ -31,6 +35,9 @@ static const char *TAG = "PLC_SYS_CLEAR";
 static SPLC_RuleRecord s_rules_backup[MAX_RULES];
 static int32_t         s_retain_backup[MAX_TAGS];
 static uint8_t         s_fb_backup[PLC_FB_FLASH_SIZE];
+#if SPLC_MQTT_ENABLE
+static uint8_t         s_mqtt_backup[PLC_MQTT_FLASH_SIZE];   /* holds the broker password: cleared right after use */
+#endif
 
 bool plc_clear_rules(void)
 {
@@ -38,6 +45,9 @@ bool plc_clear_rules(void)
     const uint16_t old_count = g_rule_count.rule_count;
     memcpy(s_rules_backup, g_rule_table, sizeof(s_rules_backup));
     plc_fb_export(s_fb_backup);   /* FB config is part of the program being cleared */
+#if SPLC_MQTT_ENABLE
+    plc_mqtt_export(s_mqtt_backup);   /* so is the MQTT config (telemetry blocks + broker) */
+#endif
 
     /*
      * rule_table_commit() rejects raw_data == NULL, so pass a real pointer
@@ -54,10 +64,16 @@ bool plc_clear_rules(void)
      * It runs BEFORE the save so the empty record carries a DISABLED FB
      * image. */
     plc_fb_clear_all();
+#if SPLC_MQTT_ENABLE
+    plc_mqtt_clear_all();   /* also drops any MQTT draft; runs BEFORE the save like the FB clear */
+#endif
 
     if (plc_rule_flash_save()) {
         log_info(TAG, "CLEAR_RULES done: empty rule table and FB config saved to Flash (was %u rule(s))",
                  (unsigned)old_count);
+#if SPLC_MQTT_ENABLE
+        memset(s_mqtt_backup, 0, sizeof(s_mqtt_backup));
+#endif
         return true;
     }
 
@@ -68,6 +84,10 @@ bool plc_clear_rules(void)
               (unsigned)old_count);
     (void)rule_table_commit((const uint8_t *)s_rules_backup, old_count);
     (void)plc_fb_import(s_fb_backup);   /* valid before, tag layout unchanged */
+#if SPLC_MQTT_ENABLE
+    (void)plc_mqtt_import(s_mqtt_backup);
+    memset(s_mqtt_backup, 0, sizeof(s_mqtt_backup));
+#endif
     return false;
 }
 
