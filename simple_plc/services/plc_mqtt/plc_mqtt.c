@@ -4,7 +4,8 @@
 
 #include <string.h>
 
-#include "plc_tag.h"          /* MAX_TAGS */
+#include "plc_tag.h"          /* MAX_TAGS, tag_read() */
+#include "plc_rtc.h"          /* plc_rtc_get_epoch(): {ts} */
 #include "splc_mqtt_fmt.h"    /* template check, deadband check */
 #include "splc_log.h"
 
@@ -87,8 +88,30 @@ static splc_mqtt_status_t s_status;
 static uint32_t s_tx_msgs;
 static uint32_t s_tx_bytes;
 
-/* Fallback for {device} while client_id is empty (used by the scan, E.4). */
+/* Fallback for {device} while client_id is empty. */
 static char s_default_device[SPLC_MQTT_BROKER_CRED_MAX_CHARS + 1U];
+
+/* ---- publish scan state (step E.4). RAM only, rebuilt from the running
+ * config whenever a block changes (rt_prepare). ---- */
+typedef struct {
+    int32_t  last_val[SPLC_MQTT_MAX_TAGS_PER_BLOCK]; /* values at the last accepted publish */
+    uint32_t cov_thr[SPLC_MQTT_MAX_TAGS_PER_BLOCK];  /* COV threshold in raw tag units, per tag */
+    uint32_t last_pub_ms;
+    uint32_t retry_at_ms;
+    bool     need_first;      /* publish once, regardless of mode (baseline value) */
+    bool     was_active;      /* active at the previous scan (enable tag edge) */
+    bool     retry_wait;      /* publish was refused: wait until retry_at_ms */
+} block_rt_t;
+
+static block_rt_t s_rt[BLOCKS];
+static unsigned   s_rr;                 /* block the next scan looks at first */
+static bool       s_was_ready;          /* broker was ready at the previous scan */
+static uint32_t   s_format_errors;
+static bool       s_format_warned;
+static splc_mqtt_publish_fn s_publish;  /* NOT cleared by plc_mqtt_init(): the Host registers before the engine starts */
+static void      *s_publish_ctx;
+
+static char s_payload[SPLC_MQTT_PAYLOAD_MAX];   /* one buffer shared by all blocks */
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -132,6 +155,43 @@ static bool broker_app_configured(const uint16_t *brk)
     return broker_enabled(brk) && !broker_host_empty(brk);
 }
 
+/* Decimal digits of bound tag k (0..7): 2 bits each in reserved_header, LSB
+ * first (docs/plc_mqtt_design.md section 13, Q8). The App writes 0 today. */
+static uint8_t tag_dec(const uint16_t *blk, unsigned k)
+{
+    return (uint8_t)((blk[TB_RESERVED] >> (2U * k)) & 0x3U);
+}
+
+/* Reset the publish state of block i after its running config changed (boot,
+ * COMMIT, Flash import, clear): the COV thresholds are derived here ONCE so
+ * the scan only compares integers, and the block publishes a baseline value
+ * the next time it is active. */
+static void rt_prepare(unsigned i)
+{
+    const uint16_t *blk = s_tel[i];
+    block_rt_t     *rt  = &s_rt[i];
+    uint32_t        bits = reg32(blk, TB_DEADBAND_HI);
+    float           deadband;
+    memcpy(&deadband, &bits, sizeof(deadband));
+
+    memset(rt, 0, sizeof(*rt));
+    for (unsigned k = 0; k < SPLC_MQTT_MAX_TAGS_PER_BLOCK; k++) {
+        uint32_t thr;
+        if (!splc_mqtt_fmt_deadband_threshold(deadband, tag_dec(blk, k), &thr)) {
+            thr = UINT32_MAX;               /* unreachable for an enabled block: COMMIT rejects it */
+        }
+        rt->cov_thr[k] = thr;
+    }
+    rt->need_first = true;
+}
+
+static void rt_prepare_all(void)
+{
+    for (unsigned i = 0; i < BLOCKS; i++) {
+        rt_prepare(i);
+    }
+}
+
 /* ------------------------------------------------------------------ lifecycle */
 
 void plc_mqtt_init(void)
@@ -147,6 +207,11 @@ void plc_mqtt_init(void)
     s_tx_msgs        = 0U;
     s_tx_bytes       = 0U;
     s_default_device[0] = '\0';
+    s_rr             = 0U;
+    s_was_ready      = false;
+    s_format_errors  = 0U;
+    s_format_warned  = false;
+    rt_prepare_all();                       /* s_publish / s_publish_ctx are kept on purpose */
 }
 
 /* ------------------------------------------------------------------ Modbus read */
@@ -392,6 +457,7 @@ void plc_mqtt_commit_draft(void)
     for (unsigned i = 0; i < BLOCKS; i++) {
         if ((s_draft_mask & (1U << i)) != 0U) {
             memcpy(s_tel[i], s_tel_draft[i], sizeof(s_tel[i]));
+            rt_prepare(i);
         }
     }
     if ((s_draft_mask & DRAFT_BROKER_BIT) != 0U) {
@@ -412,6 +478,7 @@ void plc_mqtt_clear_all(void)
     static const uint16_t zero_brk[PLC_MQTT_BROKER_CFG_REGS];   /* all zero */
 
     memset(s_tel, 0, sizeof(s_tel));
+    rt_prepare_all();
     broker_apply(zero_brk);
     s_draft_mask = 0U;
 }
@@ -470,9 +537,200 @@ bool plc_mqtt_import(const uint8_t *in)
     }
 
     memcpy(s_tel, s_tel_draft, sizeof(s_tel));
+    rt_prepare_all();
     broker_apply(s_brk_draft);
     s_draft_mask = 0U;
     return true;
+}
+
+/* ------------------------------------------------------------------ publish scan (step E.4) */
+
+bool splc_mqtt_register(splc_mqtt_publish_fn fn, void *ctx)
+{
+    if (fn == NULL) {
+        return false;
+    }
+    s_publish     = fn;
+    s_publish_ctx = ctx;
+    return true;
+}
+
+uint32_t splc_mqtt_format_errors(void)
+{
+    return s_format_errors;
+}
+
+static bool broker_ready(void)
+{
+    return (s_status.flags & SPLC_MQTT_STATUS_CONNECTED) != 0U &&
+           s_status.generation == s_generation;
+}
+
+static bool block_active(const uint16_t *blk)
+{
+    if ((blk[TB_CONTROL] & SPLC_MQTT_CTRL_ENABLED_BIT) == 0U) {
+        return false;
+    }
+    const uint16_t en = blk[TB_EN_TAG];
+    return (en == 0xFFFFU) || (en < MAX_TAGS && tag_read(en) != 0);
+}
+
+/* Should block i publish now? `cur` holds the current values of its bound tags. */
+static bool block_due(unsigned i, uint32_t now_ms, const int32_t *cur)
+{
+    const uint16_t *blk = s_tel[i];
+    const block_rt_t *rt = &s_rt[i];
+
+    if (rt->need_first) {
+        return true;
+    }
+    const unsigned mode  = (blk[TB_CONTROL] & SPLC_MQTT_CTRL_MODE_MASK) >> SPLC_MQTT_CTRL_MODE_SHIFT;
+    const unsigned count = blk[TB_TAG_COUNT];
+
+    switch (mode) {
+        case SPLC_MQTT_MODE_ON_CHANGE:
+            for (unsigned k = 0; k < count; k++) {
+                if (cur[k] != rt->last_val[k]) {
+                    return true;
+                }
+            }
+            return false;
+        case SPLC_MQTT_MODE_COV:
+            for (unsigned k = 0; k < count; k++) {
+                int64_t d = (int64_t)cur[k] - (int64_t)rt->last_val[k];
+                if (d < 0) {
+                    d = -d;
+                }
+                if (d >= (int64_t)rt->cov_thr[k]) {
+                    return true;
+                }
+            }
+            return false;
+        case SPLC_MQTT_MODE_PERIODIC:
+            return (uint32_t)(now_ms - rt->last_pub_ms) >= reg32(blk, TB_INTERVAL_HI);
+        default:
+            return false;
+    }
+}
+
+/* Render block i's payload into s_payload. Returns its length, or -1. */
+static int block_render(unsigned i, const int32_t *cur)
+{
+    const uint16_t *blk = s_tel[i];
+    char            device[SPLC_MQTT_BROKER_CRED_MAX_CHARS + 1U];
+    splc_mqtt_fmt_in_t in;
+    uint32_t           epoch = 0U;
+
+    regs_to_str(&s_brk[BK_CLIENT_ID], SPLC_MQTT_BROKER_CRED_MAX_CHARS, device);
+    in.device = (device[0] != '\0') ? device : s_default_device;
+    in.count  = (uint8_t)blk[TB_TAG_COUNT];
+    for (unsigned k = 0; k < SPLC_MQTT_FMT_MAX_TAGS; k++) {
+        in.tag[k] = blk[TB_TAGS + k];
+        in.val[k] = (k < in.count) ? cur[k] : 0;
+        in.dec[k] = tag_dec(blk, k);
+    }
+    if (!plc_rtc_get_epoch(&epoch)) {
+        epoch = 0U;                         /* no clock yet: {ts} = 0, never a made-up time */
+    }
+    in.ts = epoch;
+
+    switch ((blk[TB_CONTROL] & SPLC_MQTT_CTRL_PAYLOAD_MASK) >> SPLC_MQTT_CTRL_PAYLOAD_SHIFT) {
+        case SPLC_MQTT_PAYLOAD_COMPACT_JSON:
+            return splc_mqtt_fmt_compact(s_payload, sizeof(s_payload), &in);
+        case SPLC_MQTT_PAYLOAD_RAW_VALUE:
+            return splc_mqtt_fmt_raw(s_payload, sizeof(s_payload), &in);
+        case SPLC_MQTT_PAYLOAD_CUSTOM: {
+            char tmpl[TB_TMPL_CHARS + 1U];
+            regs_to_str(&blk[TB_TEMPLATE], TB_TMPL_CHARS, tmpl);
+            return splc_mqtt_fmt_custom(s_payload, sizeof(s_payload), tmpl, TB_TMPL_CHARS, &in);
+        }
+        default:
+            return -1;
+    }
+}
+
+void plc_mqtt_scan(uint32_t now_ms)
+{
+    if (s_publish == NULL) {
+        return;
+    }
+
+    const bool ready = broker_ready();
+    if (ready && !s_was_ready) {
+        /* Broker (re)connected, or just switched to the new config: every
+         * block gives the cloud a fresh baseline value. */
+        for (unsigned i = 0; i < BLOCKS; i++) {
+            s_rt[i].need_first = true;
+        }
+    }
+    s_was_ready = ready;
+    if (!ready) {
+        return;                             /* nothing is queued while not ready */
+    }
+
+    for (unsigned n = 0; n < BLOCKS; n++) {
+        const unsigned   i   = (s_rr + n) % BLOCKS;
+        const uint16_t  *blk = s_tel[i];
+        block_rt_t      *rt  = &s_rt[i];
+
+        const bool active = block_active(blk);
+        if (!active) {
+            rt->was_active = false;
+            continue;
+        }
+        if (!rt->was_active) {              /* enable tag went 0 -> non-zero (or block just enabled) */
+            rt->was_active = true;
+            rt->need_first = true;
+        }
+        if (rt->retry_wait) {
+            if ((uint32_t)(now_ms - rt->retry_at_ms) >= 0x80000000U) {
+                continue;                   /* retry time still in the future */
+            }
+            rt->retry_wait = false;
+        }
+
+        int32_t cur[SPLC_MQTT_MAX_TAGS_PER_BLOCK];
+        const unsigned count = blk[TB_TAG_COUNT];
+        for (unsigned k = 0; k < count && k < SPLC_MQTT_MAX_TAGS_PER_BLOCK; k++) {
+            cur[k] = tag_read(blk[TB_TAGS + k]);
+        }
+        if (!block_due(i, now_ms, cur)) {
+            continue;
+        }
+
+        s_rr = (i + 1U) % BLOCKS;           /* one publish attempt per scan, then the next block goes first */
+
+        const int len = block_render(i, cur);
+        if (len < 0) {
+            s_format_errors++;
+            if (!s_format_warned) {
+                s_format_warned = true;
+                log_warn(TAG, "block %u: payload could not be rendered; not published", i);
+            }
+            rt->retry_wait  = true;
+            rt->retry_at_ms = (uint32_t)(now_ms + SPLC_MQTT_RETRY_MS);
+            return;
+        }
+
+        char topic[TB_TOPIC_CHARS + 1U];
+        regs_to_str(&blk[TB_TOPIC], TB_TOPIC_CHARS, topic);
+        const uint8_t qos = (uint8_t)((blk[TB_CONTROL] & SPLC_MQTT_CTRL_QOS_MASK) >> SPLC_MQTT_CTRL_QOS_SHIFT);
+        const bool retain = (blk[TB_CONTROL] & SPLC_MQTT_CTRL_RETAIN_BIT) != 0U;
+
+        if (s_publish(topic, s_payload, (size_t)len, qos, retain, s_publish_ctx) == 0) {
+            for (unsigned k = 0; k < count && k < SPLC_MQTT_MAX_TAGS_PER_BLOCK; k++) {
+                rt->last_val[k] = cur[k];
+            }
+            rt->last_pub_ms = now_ms;
+            rt->need_first  = false;
+            s_tx_msgs++;
+            s_tx_bytes += (uint32_t)len;
+        } else {
+            rt->retry_wait  = true;         /* nothing recorded as published */
+            rt->retry_at_ms = (uint32_t)(now_ms + SPLC_MQTT_RETRY_MS);
+        }
+        return;
+    }
 }
 
 /* ------------------------------------------------------------------ host-facing API */

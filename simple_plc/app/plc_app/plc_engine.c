@@ -136,6 +136,13 @@ static void scan_cycle(uint32_t now_ms)
     s_rule_engine_was_suspended = suspended;
 
     output_scan();
+#if SPLC_MQTT_ENABLE
+    /* Not while a diag session suspends the engine: the tags are forced by the
+     * Host then, not real data (docs/plc_mqtt_design.md, Q4). */
+    if (!suspended) {
+        plc_mqtt_scan(now_ms);
+    }
+#endif
     modbus_config_service();
     retain_service();
 

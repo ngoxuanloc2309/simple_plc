@@ -59,19 +59,34 @@ với RAM 99,54%, **dư 2 992 B** (quyết định 26). Heap trống tối thi�
 đổi-tên/config/OS/Flash/logger; Remote I/O với board IO thật (timing RS485, nhả DE); FreeRTOS kernel thật (độ trễ task
 lúc erase Flash); PVD thật; mất điện giữa lúc ghi Flash; `test_rtc.py --reboot`; đường RS485 của Zigbee-IO.
 
-**MQTT Publish (quyết định 31–35, `docs/plc_mqtt_design.md`): đã có code đến E.3, chưa có gì chạy trên board.**
+**MQTT Publish (quyết định 31–35, `docs/plc_mqtt_design.md`): đã có code đến E.4, chưa có gì chạy trên board.**
 - Có: `utils/mqtt_fmt` + `plc_mqtt/splc_mqtt_wire.h` + option (E.1); `plc_mqtt` cấu hình running/draft/COMMIT, định tuyến
   `0x0C00..0x0D7F` / `0x0E00..0x0E5F`, `plc_rtc_get_epoch()` (E.2); lưu Flash MQTT trong bản ghi Rule Table (bit 13
-  của `rule_count`, 960 B sau đoạn FB, một CRC) và hook `CLEAR_RULES`/`FACTORY_RESET` có backup/rollback (E.3).
+  của `rule_count`, 960 B sau đoạn FB, một CRC) và hook `CLEAR_RULES`/`FACTORY_RESET` có backup/rollback (E.3);
+  `plc_mqtt_scan()` (ON_CHANGE/COV/PERIODIC, 1 publish/scan, quay vòng 4 khối, retry) + ống `splc_mqtt_register()` +
+  dựng payload bằng `splc_mqtt_fmt`; `scan_cycle()` gọi ngay sau `output_scan()`, bỏ qua khi diag treo engine (E.4).
 - Số đo ARM Release Zigbee-IO (GCC 13.2.1, máy sandbox): `SPLC_MQTT_ENABLE=0` RAM 77 664 / FLASH 80 264 B = ĐÚNG baseline
   (code E.3 được macro `RF_MQ_*` triệt tiêu khi tắt MQTT; không macro thì +60 B); `SPLC_MQTT_ENABLE=1` (qua
-  `-DSPLC_OPTS_DIR`) RAM 81 488 B (+3 824) / FLASH 83 944 B (+3 680). Chưa tính buffer payload (E.4).
+  `-DSPLC_OPTS_DIR`) RAM 82 104 B (+4 440) / FLASH 85 976 B (+5 712) — đã gồm E.3 và E.4 (buffer payload 256 B,
+  runtime 4 khối ~300 B, buffer Flash +960 B, backup CLEAR +960 B). Đây là số của Zigbee-IO; gateway chưa đo.
 - Đã kiểm trên PC với Flash GIẢ (mô hình giả, KHÔNG phải board; harness không nằm trong repo): boot Flash trống; lưu→reboot
   khớp từng byte (cả mật khẩu); A hỏng → khôi phục từ B kèm MQTT; bản ghi trước E.3 (không cờ MQTT) vẫn nạp, MQTT mặc định;
   ảnh MQTT sai (CRC đúng) → rule vẫn nạp, MQTT giữ nguyên; Flash từ chối ghi → `save` false; `CLEAR_RULES` xoá MQTT và
   rollback khi lưu lỗi; build `MQTT=0` đọc bản ghi của build `MQTT=1` → từ chối (không đọc lệch). Đã phá code có chủ đích
   4 chỗ, test đều bắt được.
-- CHƯA: chạy board; build Gateway (repo không có `splcopts.h` chuẩn của gateway); `test_mqtt.py`; E.4–E.7.
+- Scan E.4 cũng đã kiểm trên PC với đồng hồ/tag/callback GIẢ (không phải board): không publish khi chưa kết nối; baseline
+  một lần; ON_CHANGE; COV theo đơn vị kỹ thuật (deadband 0.5, dec=1 → ngưỡng 5 đơn vị thô, `>=`); PERIODIC qua tràn
+  32-bit; cổng enable tag; callback trả `<0` thì không ghi nhận và thử lại sau `SPLC_MQTT_RETRY_MS`; quay vòng không bỏ
+  đói khối nào; mất kết nối thì bỏ dữ liệu, nối lại thì mỗi khối bắn lại một lần; cổng `generation`; COMMIT ghi đè khối
+  thì khối đó bắn lại baseline; payload Compact/Raw/Custom, số lẻ theo `reserved_header`, `{ts}`=0 khi chưa có giờ,
+  `{device}`, QoS/retain. Đã phá code có chủ đích 6 chỗ (cổng generation, refuse vẫn ghi last_val, COV `>`, không quay vòng, PERIODIC so sánh không an toàn tràn, không baseline khi nối lại), test bắt được cả 6.
+- Hành vi scan do mình chốt thêm khi code (design chưa nêu rõ; đổi nếu bạn muốn khác): (a) nối lại broker → mọi khối bắn
+  lại baseline một lần; (b) enable tag đi 0 → khác 0 (hoặc khối vừa bật) → bắn lại baseline; (c) `tx_message_count` đếm
+  số lần callback trả 0 (host ĐÃ NHẬN, chưa phải broker đã ack); (d) lỗi dựng payload (không xảy ra nếu COMMIT đã kiểm)
+  chỉ đếm vào `splc_mqtt_format_errors()` và log một lần, chưa có thanh ghi riêng.
+- Chưa kiểm: gọi `plc_mqtt_scan()` từ `scan_cycle()` và việc bỏ qua khi diag treo (logic nằm ở `plc_engine.c`, test PC không
+  chạy engine); chỉ biết build ARM sạch.
+- CHƯA: chạy board; build Gateway (repo không có `splcopts.h` chuẩn của gateway); `test_mqtt.py`; E.5–E.7.
 - Hệ quả cần biết: hạ firmware từ bản `MQTT=1` xuống bản `MQTT=0` thì bản ghi Flash bị coi là hỏng → cần Deploy lại.
 Việc tiếp theo: E.4 (mục 4.E).
 
@@ -335,7 +350,8 @@ comment cũ nhắc `modbus_usb`/`sx_usb_cdc`/`FREE_RTOS` còn ở `plc_modbus_cf
    `0x0E00..0x0E5F` + `plc_rtc_get_epoch`; COMMIT gọi `plc_mqtt_validate_draft()` trước `rule_table_commit()`.
 3. *(xong, build ARM + test PC với Flash giả; chưa chạy board)* Đoạn MQTT trong `plc_rule_flash` (bit 13,
    `plc_mqtt_export/import`) + `CLEAR_RULES`/`FACTORY_RESET` (`plc_system_clear.c`: backup, `plc_mqtt_clear_all()`, rollback).
-4. `plc_mqtt_scan` (COV/chu kỳ), ống publish, status.
+4. *(xong, build ARM + test PC với mô hình giả; chưa chạy board)* `plc_mqtt_scan` (ON_CHANGE/COV/chu kỳ), ống publish
+   `splc_mqtt_register()`, status; nối vào `scan_cycle()` sau `output_scan()`.
 5. Port phía `wg_ue` trên bản clone: `splc_mqtt_register`, `mqtt_client_publish_ex`, lớp ghi đè cấu hình, báo generation.
    Đọc kỹ `mqtt_client.c` (~660–676) và `config_apply_manager.c`.
 6. `test/test_mqtt.py` + kiểm ranh giới layer bằng `nm`.

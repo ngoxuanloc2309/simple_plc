@@ -8,9 +8,11 @@
  * the LOGIC and HOLDS the data: there is no network client in this library
  * (decision 31). This header covers step E.2 (the configuration blocks,
  * their draft + COMMIT cycle, the Modbus register access and the status
- * block) and step E.3 (the Flash image: plc_mqtt_export/import, stored by
- * plc_rule_flash inside the Rule Table record). Scanning / publishing
- * (E.4) is NOT here yet.
+ * block), step E.3 (the Flash image: plc_mqtt_export/import, stored by
+ * plc_rule_flash inside the Rule Table record) and step E.4 (the publish
+ * scan: plc_mqtt_scan() decides WHEN a block fires and renders the payload;
+ * the host's publish callback, registered with splc_mqtt_register(), does the
+ * actual network send).
  *
  * Register map (Structs MQTT profile, splc_mqtt_wire.h):
  *   0x0C00 + i*96   (i = 0..3)  Telemetry block i, 96 registers   R/W
@@ -137,6 +139,49 @@ bool plc_mqtt_import(const uint8_t *in);
 /* CLEAR_RULES / FACTORY_RESET: every block DISABLED, broker "not configured"
  * (generation moves if app_configured was true), draft dropped. */
 void plc_mqtt_clear_all(void);
+
+/* ------------------------------------------------------------------ publish scan (step E.4) */
+
+/*
+ * Called once per engine scan cycle, right after output_scan() and NOT while
+ * a diag session suspends the rule engine (decision Q4: the values are then
+ * forced by the Host, not real data). now_ms = the scan's tick (unsigned
+ * arithmetic, safe across the 32-bit rollover).
+ *
+ * Does nothing until a publish callback is registered AND the broker is
+ * READY: status.flags has CONNECTED and status.generation == generation (the
+ * connection was built from the config the library holds now). While not
+ * ready nothing is queued: data from that time is dropped and the first
+ * publish after the broker becomes ready carries the then-current values.
+ *
+ * At most ONE publish per call, blocks served round-robin. A block is active
+ * when ENABLED and (en_tag_index == 0xFFFF or that tag != 0). It fires when
+ *   - it has not published since it became active (boot, reconnect, a COMMIT
+ *     that rewrote the block, enable tag going 0 -> non-zero): once, so the
+ *     cloud gets a baseline value; or
+ *   - ON_CHANGE: any bound tag differs from the value last published;
+ *     COV: any bound tag moved by >= its threshold (ceil(deadband * 10^dec),
+ *     fixed at COMMIT); PERIODIC: interval_ms elapsed since the last publish.
+ * When the callback returns < 0 nothing is recorded as published and the
+ * block is tried again after SPLC_MQTT_RETRY_MS.
+ */
+void plc_mqtt_scan(uint32_t now_ms);
+
+/* Publish callback registered by the Host (netif_add style, decision 16).
+ * Runs in the engine context and must NOT block. `payload` is NUL-terminated,
+ * len = strlen(payload); the buffer is reused right after the call, so copy it
+ * if it must outlive the call. Return 0 = accepted, < 0 = busy / failed (the
+ * library retries later and loses nothing). */
+typedef int (*splc_mqtt_publish_fn)(const char *topic, const char *payload, size_t len,
+                                    uint8_t qos, bool retain, void *ctx);
+
+/* Register (or replace) the callback. Call before plc_engine_init(); it
+ * survives plc_mqtt_init(). Returns false for fn == NULL. */
+bool splc_mqtt_register(splc_mqtt_publish_fn fn, void *ctx);
+
+/* Payloads that could not be rendered (should stay 0: COMMIT checks the worst
+ * case). Mainly for tests and diagnostics. */
+uint32_t splc_mqtt_format_errors(void);
 
 /* ------------------------------------------------------------------ host-facing API (docs/plc_mqtt_design.md section 4) */
 

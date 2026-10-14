@@ -140,6 +140,10 @@ void splc_mqtt_set_default_device_name(const char *name);      /* dự phòng ch
    - Trả `0`: cập nhật `last_value` của **mọi** tag trong khối và `last_pub_ms`; đếm tx.
    - Trả `<0`: **không** cập nhật; thử lại sau `SPLC_MQTT_RETRY_MS` (mặc định 200 ms).
 6. RAM runtime mỗi khối: `last_value[8]` + `last_pub_ms` + cờ + ngưỡng đã tính. Một buffer payload dùng chung.
+7. [Bổ sung khi code E.4] "Sẵn sàng" chuyển false→true (nối lại broker, hoặc host vừa báo đúng `generation` mới) thì mọi
+   khối bắn lại baseline một lần; enable tag chuyển 0→khác 0 cũng vậy. Khối refuse (`<0`) hoặc lỗi dựng payload chờ
+   `SPLC_MQTT_RETRY_MS`. Ngưỡng COV tính theo từng tag (mỗi tag có `dec` riêng) tại COMMIT/nạp Flash. `plc_mqtt_scan()` được
+   `scan_cycle()` gọi, KHÔNG tự kiểm diag (việc của engine, Q4).
 
 ## 8. Dựng payload (toàn số nguyên, không heap, không printf float)
 
@@ -181,6 +185,10 @@ Khi `SPLC_MQTT_ENABLE=0`: `0x0C00..0x0E5F` giữ hành vi hiện tại (`0x02` �
 | Runtime COV/chu kỳ (4 khối) | ~180 B |
 | Buffer payload | 256 B |
 | **Tổng** | **~3,3 KB** |
+
+**[ĐÃ ĐO ở E.4, Zigbee-IO, GCC 13.2.1]** `SPLC_MQTT_ENABLE=1` so với baseline: **RAM +4 440 B, FLASH +5 712 B** (cao hơn ước
+lượng vì còn backup 960 B cho `CLEAR_RULES` và runtime 4 khối ~300 B thay vì ~180 B). Với host `wg_ue` dư 2 992 B RAM
+(quyết định 26) thì phải hạ `configTOTAL_HEAP_SIZE` nhiều hơn dự kiến — đo lại bằng map thật của gateway.
 
 Cao hơn mức 2,3–2,5 KB ghi trước đây vì chưa tính buffer Flash lớn thêm. Host `wg_ue` chỉ dư **2 992 B** (quyết định 26)
 ⇒ gần như chắc chắn phải hạ thêm `configTOTAL_HEAP_SIZE` ~4 KB (296 → 288 KB; từng link được ở 288 KB ở sandbox). Số thật
