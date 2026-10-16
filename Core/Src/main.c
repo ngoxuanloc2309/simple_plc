@@ -34,11 +34,14 @@
 #include "plc_engine.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#define TEST_RS485 0
+/* 1 = RS485 hardware test on USART1 (see rs485_test_task() below); the PLC engine is NOT
+ * started in that build. Results are logged on LPUART1. 0 = normal firmware. */
+#ifndef TEST_RS485
+#define TEST_RS485 1
+#endif
 #if TEST_RS485
 #include <string.h>
 #include <stdio.h>
-#include "stdarg.h"
 #endif
 /* USER CODE END Includes */
 
@@ -69,8 +72,11 @@
 void SystemClock_Config(void);
 void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
-#if SX_OS_USE_FREERTOS && !TEST_DI
+#if SX_OS_USE_FREERTOS && !TEST_RS485
 static void plc_task(void *arg);
+#endif
+#if TEST_RS485
+static void rs485_test_task(void *arg);
 #endif
 
 /* USER CODE END PFP */
@@ -78,9 +84,137 @@ static void plc_task(void *arg);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 #if TEST_RS485
+/*
+ * RS485 test on USART1 (TX PB14, RX PB15, DE = USART1_DE = PB13, GPIO driven, 115200 8N1 from
+ * CubeMX). The only thing printed on LPUART1 is the bytes received on USART1, one line per
+ * received frame (frame end = idle line), as hex ("48 65 6C 6C 6F"). Nothing else is logged.
+ *
+ * Silent (never logged): a periodic test string sent on the bus (RS485_TEST_TX_PERIOD_MS, 0 = off) and an
+ * echo of every received frame (RS485_TEST_ECHO).
+ */
+#define RS485_TEST_TX_PERIOD_MS   2000U  /* send "SPLC-RS485-TEST #n" every 2 s, silently; 0 = off */
+#define RS485_TEST_ECHO           0      /* 1 = send every received frame back */
+#define RS485_TEST_LOG_ASCII      0      /* 1 = append the printable text after the hex */
+#define RS485_TEST_RX_BUF         128U
+/* Bench experiment for the RO (RDO) level. 1 = hold PB13 HIGH for good (transceiver driver on,
+ * receiver off) and do nothing else: measure the RO net. Normal run = PB13 low (receiver on). */
+#define RS485_TEST_DE_HOLD_HIGH   0
 
+static uint8_t           s_rs485_rxbuf[RS485_TEST_RX_BUF];   /* HAL receives into this */
+static uint8_t           s_rs485_frame[RS485_TEST_RX_BUF];   /* last complete frame */
+static volatile uint16_t s_rs485_frame_len;
+static volatile uint8_t  s_rs485_frame_ready;                /* ISR sets, task clears */
 
+/* ISR context (USART1 interrupt): only copy the frame and re-arm. No RTOS calls. */
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size)
+{
+    if (huart->Instance != USART1)
+    {
+        return;
+    }
+    if (size > RS485_TEST_RX_BUF) { size = RS485_TEST_RX_BUF; }
+    if (s_rs485_frame_ready == 0U)
+    {
+        memcpy(s_rs485_frame, s_rs485_rxbuf, size);
+        s_rs485_frame_len = size;
+        s_rs485_frame_ready = 1U;
+    }
+    (void)HAL_UARTEx_ReceiveToIdle_IT(&huart1, s_rs485_rxbuf, RS485_TEST_RX_BUF);
+}
+
+#if RS485_TEST_ECHO || (RS485_TEST_TX_PERIOD_MS > 0U)
+static void rs485_test_send(const uint8_t *data, uint16_t len)
+{
+    HAL_GPIO_WritePin(USART1_DE_GPIO_Port, USART1_DE_Pin, GPIO_PIN_SET);    /* driver on */
+    (void)HAL_UART_Transmit(&huart1, (uint8_t *)data, len, 200U);           /* waits TC */
+    HAL_GPIO_WritePin(USART1_DE_GPIO_Port, USART1_DE_Pin, GPIO_PIN_RESET);  /* back to receive */
+}
 #endif
+
+static void rs485_test_task(void *arg)
+{
+    (void)arg;
+#if RS485_TEST_TX_PERIOD_MS > 0U
+    uint32_t tx_count = 0U;
+    TickType_t last_tx = xTaskGetTickCount();
+#endif
+
+#if RS485_TEST_DE_HOLD_HIGH
+    HAL_GPIO_WritePin(USART1_DE_GPIO_Port, USART1_DE_Pin, GPIO_PIN_SET);     /* receiver off */
+    for (;;)
+    {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+#endif
+    HAL_GPIO_WritePin(USART1_DE_GPIO_Port, USART1_DE_Pin, GPIO_PIN_RESET);   /* receive */
+    (void)HAL_UARTEx_ReceiveToIdle_IT(&huart1, s_rs485_rxbuf, RS485_TEST_RX_BUF);
+
+    for (;;)
+    {
+        /* The HAL stops an interrupt receive after an UART error (overrun...) and never
+         * restarts it: clear the error and arm again. */
+        if (huart1.ErrorCode != HAL_UART_ERROR_NONE)
+        {
+            huart1.ErrorCode = HAL_UART_ERROR_NONE;
+        }
+        if (huart1.RxState == HAL_UART_STATE_READY)
+        {
+            (void)HAL_UARTEx_ReceiveToIdle_IT(&huart1, s_rs485_rxbuf, RS485_TEST_RX_BUF);
+        }
+
+        if (s_rs485_frame_ready != 0U)
+        {
+            uint8_t  frame[RS485_TEST_RX_BUF];
+            uint16_t len = s_rs485_frame_len;
+            memcpy(frame, s_rs485_frame, len);
+            s_rs485_frame_ready = 0U;
+
+            /* "48 65 6C 6C 6F\r\n" (+ "  Hello" if enabled) */
+            char line[3U * RS485_TEST_RX_BUF + RS485_TEST_RX_BUF + 8U];
+            uint16_t n = 0U;
+            for (uint16_t i = 0U; i < len; i++)
+            {
+                n += (uint16_t)snprintf(&line[n], 4U, "%02X%s", frame[i], (i + 1U < len) ? " " : "");
+            }
+#if RS485_TEST_LOG_ASCII
+            line[n++] = ' ';
+            line[n++] = ' ';
+            for (uint16_t i = 0U; i < len; i++)
+            {
+                line[n++] = (frame[i] >= 0x20U && frame[i] < 0x7FU) ? (char)frame[i] : '.';
+            }
+#endif
+            line[n++] = '\r';
+            line[n++] = '\n';
+            (void)HAL_UART_Transmit(&hlpuart1, (uint8_t *)line, n, 200U);
+
+#if RS485_TEST_ECHO
+            rs485_test_send(frame, len);
+            vTaskDelay(pdMS_TO_TICKS(3));
+            s_rs485_frame_ready = 0U;      /* drop bytes the transceiver looped back */
+#endif
+        }
+
+#if RS485_TEST_TX_PERIOD_MS > 0U
+        TickType_t now = xTaskGetTickCount();
+        if ((TickType_t)(now - last_tx) >= pdMS_TO_TICKS(RS485_TEST_TX_PERIOD_MS))
+        {
+            last_tx = now;
+            uint8_t msg[40];
+            int m = snprintf((char *)msg, sizeof(msg), "SPLC-RS485-TEST #%lu\r\n", (unsigned long)++tx_count);
+            if (m > 0)
+            {
+                rs485_test_send(msg, (uint16_t)m);
+                vTaskDelay(pdMS_TO_TICKS(3));
+                s_rs485_frame_ready = 0U;  /* drop bytes the transceiver looped back */
+            }
+        }
+#endif
+
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+}
+#endif /* TEST_RS485 */
 /* USER CODE END 0 */
 
 /**
@@ -126,7 +260,10 @@ int main(void)
   MX_ADC1_Init();
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
-  #if !TEST_DI
+  #if TEST_RS485
+  xTaskCreate(rs485_test_task, "rs485t", PLC_TASK_STACK_WORDS, NULL, PLC_TASK_PRIORITY, NULL);
+  #endif
+  #if !TEST_RS485
   #if SX_OS_USE_FREERTOS
   /* RTOS mode: plc_engine_init() and plc_engine_poll() must run from ONE task
    * (see simple_plc/components/os/sx_os.h). Created before the scheduler starts. */
@@ -154,11 +291,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    #if TEST_RS485
-    for(uint8_t state = IN_STATE1; state <= IN_STATE4; state++){
-      read_states(state);
-    }
-    #endif
+    // plc_engine_poll();
   }
   /* USER CODE END 3 */
 }
@@ -225,7 +358,7 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-#if SX_OS_USE_FREERTOS && !TEST_DI
+#if SX_OS_USE_FREERTOS && !TEST_RS485
 static void plc_task(void *arg)
 {
   (void)arg;
