@@ -69,6 +69,8 @@ void HAL_MspInit(void)
   PWR_PVDTypeDef sConfigPVD = {0};
 
   /* System interrupt init*/
+  /* BusFault_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(BusFault_IRQn, 5, 0);
   /* PendSV_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(PendSV_IRQn, 15, 0);
 
