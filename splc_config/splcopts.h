@@ -1,16 +1,6 @@
 #ifndef SPLCOPTS_H
 #define SPLCOPTS_H
 
-/*
- * splcopts.h - SimplePLC configuration of THIS product (Zigbee-IO SKU,
- * STM32H523CCU6), RS485 App link variant. Library defaults and the full option list are in
- * simple_plc/config/splc_opt.h; a blank template is
- * simple_plc/config/splcopts_template.h.
- *
- * Only options that differ from the library default (or that are worth
- * stating explicitly for this product) are listed.
- */
-
 /* Target */
 #define SPLC_PLATFORM                 SPLC_PLATFORM_STM32H5
 #define SPLC_BOARD                    SPLC_BOARD_ZIGBEE_IO_4DI_4DO
