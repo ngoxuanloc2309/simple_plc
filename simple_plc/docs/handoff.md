@@ -37,13 +37,25 @@ FB `0x0B00..0x0B7F`) qua USB CDC; `test_fb.py --probe-64`, `test_plc.py`, `test_
 **Đã chạy trên board gateway (`wg_ue`):**
 - SimplePLC khởi động, App link RS485 qua USART6 (`test_plc.py COM35 --period 1000 --baud 115200 --unit 1` → 6/6
   phản hồi; mới 6 mẫu, chưa soak), chỉ sau khi thay IC MAX485 (quyết định 30). `PLC_IO_REMOTE` báo node 0 offline
-  vì chưa có firmware slave.
+  khi chưa có slave; nay đã có slave thử nghiệm (mục dưới).
 - **MQTT Publish (E.1–E.6):** port `wg_ue/ports/splc_port/splc_mqtt_port.c` chạy trên board (log `PLC_MQTT`,
   `SPLC_MQTT`). Người dùng xác nhận đã test: đổi broker bằng App/Python khi đang connected (host tự ngắt và nối
   broker mới, log `generation N != connection M: reconnecting`) và khi offline → có mạng lại (nối đúng broker đã
   cấu hình). Kết quả chi tiết `test_mqtt.py` chưa ghi ở đây.
 - Heap host lúc rảnh (log `MONITOR`, CPU=1%): `Heap used=205/293KB, lowest free=61KB` — đạt điều kiện ≥ ~30 KB của
   quyết định 26, nhưng là số lúc rảnh; CHƯA đo dưới tải.
+
+**Slave RS485 cho board IO (thử nghiệm, ĐÃ chạy với gateway thật, 16/10/2026):** nằm trong khối `TEST_RS485` của
+`Core/Src/main.c` (`rio_handle()`, task `rs485_test_task`), USART1 (TX PB14, RX PB15, DE = PB13 điều khiển bằng GPIO,
+115200 8N1), unit ID `RS485_TEST_UNIT_ID = 1`. Modbus RTU FC03 + FC16 theo khối `0x0C00..0x0C06` (architecture 5.1).
+Mỗi frame hợp lệ: quét DI (IN0..IN3 = PB6/PB5/PB4/PB3, mức cao = 1) và áp DO (OUT0..OUT3 = PA6/PA7/PB0/PB1,
+`do=(do&~mask)|(value&mask)`). Lease/SAFE/STATUS (FAILSAFE, RESET) có cài; lease/safe chỉ ở RAM nên sau reset cờ RESET
+bật cho tới khi master SYNC lại. Sai CRC/unit → bỏ qua; sai địa chỉ → exception `0x02`; lease ngoài `0|1000..60000` → `0x03`.
+Phát chặn (~1 ms/khung ngắn). `RS485_TEST_TX_PERIOD_MS` phải = 0 (chuỗi test định kỳ làm hỏng bus). Đã kiểm trên PC với GPIO
+giả (SYNC/WRITE/POLL/sai địa chỉ); trên board người dùng xác nhận DI/DO chạy thông với gateway. **Chưa verify:** hết lease →
+DO về SAFE rồi sync lại khi master trở lại; soak dài; nhiều node trên một bus; build `TEST_RS485=0` cùng PLC engine.
+**Lưu ý:** `TEST_RS485` mặc định = 1 ⇒ PLC engine KHÔNG chạy; đặt 0 cho firmware thật. Slave này chưa tách khỏi
+`main.c` và không phải SimplePLC (đúng quyết định 12: board IO là slave thuần, không chạy Rule Engine).
 
 **Build ARM sạch nhưng CHƯA chạy trên board:** Zigbee-IO qua RS485 (29); đổi tên chống trùng host (21),
 `SPLC_AS_LIBRARY` (22), `SPLC_RTC/ADC_BUILTIN` (23), `SPLC_FLASH_DATA_ADDR` (17), chế độ USB CDC-only của gateway (28);
@@ -62,10 +74,10 @@ logger host) KHÔNG so được với số trên. So FLASH giữa hai máy phả
 `build.bat`). RAM host gần đầy: `configTOTAL_HEAP_SIZE` = 296 KB, dư 2 992 B RAM tĩnh (quyết định 26); số đo sau khi bật
 MQTT chưa ghi.
 
-**Chưa làm:** bản đồ Flash host (4.A.5), firmware slave cho board IO, chủ đồng hồ gateway (23), khoá Flash chung với OTA
+**Chưa làm:** bản đồ Flash host (4.A.5), slave board IO bản chính thức (đã có bản thử nghiệm, 4.A.4), chủ đồng hồ gateway (23), khoá Flash chung với OTA
 (hoãn, 27), MQTT Subscribe (34).
 
-**Chưa verify (không chặn việc tiếp):** chạy lại `test_plc/test_fb/test_retain` với firmware sau các thay đổi
+**Chưa verify (không chặn việc tiếp):** lease/SAFE của slave board IO; chạy lại `test_plc/test_fb/test_retain` với firmware sau các thay đổi
 đổi-tên/config/OS/Flash/logger; Remote I/O với board IO thật (timing RS485, nhả DE); FreeRTOS kernel thật (độ trễ task
 lúc erase Flash); PVD thật; mất điện giữa lúc ghi Flash; `test_rtc.py --reboot`; đường RS485 của Zigbee-IO; hạ firmware
 `MQTT=1` → `MQTT=0` (bản ghi Flash bị coi là hỏng → phải Deploy lại).
@@ -319,8 +331,10 @@ chủ đồng hồ gateway (4.A.3), bản đồ Flash host (4.A.5), có sửa `n
 1. *(đã xong)* SimplePLC nhúng và chạy trên board gateway (mục 0).
 2. *(cần người dùng)* Đo `lowest free` heap của host DƯỚI TẢI (điều kiện quyết định 26); số hiện có (61 KB) là lúc rảnh.
 3. *(cần người dùng)* Chốt chủ sở hữu đồng hồ (quyết định 23) — cần cho Time Window và `{ts}` trên gateway.
-4. *(cần người dùng/phần cứng)* **Firmware slave cho board IO** (khối `0x0C00..0x0C06` bằng nanoMODBUS; lease/SAFE ở
-   slave; baud/parity giả định 115200 8N1). Thiếu nó thì DI/DO ảo luôn offline.
+4. **Firmware slave cho board IO:** bản thử nghiệm đã chạy với gateway thật (mục 0). Còn lại: (a) tách khỏi khối
+   `TEST_RS485` của `main.c` thành `rio_slave.{c,h}` (vẫn ngoài file CubeMX tự sinh, quyết định 9) và gọi từ `main.c` không
+   phụ thuộc cờ test; (b) test lease/SAFE trên board (ngắt master, DO phải về SAFE, sync lại khi master trở lại);
+   (c) cân nhắc nanoMODBUS bản riêng thay vì parser tay; (d) phát không chặn nếu cần; (e) kiểm trùng `unit_id` giữa các node.
 5. **Bootloader + Flash (đã đọc code, chờ người dùng chốt):** đề xuất thu mỗi slot app 82→80 sector (640 KB) →
    3 slot kết thúc ở `0x081F0000`; dữ liệu 40 KB `0x081F0000..0x081F9FFF`; 1 sector trống `0x081FA000`; scratch giữ
    `0x081FC000`. Image app hiện 603 660 B < 640 KB. Host phải đổi `flash_define.h` (82→80 ×3), `LENGTH` FLASH của app

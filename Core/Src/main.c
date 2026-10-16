@@ -92,7 +92,7 @@ static void rs485_test_task(void *arg);
  * Silent (never logged): a periodic test string sent on the bus (RS485_TEST_TX_PERIOD_MS, 0 = off) and an
  * echo of every received frame (RS485_TEST_ECHO).
  */
-#define RS485_TEST_TX_PERIOD_MS   2000U  /* send "SPLC-RS485-TEST #n" every 2 s, silently; 0 = off */
+#define RS485_TEST_TX_PERIOD_MS   0U     /* periodic test string; 0 = off (must be off: it would corrupt the Modbus bus) */
 #define RS485_TEST_ECHO           0      /* 1 = send every received frame back */
 #define RS485_TEST_LOG_ASCII      0      /* 1 = append the printable text after the hex */
 #define RS485_TEST_RX_BUF         128U
@@ -122,7 +122,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size)
     (void)HAL_UARTEx_ReceiveToIdle_IT(&huart1, s_rs485_rxbuf, RS485_TEST_RX_BUF);
 }
 
-#if RS485_TEST_ECHO || (RS485_TEST_TX_PERIOD_MS > 0U)
+#if 1
 static void rs485_test_send(const uint8_t *data, uint16_t len)
 {
     HAL_GPIO_WritePin(USART1_DE_GPIO_Port, USART1_DE_Pin, GPIO_PIN_SET);    /* driver on */
@@ -130,6 +130,164 @@ static void rs485_test_send(const uint8_t *data, uint16_t len)
     HAL_GPIO_WritePin(USART1_DE_GPIO_Port, USART1_DE_Pin, GPIO_PIN_RESET);  /* back to receive */
 }
 #endif
+
+
+/* ---- Remote I/O slave (gateway master: plc_io_remote, architecture.md 5.1) -------------------
+ * Modbus RTU slave, FC03 + FC16 only. On every valid frame addressed to RS485_TEST_UNIT_ID the
+ * board scans DI (IN0..IN3) and applies DO (OUT0..OUT3):
+ *   0x0C00 R  DI  (bit i = IN i, raw level: high = 1)   0x0C03 W MASK
+ *   0x0C01 R  DO read-back                              0x0C04 W VALUE  do=(do&~mask)|(value&mask)
+ *   0x0C02 R  STATUS b0 LEASE_ALIVE b2 FAILSAFE b3 RESET 0x0C05 R/W LEASE ms (0=off, 1000..60000)
+ *                                                       0x0C06 R/W SAFE (DO bits forced on expiry)
+ */
+#define RS485_TEST_UNIT_ID   1U
+#define RIO_REG_FIRST        0x0C00U
+#define RIO_REG_COUNT        7U
+#define RIO_DO_BITS          0x000FU
+#define RIO_ST_LEASE_ALIVE   (1U << 0)
+#define RIO_ST_FAILSAFE      (1U << 2)
+#define RIO_ST_RESET         (1U << 3)
+
+static uint16_t s_rio_do;
+static uint16_t s_rio_lease_ms;
+static uint16_t s_rio_safe;
+static uint16_t s_rio_status = RIO_ST_RESET;   /* RESET until the master has synced us */
+static uint32_t s_rio_last_write_tick;
+
+static uint16_t rio_crc16(const uint8_t *d, uint16_t n)
+{
+    uint16_t crc = 0xFFFFU;
+    while (n--)
+    {
+        crc ^= *d++;
+        for (uint8_t i = 0U; i < 8U; i++)
+        {
+            crc = (crc & 1U) ? (uint16_t)((crc >> 1) ^ 0xA001U) : (uint16_t)(crc >> 1);
+        }
+    }
+    return crc;
+}
+
+static uint16_t rio_scan_di(void)
+{
+    uint16_t v = 0U;
+    v |= (HAL_GPIO_ReadPin(IN0_GPIO_Port, IN0_Pin) == GPIO_PIN_SET) ? 0x1U : 0U;
+    v |= (HAL_GPIO_ReadPin(IN1_GPIO_Port, IN1_Pin) == GPIO_PIN_SET) ? 0x2U : 0U;
+    v |= (HAL_GPIO_ReadPin(IN2_GPIO_Port, IN2_Pin) == GPIO_PIN_SET) ? 0x4U : 0U;
+    v |= (HAL_GPIO_ReadPin(IN3_GPIO_Port, IN3_Pin) == GPIO_PIN_SET) ? 0x8U : 0U;
+    return v;
+}
+
+static void rio_apply_do(uint16_t v)
+{
+    s_rio_do = (uint16_t)(v & RIO_DO_BITS);
+    HAL_GPIO_WritePin(OUT0_GPIO_Port, OUT0_Pin, (s_rio_do & 0x1U) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(OUT1_GPIO_Port, OUT1_Pin, (s_rio_do & 0x2U) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(OUT2_GPIO_Port, OUT2_Pin, (s_rio_do & 0x4U) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(OUT3_GPIO_Port, OUT3_Pin, (s_rio_do & 0x8U) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+/* Lease watchdog: call often. Lease expired -> DO forced to SAFE, FAILSAFE flag set. */
+static void rio_lease_tick(void)
+{
+    if (s_rio_lease_ms != 0U && (s_rio_status & RIO_ST_LEASE_ALIVE) &&
+        (uint32_t)(HAL_GetTick() - s_rio_last_write_tick) > s_rio_lease_ms)
+    {
+        s_rio_status &= (uint16_t)~RIO_ST_LEASE_ALIVE;
+        s_rio_status |= RIO_ST_FAILSAFE;
+        rio_apply_do(s_rio_safe);
+    }
+}
+
+static uint16_t rio_read_reg(uint16_t addr)
+{
+    switch (addr)
+    {
+    case 0x0C00U: return rio_scan_di();
+    case 0x0C01U: return s_rio_do;
+    case 0x0C02U: return s_rio_status;
+    case 0x0C05U: return s_rio_lease_ms;
+    case 0x0C06U: return s_rio_safe;
+    default:      return 0U;      /* MASK/VALUE read as 0 */
+    }
+}
+
+static void rio_exception(uint8_t *tx, uint8_t fc, uint8_t code, uint16_t *txlen)
+{
+    tx[0] = RS485_TEST_UNIT_ID; tx[1] = (uint8_t)(fc | 0x80U); tx[2] = code; *txlen = 3U;
+}
+
+/* Returns the response length (0 = no response). */
+static uint16_t rio_handle(const uint8_t *rx, uint16_t len, uint8_t *tx)
+{
+    uint16_t txlen = 0U;
+    if (len < 8U || rx[0] != RS485_TEST_UNIT_ID) { return 0U; }
+    uint16_t crc = (uint16_t)(rx[len - 2U] | (rx[len - 1U] << 8));
+    if (crc != rio_crc16(rx, (uint16_t)(len - 2U))) { return 0U; }
+
+    uint8_t  fc   = rx[1];
+    uint16_t addr = (uint16_t)((rx[2] << 8) | rx[3]);
+    uint16_t qty  = (uint16_t)((rx[4] << 8) | rx[5]);
+
+    if (addr < RIO_REG_FIRST || qty == 0U || (uint32_t)addr + qty > RIO_REG_FIRST + RIO_REG_COUNT)
+    {
+        if (fc == 0x03U || fc == 0x10U) { rio_exception(tx, fc, 0x02U, &txlen); }
+        else                            { rio_exception(tx, fc, 0x01U, &txlen); }
+    }
+    else if (fc == 0x03U)
+    {
+        tx[0] = RS485_TEST_UNIT_ID; tx[1] = 0x03U; tx[2] = (uint8_t)(qty * 2U);
+        for (uint16_t i = 0U; i < qty; i++)
+        {
+            uint16_t v = rio_read_reg((uint16_t)(addr + i));
+            tx[3U + 2U * i] = (uint8_t)(v >> 8);
+            tx[4U + 2U * i] = (uint8_t)v;
+        }
+        txlen = (uint16_t)(3U + 2U * qty);
+    }
+    else if (fc == 0x10U && len == (uint16_t)(9U + 2U * qty) && rx[6] == (uint8_t)(qty * 2U))
+    {
+        uint16_t mask = 0U, value = 0U; uint8_t have_mask = 0U, have_value = 0U, bad_value = 0U;
+        for (uint16_t i = 0U; i < qty; i++)
+        {
+            uint16_t a = (uint16_t)(addr + i);
+            uint16_t v = (uint16_t)((rx[7U + 2U * i] << 8) | rx[8U + 2U * i]);
+            if      (a == 0x0C03U) { mask = v;  have_mask = 1U; }
+            else if (a == 0x0C04U) { value = v; have_value = 1U; }
+            else if (a == 0x0C05U)
+            {
+                if (v != 0U && (v < 1000U || v > 60000U)) { bad_value = 1U; }
+                else                                      { s_rio_lease_ms = v; }
+            }
+            else if (a == 0x0C06U) { s_rio_safe = (uint16_t)(v & RIO_DO_BITS); }
+            /* 0x0C00..0x0C02 are read-only: ignored */
+        }
+        if (bad_value != 0U)
+        {
+            rio_exception(tx, fc, 0x03U, &txlen);
+        }
+        else
+        {
+            if (have_mask || have_value)
+            {
+                rio_apply_do((uint16_t)((s_rio_do & ~mask) | (value & mask)));
+            }
+            s_rio_last_write_tick = HAL_GetTick();
+            s_rio_status |= RIO_ST_LEASE_ALIVE;
+            s_rio_status &= (uint16_t)~(RIO_ST_FAILSAFE | RIO_ST_RESET);
+            tx[0] = RS485_TEST_UNIT_ID; tx[1] = 0x10U; tx[2] = rx[2]; tx[3] = rx[3]; tx[4] = rx[4]; tx[5] = rx[5];
+            txlen = 6U;
+        }
+    }
+    else
+    {
+        rio_exception(tx, fc, 0x01U, &txlen);
+    }
+    uint16_t c = rio_crc16(tx, txlen);
+    tx[txlen++] = (uint8_t)c;
+    tx[txlen++] = (uint8_t)(c >> 8);
+    return txlen;
+}
 
 static void rs485_test_task(void *arg)
 {
@@ -188,6 +346,16 @@ static void rs485_test_task(void *arg)
             line[n++] = '\n';
             (void)HAL_UART_Transmit(&hlpuart1, (uint8_t *)line, n, 200U);
 
+            {
+                uint8_t  rsp[RS485_TEST_RX_BUF];
+                uint16_t rlen = rio_handle(frame, len, rsp);   /* scans DI, applies DO */
+                if (rlen != 0U)
+                {
+                    rs485_test_send(rsp, rlen);
+                    vTaskDelay(pdMS_TO_TICKS(3));
+                    s_rs485_frame_ready = 0U;  /* drop bytes the transceiver looped back */
+                }
+            }
 #if RS485_TEST_ECHO
             rs485_test_send(frame, len);
             vTaskDelay(pdMS_TO_TICKS(3));
@@ -211,6 +379,7 @@ static void rs485_test_task(void *arg)
         }
 #endif
 
+        rio_lease_tick();
         vTaskDelay(pdMS_TO_TICKS(2));
     }
 }
