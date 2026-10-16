@@ -34,12 +34,21 @@
 #include "plc_engine.h"
 #include "FreeRTOS.h"
 #include "task.h"
-/* 1 = RS485 hardware test on USART1 (see rs485_test_task() below); the PLC engine is NOT
- * started in that build. Results are logged on LPUART1. 0 = normal firmware. */
-#ifndef TEST_RS485
-#define TEST_RS485 1
+/* Build selection (mutually exclusive; the PLC engine is NOT started in either test build):
+ *   TEST_LED_RGB = 1 : WS2812B strip test on OUT0 (see led_rgb_test_task() below), log on LPUART1.
+ *   TEST_RS485   = 1 : RS485 Remote I/O slave test on USART1 (see rs485_test_task() below).
+ *   both 0           : normal firmware (PLC engine).
+ * Default (nothing defined) stays TEST_RS485 = 1; set TEST_LED_RGB to 1 to switch to the LED test. */
+#ifndef TEST_LED_RGB
+#define TEST_LED_RGB 1
 #endif
-#if TEST_RS485
+#ifndef TEST_RS485
+#define TEST_RS485 (!TEST_LED_RGB)
+#endif
+#if TEST_LED_RGB && TEST_RS485
+#error "TEST_LED_RGB and TEST_RS485 cannot both be 1 (both use the main task slot)"
+#endif
+#if TEST_RS485 || TEST_LED_RGB
 #include <string.h>
 #include <stdio.h>
 #endif
@@ -72,11 +81,14 @@
 void SystemClock_Config(void);
 void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
-#if SX_OS_USE_FREERTOS && !TEST_RS485
+#if SX_OS_USE_FREERTOS && !TEST_RS485 && !TEST_LED_RGB
 static void plc_task(void *arg);
 #endif
 #if TEST_RS485
 static void rs485_test_task(void *arg);
+#endif
+#if TEST_LED_RGB
+static void led_rgb_test_task(void *arg);
 #endif
 
 /* USER CODE END PFP */
@@ -384,6 +396,190 @@ static void rs485_test_task(void *arg)
     }
 }
 #endif /* TEST_RS485 */
+
+#if TEST_LED_RGB
+/* ---- WS2812B (IP30, 144 LED/m) test on OUT0 = PA6 ---------------------------------------------
+ * Data is bit-banged on a GPIO: 800 kHz NRZ, timing from the DWT cycle counter so it follows
+ * SystemCoreClock (no assumption about 250 MHz), interrupts masked for the ~4.5 ms of one frame.
+ * Frame order is GRB, MSB first; >280 us low latches. 1 bit = 1250 ns: T0H 400 ns, T1H 800 ns.
+ *
+ * Wiring (strip JST 3-pin: red = 5V, white = GND, green = DATA):
+ *   - 5V from a SEPARATE supply (not the board), GND common with the board. 144 LED at full white
+ *     can draw ~8.6 A; LED_RGB_BRIGHTNESS keeps the test patterns well below 1 A.
+ *   - OUT0 -> ~330 ohm series resistor -> DATA. 1000 uF across 5V/GND at the strip input.
+ *   - A 3.3 V data level is marginal for a 5 V WS2812B (VIH = 0.7 x VDD = 3.5 V): use a 74AHCT125 /
+ *     74HCT245 level shifter if the strip flickers or stays dark.
+ *   - OUT0 must be the bare MCU pin: through an optocoupler / transistor / ULN stage 800 kHz will not
+ *     pass (check the schematic; LED_RGB_INVERT = 1 only fixes polarity, not speed).
+ */
+#define LED_RGB_COUNT        144U          /* LEDs on the strip (lower it to test with a short piece) */
+#define LED_RGB_BRIGHTNESS   16U           /* global scale 0..255 (16 = ~6 %) */
+#define LED_RGB_PORT         OUT0_GPIO_Port
+#define LED_RGB_PIN          OUT0_Pin
+#define LED_RGB_INVERT       0             /* 1 = external inverting stage on the data line */
+/* 1 = multimeter diagnostic instead of the demo: streams ONLY zero-bits (LEDs stay off, no current
+ * risk) for 10 s, then 5 s idle, forever. A zero-bit is high 400 ns of every 1250 ns (32 % duty), so a
+ * DC voltmeter (against GND) reads about 0.32 x the high level:
+ *     PA6 (3.3 V)         ~1.0 V   idle ~0 V
+ *     strip DATA, no inversion, 5 V stage  ~1.6 V   idle ~0 V
+ *     strip DATA, INVERTING stage          ~3.4 V   idle ~5 V   -> set LED_RGB_INVERT 1
+ *     strip DATA stuck ~0 V or ~5 V, or only a few 100 mV of movement
+ *                          -> the stage in between is too slow / not switching: bypass it. */
+#define LED_RGB_DIAG         1
+#define LED_RGB_T0H_NS       400U
+#define LED_RGB_T1H_NS       800U
+#define LED_RGB_BIT_NS       1250U
+
+static uint8_t s_led_grb[LED_RGB_COUNT * 3U];
+
+static void led_rgb_dwt_enable(void)
+{
+#if defined(DCB_DEMCR_TRCENA_Msk)
+    DCB->DEMCR |= DCB_DEMCR_TRCENA_Msk;
+#else
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+#endif
+    DWT->CYCCNT = 0U;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+static void led_rgb_gpio_init(void)
+{
+    GPIO_InitTypeDef gi = {0};
+    gi.Pin   = LED_RGB_PIN;
+    gi.Mode  = GPIO_MODE_OUTPUT_PP;
+    gi.Pull  = GPIO_NOPULL;
+    gi.Speed = GPIO_SPEED_FREQ_VERY_HIGH;   /* CubeMX left OUT0 at LOW speed: far too slow for 800 kHz */
+    HAL_GPIO_Init(LED_RGB_PORT, &gi);
+    HAL_GPIO_WritePin(LED_RGB_PORT, LED_RGB_PIN, LED_RGB_INVERT ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+/* Shift the whole frame out. Blocks ~4.5 ms for 144 LEDs with all interrupts masked. */
+static void led_rgb_show(void)
+{
+    const uint32_t c_t0h = (uint32_t)(((uint64_t)SystemCoreClock * LED_RGB_T0H_NS) / 1000000000ULL);
+    const uint32_t c_t1h = (uint32_t)(((uint64_t)SystemCoreClock * LED_RGB_T1H_NS) / 1000000000ULL);
+    const uint32_t c_bit = (uint32_t)(((uint64_t)SystemCoreClock * LED_RGB_BIT_NS) / 1000000000ULL);
+    const uint32_t hi  = LED_RGB_INVERT ? ((uint32_t)LED_RGB_PIN << 16) : (uint32_t)LED_RGB_PIN;
+    const uint32_t lo  = LED_RGB_INVERT ? (uint32_t)LED_RGB_PIN : ((uint32_t)LED_RGB_PIN << 16);
+    GPIO_TypeDef  *port = LED_RGB_PORT;
+
+    __disable_irq();
+    uint32_t t = DWT->CYCCNT;
+    for (uint32_t i = 0U; i < (uint32_t)sizeof(s_led_grb); i++)
+    {
+        uint8_t b = s_led_grb[i];
+        for (uint8_t bit = 0U; bit < 8U; bit++)
+        {
+            const uint32_t high = (b & 0x80U) ? c_t1h : c_t0h;
+            b = (uint8_t)(b << 1);
+            port->BSRR = hi;
+            while ((uint32_t)(DWT->CYCCNT - t) < high) { }
+            port->BSRR = lo;
+            while ((uint32_t)(DWT->CYCCNT - t) < c_bit) { }
+            t += c_bit;                      /* fixed schedule: no drift from loop overhead */
+        }
+    }
+    __enable_irq();
+    /* Latch (>280 us low) is guaranteed by the caller's delay (>= 2 ms) before the next frame. */
+}
+
+static void led_rgb_set(uint32_t i, uint8_t r, uint8_t g, uint8_t b)
+{
+    if (i >= LED_RGB_COUNT) { return; }
+    s_led_grb[3U * i + 0U] = (uint8_t)(((uint16_t)g * LED_RGB_BRIGHTNESS) / 255U);
+    s_led_grb[3U * i + 1U] = (uint8_t)(((uint16_t)r * LED_RGB_BRIGHTNESS) / 255U);
+    s_led_grb[3U * i + 2U] = (uint8_t)(((uint16_t)b * LED_RGB_BRIGHTNESS) / 255U);
+}
+
+static void led_rgb_fill(uint8_t r, uint8_t g, uint8_t b)
+{
+    for (uint32_t i = 0U; i < LED_RGB_COUNT; i++) { led_rgb_set(i, r, g, b); }
+}
+
+/* hue 0..767 -> full-saturation RGB */
+static void led_rgb_hue(uint16_t h, uint8_t *r, uint8_t *g, uint8_t *b)
+{
+    const uint8_t x = (uint8_t)(h & 0xFFU);
+    switch ((h >> 8) % 3U)
+    {
+    case 0:  *r = (uint8_t)(255U - x); *g = x;                 *b = 0U;                 break;
+    case 1:  *r = 0U;                  *g = (uint8_t)(255U - x); *b = x;                 break;
+    default: *r = x;                   *g = 0U;                 *b = (uint8_t)(255U - x); break;
+    }
+}
+
+static void led_rgb_log(const char *msg)
+{
+    char line[48];
+    int n = snprintf(line, sizeof(line), "[LED] %s\r\n", msg);
+    if (n > 0) { (void)HAL_UART_Transmit(&hlpuart1, (uint8_t *)line, (uint16_t)n, 100U); }
+}
+
+/* Demo loop: solid R, G, B, a single white pixel running along the strip, then a rotating rainbow. */
+static void led_rgb_test_task(void *arg)
+{
+    (void)arg;
+    led_rgb_dwt_enable();
+    led_rgb_gpio_init();
+
+    const uint32_t a = DWT->CYCCNT;
+    for (volatile uint32_t k = 0U; k < 100U; k++) { }
+    if (DWT->CYCCNT == a)
+    {
+        led_rgb_log("ERROR DWT CYCCNT not running");
+        for (;;) { vTaskDelay(pdMS_TO_TICKS(1000)); }
+    }
+
+    led_rgb_log("start (OUT0 = PA6, WS2812B)");
+#if LED_RGB_DIAG
+    memset(s_led_grb, 0, sizeof(s_led_grb));      /* all zero-bits: LEDs black, ~32 % duty on the pin */
+    for (;;)
+    {
+        led_rgb_log("DIAG stream of 0-bits 10 s: measure DC at PA6 and at strip DATA");
+        const TickType_t end = xTaskGetTickCount() + pdMS_TO_TICKS(10000);
+        while ((int32_t)(xTaskGetTickCount() - end) < 0) { led_rgb_show(); }   /* back to back, no latch gap */
+        led_rgb_log("DIAG idle 5 s: measure DC idle level at PA6 and at strip DATA");
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+#endif
+    led_rgb_fill(0U, 0U, 0U);
+    led_rgb_show();                       /* clear whatever the strip powered up with */
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    for (;;)
+    {
+        led_rgb_log("solid red");
+        led_rgb_fill(255U, 0U, 0U);   led_rgb_show();  vTaskDelay(pdMS_TO_TICKS(1000));
+        led_rgb_log("solid green");
+        led_rgb_fill(0U, 255U, 0U);   led_rgb_show();  vTaskDelay(pdMS_TO_TICKS(1000));
+        led_rgb_log("solid blue");
+        led_rgb_fill(0U, 0U, 255U);   led_rgb_show();  vTaskDelay(pdMS_TO_TICKS(1000));
+
+        led_rgb_log("chase");
+        for (uint32_t i = 0U; i < LED_RGB_COUNT; i++)
+        {
+            led_rgb_fill(0U, 0U, 0U);
+            led_rgb_set(i, 255U, 255U, 255U);
+            led_rgb_show();
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+
+        led_rgb_log("rainbow");
+        for (uint16_t shift = 0U; shift < 768U; shift = (uint16_t)(shift + 6U))
+        {
+            for (uint32_t i = 0U; i < LED_RGB_COUNT; i++)
+            {
+                uint8_t r, g, b;
+                led_rgb_hue((uint16_t)((shift + (i * 768U) / LED_RGB_COUNT) % 768U), &r, &g, &b);
+                led_rgb_set(i, r, g, b);
+            }
+            led_rgb_show();
+            vTaskDelay(pdMS_TO_TICKS(15));
+        }
+    }
+}
+#endif /* TEST_LED_RGB */
 /* USER CODE END 0 */
 
 /**
@@ -432,7 +628,10 @@ int main(void)
   #if TEST_RS485
   xTaskCreate(rs485_test_task, "rs485t", PLC_TASK_STACK_WORDS, NULL, PLC_TASK_PRIORITY, NULL);
   #endif
-  #if !TEST_RS485
+  #if TEST_LED_RGB
+  xTaskCreate(led_rgb_test_task, "ledrgb", PLC_TASK_STACK_WORDS, NULL, PLC_TASK_PRIORITY, NULL);
+  #endif
+  #if !TEST_RS485 && !TEST_LED_RGB
   #if SX_OS_USE_FREERTOS
   /* RTOS mode: plc_engine_init() and plc_engine_poll() must run from ONE task
    * (see simple_plc/components/os/sx_os.h). Created before the scheduler starts. */
@@ -527,7 +726,7 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-#if SX_OS_USE_FREERTOS && !TEST_RS485
+#if SX_OS_USE_FREERTOS && !TEST_RS485 && !TEST_LED_RGB
 static void plc_task(void *arg)
 {
   (void)arg;
