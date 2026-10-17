@@ -417,15 +417,6 @@ static void rs485_test_task(void *arg)
 #define LED_RGB_PORT         OUT0_GPIO_Port
 #define LED_RGB_PIN          OUT0_Pin
 #define LED_RGB_INVERT       0             /* 1 = external inverting stage on the data line */
-/* 1 = multimeter diagnostic instead of the demo: streams ONLY zero-bits (LEDs stay off, no current
- * risk) for 10 s, then 5 s idle, forever. A zero-bit is high 400 ns of every 1250 ns (32 % duty), so a
- * DC voltmeter (against GND) reads about 0.32 x the high level:
- *     PA6 (3.3 V)         ~1.0 V   idle ~0 V
- *     strip DATA, no inversion, 5 V stage  ~1.6 V   idle ~0 V
- *     strip DATA, INVERTING stage          ~3.4 V   idle ~5 V   -> set LED_RGB_INVERT 1
- *     strip DATA stuck ~0 V or ~5 V, or only a few 100 mV of movement
- *                          -> the stage in between is too slow / not switching: bypass it. */
-#define LED_RGB_DIAG         0
 #define LED_RGB_T0H_NS       400U
 #define LED_RGB_T1H_NS       800U
 #define LED_RGB_BIT_NS       1250U
@@ -497,26 +488,15 @@ static void led_rgb_fill(uint8_t r, uint8_t g, uint8_t b)
     for (uint32_t i = 0U; i < LED_RGB_COUNT; i++) { led_rgb_set(i, r, g, b); }
 }
 
-/* hue 0..767 -> full-saturation RGB */
-static void led_rgb_hue(uint16_t h, uint8_t *r, uint8_t *g, uint8_t *b)
-{
-    const uint8_t x = (uint8_t)(h & 0xFFU);
-    switch ((h >> 8) % 3U)
-    {
-    case 0:  *r = (uint8_t)(255U - x); *g = x;                 *b = 0U;                 break;
-    case 1:  *r = 0U;                  *g = (uint8_t)(255U - x); *b = x;                 break;
-    default: *r = x;                   *g = 0U;                 *b = (uint8_t)(255U - x); break;
-    }
-}
-
 static void led_rgb_log(const char *msg)
 {
-    char line[48];
+    char line[64];
     int n = snprintf(line, sizeof(line), "[LED] %s\r\n", msg);
+    if (n > (int)sizeof(line) - 1) { n = (int)sizeof(line) - 1; }   /* snprintf returns the untruncated length */
     if (n > 0) { (void)HAL_UART_Transmit(&hlpuart1, (uint8_t *)line, (uint16_t)n, 100U); }
 }
 
-/* Demo loop: solid R, G, B, a single white pixel running along the strip, then a rotating rainbow. */
+/* Red only: every LED solid red, the same frame re-sent every 10 ms (~4.3 ms burst, then low). */
 static void led_rgb_test_task(void *arg)
 {
     (void)arg;
@@ -531,52 +511,12 @@ static void led_rgb_test_task(void *arg)
         for (;;) { vTaskDelay(pdMS_TO_TICKS(1000)); }
     }
 
-    led_rgb_log("start (OUT0 = PA6, WS2812B)");
-#if LED_RGB_DIAG
-    memset(s_led_grb, 0, sizeof(s_led_grb));      /* all zero-bits: LEDs black, ~32 % duty on the pin */
+    led_rgb_log("red only");
+    led_rgb_fill(255U, 0U, 0U);
     for (;;)
     {
-        led_rgb_log("DIAG stream of 0-bits 10 s: measure DC at PA6 and at strip DATA");
-        const TickType_t end = xTaskGetTickCount() + pdMS_TO_TICKS(10000);
-        while ((int32_t)(xTaskGetTickCount() - end) < 0) { led_rgb_show(); }   /* back to back, no latch gap */
-        led_rgb_log("DIAG idle 5 s: measure DC idle level at PA6 and at strip DATA");
-        vTaskDelay(pdMS_TO_TICKS(5000));
-    }
-#endif
-    led_rgb_fill(0U, 0U, 0U);
-    led_rgb_show();                       /* clear whatever the strip powered up with */
-    vTaskDelay(pdMS_TO_TICKS(10));
-
-    for (;;)
-    {
-        led_rgb_log("solid red");
-        led_rgb_fill(255U, 0U, 0U);   led_rgb_show();  vTaskDelay(pdMS_TO_TICKS(1000));
-        led_rgb_log("solid green");
-        led_rgb_fill(0U, 255U, 0U);   led_rgb_show();  vTaskDelay(pdMS_TO_TICKS(1000));
-        led_rgb_log("solid blue");
-        led_rgb_fill(0U, 0U, 255U);   led_rgb_show();  vTaskDelay(pdMS_TO_TICKS(1000));
-
-        led_rgb_log("chase");
-        for (uint32_t i = 0U; i < LED_RGB_COUNT; i++)
-        {
-            led_rgb_fill(0U, 0U, 0U);
-            led_rgb_set(i, 255U, 255U, 255U);
-            led_rgb_show();
-            vTaskDelay(pdMS_TO_TICKS(10));
-        }
-
-        led_rgb_log("rainbow");
-        for (uint16_t shift = 0U; shift < 768U; shift = (uint16_t)(shift + 6U))
-        {
-            for (uint32_t i = 0U; i < LED_RGB_COUNT; i++)
-            {
-                uint8_t r, g, b;
-                led_rgb_hue((uint16_t)((shift + (i * 768U) / LED_RGB_COUNT) % 768U), &r, &g, &b);
-                led_rgb_set(i, r, g, b);
-            }
-            led_rgb_show();
-            vTaskDelay(pdMS_TO_TICKS(15));
-        }
+        led_rgb_show();
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 #endif /* TEST_LED_RGB */
