@@ -425,7 +425,7 @@ static void rs485_test_task(void *arg)
  *     strip DATA, INVERTING stage          ~3.4 V   idle ~5 V   -> set LED_RGB_INVERT 1
  *     strip DATA stuck ~0 V or ~5 V, or only a few 100 mV of movement
  *                          -> the stage in between is too slow / not switching: bypass it. */
-#define LED_RGB_DIAG         1
+#define LED_RGB_DIAG         0
 #define LED_RGB_T0H_NS       400U
 #define LED_RGB_T1H_NS       800U
 #define LED_RGB_BIT_NS       1250U
