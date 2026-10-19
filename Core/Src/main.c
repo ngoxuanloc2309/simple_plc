@@ -40,7 +40,7 @@
  *   both 0           : normal firmware (PLC engine).
  * Default (nothing defined) stays TEST_RS485 = 1; set TEST_LED_RGB to 1 to switch to the LED test. */
 #ifndef TEST_LED_RGB
-#define TEST_LED_RGB 1
+#define TEST_LED_RGB 0
 #endif
 #ifndef TEST_RS485
 #define TEST_RS485 (!TEST_LED_RGB)

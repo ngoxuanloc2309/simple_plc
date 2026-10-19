@@ -150,6 +150,31 @@ static void read_device_resource_info(uint16_t offset, uint16_t quantity, uint16
     }
 }
 
+#if SPLC_MQTT_ENABLE
+/* --- HARDWARE_CAPABILITIES (0x0A08-0x0A09, RO, uint32, High Word first) -------------------------
+ * App contract: docs/platform/SimplePLC_App_MCU_Structs_v2.0 (paa) and simpleplc_protocol_v2_0.h,
+ * SPLC_HardwareCapabilities_t. The App reads this before it writes the MQTT blocks and SKIPS the
+ * whole MQTT step when SPLC_CAP_MQTT_PUB is missing (or when this address answers an exception).
+ * Only what the library can prove is declared; ETHERNET / RTC / MQTT_SUB / SD are board or host
+ * facts and stay 0 here. Compiled only with SPLC_MQTT_ENABLE=1 so that SPLC_MQTT_ENABLE=0 builds
+ * keep the exact baseline size (handoff.md: SPLC_MQTT_ENABLE=0 must match it). */
+#define SPLC_CAP_BASE_LOGIC   0x00000001UL
+#define SPLC_CAP_RETENTIVE    0x00000002UL
+#define SPLC_CAP_MQTT_PUB     0x00000010UL
+
+static void read_hw_capabilities(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
+{
+    uint32_t caps = SPLC_CAP_MQTT_PUB;
+    if (g_device_resource_info.max_rules > 0U)        { caps |= SPLC_CAP_BASE_LOGIC; }
+    if (g_device_resource_info.vreg_retain_count > 0U) { caps |= SPLC_CAP_RETENTIVE; }
+
+    const uint16_t words[2] = { (uint16_t)(caps >> 16), (uint16_t)(caps & 0xFFFFUL) };
+    for (uint16_t i = 0; i < quantity; i++) {
+        registers_out[i] = words[offset + i];
+    }
+}
+#endif
+
 /* --- RULE_TABLE_INFO (0x0010, RO, 1 register) --------------------------- */
 
 static void read_rule_table_info(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
@@ -1143,6 +1168,9 @@ static const modbus_block_t s_blocks[] = {
     { 0x0810, 0x0813, true,  plc_rtc_read,                NULL },   /* FC16 writes handled in cb_write_multiple_registers (needs distinct exceptions) */
     { 0x0900, 0x09FF, false, read_runtime_tag_values,     NULL },
     { 0x0A01, 0x0A02, true,  read_system_command_result,  NULL },
+#if SPLC_MQTT_ENABLE
+    { 0x0A08, 0x0A09, true,  read_hw_capabilities,        NULL },   /* RO; App gates the MQTT deploy on bit 4 */
+#endif
     { 0x0A20, 0x0A24, true,  read_diag_block,             NULL },   /* 0x0A20 writes handled in cb_write_*, not here */
     { 0x0B00, 0x0B7F, true,  plc_fb_read,                 NULL },   /* FC16 writes handled in cb_write_multiple_registers (needs distinct exceptions) */
 #if SPLC_MQTT_ENABLE
