@@ -115,7 +115,7 @@ typedef struct SPLC_PACKED {
     /* Offset +7..14: Tag Binding List (Up to 8 Tag Indices, 0xFFFF if unused) */
     uint16_t bound_tags[SPLC_MQTT_MAX_TAGS_PER_BLOCK];
 
-    /* Offset +15: Reserved for Alignment / Telemetry Diagnostics */
+    /* Offset +15: Reserved Header (luôn ghi 0x0000 theo SPLC-SPEC-IEC-002) */
     uint16_t reserved_header;
 
     /* Offset +16..31: MQTT Topic (32 bytes ASCII null-padded, 2 chars/reg Big-Endian) */
@@ -125,7 +125,7 @@ typedef struct SPLC_PACKED {
     char     payload_template[SPLC_MQTT_MAX_TEMPLATE_CHARS];
 } SPLC_MqttTelemetryBlock_t;
 
-/* Backwards compatibility alias */
+/* Backwards compatibility aliases */
 typedef SPLC_MqttTelemetryBlock_t splc_mqtt_telemetry_block_t;
 
 /* =========================================================================

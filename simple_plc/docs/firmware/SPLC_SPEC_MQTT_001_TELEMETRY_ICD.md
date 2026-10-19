@@ -73,21 +73,23 @@ Phân hệ MQTT IIoT chia làm 2 tầng cấu hình độc lập nhưng phối h
 - **Dung lượng mỗi khối:** 96 Registers = 192 Bytes
 - **Địa chỉ Block:** $\text{Address} = 0\text{x}0C00 + (\text{BlockIndex} \times 96)$
 
-#### Cấu trúc mỗi Khối (96 Registers):
-1. **Phần Đầu Khối (Header - 32 Registers = 64 Bytes):**
-   - `Offset +0`: `CONTROL_FLAGS` (`uint16`):
-     - `Bit 0`: Enable
-     - `Bit 1..2`: Publish Mode (`0`: On-Change, `1`: COV, `2`: Periodic)
+#### Cấu trúc mỗi Khối (96 Registers = 192 Bytes) - Khớp 100% `splc_mqtt_wire.h`:
+1. **Phần Đầu Khối (Header & Điều khiển - 32 Registers = 64 Bytes):**
+   - `Offset +0` (`uint16`): `CONTROL_FLAGS`:
+     - `Bit 0`: Enable (`0`=Tắt, `1`=Bật)
+     - `Bit 1..2`: Publish Mode (`0`: Event / On-Change, `1`: COV, `2`: Periodic)
      - `Bit 3..4`: QoS (`0`, `1`, `2`)
-     - `Bit 5`: Retain Flag
-     - `Bit 6..7`: Payload Mode (`0`: Compact JSON, `1`: Raw, `2`: Custom)
-   - `Offset +1..16`: `TOPIC` (`char[32]`): Chuỗi topic MQTT (Ví dụ `factory/line1/temp`)
-   - `Offset +17..18`: `INTERVAL_MS` (`uint32`, Big-Endian): Chu kỳ xuất bản định kỳ
-   - `Offset +19..20`: `DEADBAND` (`float32`, IEEE 754 Big-Endian): Ngưỡng biến thiên COV
-   - `Offset +21..28`: `BOUND_TAGS[8]` (`8x uint16`): Danh sách tối đa 8 TagIndex được xuất bản
-   - `Offset +29..31`: `RESERVED` (`3x uint16`)
+     - `Bit 5`: Retain Flag (`0`=False, `1`=True)
+     - `Bit 6..7`: Payload Mode (`0`: Compact JSON, `1`: Raw, `2`: Custom Template)
+   - `Offset +1` (`uint16`): `EN_TAG_INDEX`: Tag cho phép kích hoạt (`0xFFFF` = Luôn bật/Không dùng)
+   - `Offset +2..3` (`uint32`, Big-Endian): `INTERVAL_MS`: Chu kỳ xuất bản định kỳ (ms)
+   - `Offset +4..5` (`float32`, IEEE 754 Big-Endian): `DEADBAND`: Ngưỡng biến thiên COV
+   - `Offset +6` (`uint16`): `TAG_COUNT`: Số lượng Tag liên kết (1..8)
+   - `Offset +7..14` (`8x uint16`): `BOUND_TAGS[8]`: Danh sách 8 TagIndex (`0xFFFF` nếu không dùng)
+   - `Offset +15` (`uint16`): `RESERVED_HEADER`: Vùng dự phòng (luôn ghi `0x0000` theo `SPLC-SPEC-IEC-002`).
+   - `Offset +16..31` (`16x uint16` = `char[32]`): `TOPIC`: Chuỗi topic MQTT (Packed ASCII 2 ký tự/thanh ghi Big-Endian)
 2. **Phần Bản Mẫu JSON (Payload Template - 64 Registers = 128 Bytes):**
-   - `Offset +32..95`: `PAYLOAD_TEMPLATE` (`char[128]`): Chuỗi JSON mẫu có chứa các biến thế chỗ như `{val}`, `{tag}`, `{ts}`, `{device}`.
+   - `Offset +32..95` (`64x uint16` = `char[128]`): `PAYLOAD_TEMPLATE`: Chuỗi JSON mẫu ASCII đệm `0x00`.
 
 ---
 
@@ -95,20 +97,25 @@ Phân hệ MQTT IIoT chia làm 2 tầng cấu hình độc lập nhưng phối h
 
 ### 3.1. Thuật toán Lọc Ngưỡng Biến Thiên (COV - Change of Value)
 Khi `Publish Mode == 1 (COV)`:
-MCU theo dõi giá trị tức thời của các Tag trong `BOUND_TAGS`. Tại mỗi chu kỳ quét logic PLC (10ms):
-$$\Delta V = |V_{\text{current}} - V_{\text{last\_published}}|$$
-- Nếu $\Delta V \ge \text{Deadband}$: Đưa thông điệp vào hàng đợi xuất bản MQTT và cập nhật $V_{\text{last\_published}} = V_{\text{current}}$.
-- Nếu $\Delta V < \text{Deadband}$: Bỏ qua không gửi để tiết kiệm băng thông và tài nguyên mạng.
+MCU theo dõi giá trị của các Tag trong `BOUND_TAGS`. Tại mỗi chu kỳ quét logic PLC (10ms):
+1. Với mỗi Tag $K$ ($K = 1..\text{tag\_count}$):
+   - Nếu Tag kiểu `REAL` (Float32): $\Delta V_K = |V_{K, \text{curr}} - V_{K, \text{last}}| \ge \text{Deadband}$
+   - Nếu Tag kiểu `DINT` (Số nguyên): $\Delta V_K = |V_{K, \text{curr}} - V_{K, \text{last}}| \ge \text{round}(\text{Deadband})$
+2. Nếu $\exists K: \Delta V_K \ge \text{Threshold}$:
+   Đưa thông điệp vào hàng đợi xuất bản MQTT và cập nhật $V_{K, \text{last}} = V_{K, \text{curr}}$ cho tất cả các tag.
+3. *Khuyến nghị:* Chế độ COV nên áp dụng cho luồng viễn trắc đơn biến hoặc các biến cùng đơn vị vật lý.
 
 ### 3.2. Thuật toán Render Payload JSON
 Khi một sự kiện kích hoạt (Event / COV / Periodic):
-1. Nếu `Payload Mode == 0 (Compact JSON)`: MCU sinh JSON tự động:
+1. Nếu `Payload Mode == 0 (Compact JSON)`: MCU sinh JSON tự động, các giá trị được format trực tiếp theo kiểu dữ liệu của Tag (REAL -> float, DINT -> int, BOOL -> bool):
    ```json
-   {"tag":16,"val":24.5,"ts":1773228945}
+   {"device":"PLC-01","ts":1773228945,"values":{"tag1":24.5,"tag2":10}}
    ```
 2. Nếu `Payload Mode == 2 (Custom)`: MCU quét chuỗi `PAYLOAD_TEMPLATE` và thay thế các placeholder:
-   - `{val}` $\rightarrow$ Giá trị số hoặc trạng thái boolean của Tag đầu tiên.
-   - `{tag}` $\rightarrow$ Chỉ số `TagIndex`.
+   - `{val1}`..`{val8}` $\rightarrow$ Giá trị tag thứ $K$ theo kiểu dữ liệu (REAL -> float, DINT -> int).
+   - `{val}` $\rightarrow$ Alias cho `{val1}`.
+   - `{vals}` $\rightarrow$ Mảng JSON các giá trị `[val1, val2, ...]`.
+   - `{tag1}`..`{tag8}` / `{tag}` $\rightarrow$ Tên định danh tag fallback.
    - `{ts}` $\rightarrow$ Unix Timestamp từ bộ đếm thời gian thực RTC nội bộ.
    - `{device}` $\rightarrow$ Chuỗi `CLIENT_ID` đã cấu hình tại `0x0E24`.
 
