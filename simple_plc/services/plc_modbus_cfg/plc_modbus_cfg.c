@@ -168,6 +168,7 @@ static void read_hw_capabilities(uint16_t offset, uint16_t quantity, uint16_t *r
     if (g_device_resource_info.max_rules > 0U)        { caps |= SPLC_CAP_BASE_LOGIC; }
     if (g_device_resource_info.vreg_retain_count > 0U) { caps |= SPLC_CAP_RETENTIVE; }
 
+    log_info(TAG, "hw capabilities read: offset=%u quantity=%u caps=0x%08lX", offset, quantity, (unsigned long)caps);
     const uint16_t words[2] = { (uint16_t)(caps >> 16), (uint16_t)(caps & 0xFFFFUL) };
     for (uint16_t i = 0; i < quantity; i++) {
         registers_out[i] = words[offset + i];

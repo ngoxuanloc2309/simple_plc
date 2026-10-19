@@ -259,6 +259,7 @@ void plc_mqtt_broker_read(uint16_t offset, uint16_t quantity, uint16_t *register
 plc_mqtt_write_result_t plc_mqtt_telemetry_write(uint16_t offset, uint16_t quantity,
                                                  const uint16_t *registers)
 {
+    log_info(TAG, "telemetry write: offset=%u quantity=%u", offset, quantity);
     if ((uint32_t)offset + quantity > PLC_MQTT_TELEMETRY_REGS) {
         log_warn(TAG, "telemetry write rejected: offset=%u quantity=%u runs past 0x0D7F",
                  offset, quantity);
@@ -281,6 +282,7 @@ plc_mqtt_write_result_t plc_mqtt_telemetry_write(uint16_t offset, uint16_t quant
 plc_mqtt_write_result_t plc_mqtt_broker_write(uint16_t offset, uint16_t quantity,
                                               const uint16_t *registers)
 {
+    log_info(TAG, "broker write: offset=%u quantity=%u", offset, quantity);
     if ((uint32_t)offset + quantity > PLC_MQTT_BROKER_REGS) {
         log_warn(TAG, "broker write rejected: offset=%u quantity=%u runs past 0x0E5F",
                  offset, quantity);
@@ -454,6 +456,9 @@ static void broker_apply(const uint16_t *image)
 
 void plc_mqtt_commit_draft(void)
 {
+    /* Diagnostic: what the COMMIT is about to apply (draft_mask bit 4 = broker, bits 0..3 = blocks). */
+    log_info(TAG, "COMMIT: MQTT draft_mask=0x%02X broker_draft: enabled=%d host_empty=%d",
+             (unsigned)s_draft_mask, (int)broker_enabled(s_brk_draft), (int)broker_host_empty(s_brk_draft));
     for (unsigned i = 0; i < BLOCKS; i++) {
         if ((s_draft_mask & (1U << i)) != 0U) {
             memcpy(s_tel[i], s_tel_draft[i], sizeof(s_tel[i]));
