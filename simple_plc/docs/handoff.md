@@ -14,17 +14,19 @@
    `0x0C00`, Broker `0x0E00`). **Lỗi thời một chỗ:** ghi `0x0D80..0x0DFF` là Reserved (xem F.1).
 3. `docs/plc_mqtt_design.md` — thiết kế MQTT Publish (quyết định 35).
 4. `docs/SimplePLC_RuleStruct_MCU_Spec_v0.1.md` — chỉ còn đúng cho LOGIC rule (Trigger→Compare→Dwell→Guard→Action).
-5. `docs/firmware/MCU_CONFORMANCE_SPECIFICATION_V2_0.md` — checklist; còn lỗi (mục 11.2 ghi FC16 là `0x16`, đúng
-   `0x10`; chưa có mục MQTT; giả định 124 tag cố định của Remote I/O V1).
-6. **ICD mới nằm trong repo App**, `paa/docs/firmware/` (đọc 19/10/2026, `paa` `c0d4acb`): `SPLC_SPEC_MQTT_001_TELEMETRY_ICD`
-   (layout khối Telemetry SAI — không dùng), `..._MQTT_002_SUBSCRIBE_ICD`, `..._MQTT_003_TLS_CERTIFICATE_WIRE_ICD`,
-   `..._MODBUS_MASTER_001_READ_ICD`, `..._MODBUS_MASTER_002_WRITE_ICD`, `..._DIRECT_WRITE_003_ICD`, `splc_mqtt_wire.h`; header
-   chung `paa/src/SimplePLC.Protocol/Firmware/simpleplc_protocol_v2_0.h`. **Các ICD này chưa đáng tin để code ngay — xem
-   F.1 (header không biên dịch, MB_WRITE có 3 nguồn khác nhau).** Link `g:/HoaNV/...` trong tài liệu không mở được.
+5. `docs/firmware/MCU_CONFORMANCE_SPECIFICATION_V2_0.md` — checklist; còn lỗi (mục 11.2 ghi FC16 là `0x16`, đúng `0x10`; chưa có mục MQTT; giả định
+   124 tag cố định của Remote I/O V1; mục 13.8 ghi `pwm_freq_hz` "Little-Endian", sai so với ICD PULSE_OUT và codec). `paa` `cdc0511` thêm mục 13.8 (PULSE_OUT),
+   13.9 (Wi-Fi ST67) và 13.10 (quy trình nạp 6 bước: đọc `0x0A08` → ghi ngoại vi `0x0B00, 0x0B40, 0x0E00, 0x0C00, 0x0D80, 0x1000, 0x1100, 0x1200` →
+   staging `0x9010` → CRC `0x9003` → COMMIT `0xA000=0xA5A5`).
+6. **ICD nằm trong repo App**, `paa/docs/firmware/` (đọc 20/10/2026, `paa` `cdc0511`): `SPLC_SPEC_MQTT_001_TELEMETRY_ICD` (layout khối Telemetry SAI —
+   không dùng), `..._MQTT_002_SUBSCRIBE_ICD`, `..._MQTT_003_TLS_CERTIFICATE_WIRE_ICD`, `..._MODBUS_MASTER_001_READ_ICD`, `..._MODBUS_MASTER_002_WRITE_ICD`,
+   `..._DIRECT_WRITE_003_ICD` (mã mới `SPLC-SPEC-PULSE-003` v2.1.0: khối đổi tên PULSE_OUT, mã nhị phân vẫn `DIRECT_WRITE`), `..._WIFI_004_ICD` (ST67, ngoài
+   phạm vi), `splc_mqtt_wire.h`; header chung `paa/src/SimplePLC.Protocol/Firmware/simpleplc_protocol_v2_0.h`. Từ `cdc0511` ICD MB_READ/MB_WRITE/PULSE_OUT khớp
+   codec C# và header (xem F.1); còn một `_Static_assert` sai ở struct Wi-Fi. Link `g:/HoaNV/...` trong tài liệu không mở được.
 
 **Repo liên quan**
-- Firmware lib: `ngoxuanloc2309/simple_plc`, nhánh `board_dev_gw` (bản đã đọc `28d113c`). Tài liệu ở `simple_plc/docs/`.
-- App (.NET, SimplePLC.Studio): `ngoxuanloc2309/paa`, `main` (bản đã đọc `c0d4acb`). Bug xuyên App+firmware phải đọc CẢ
+- Firmware lib: `ngoxuanloc2309/simple_plc`, nhánh `board_dev_gw` (bản đã đọc `4743cfb`). Tài liệu ở `simple_plc/docs/`.
+- App (.NET, SimplePLC.Studio): `ngoxuanloc2309/paa`, `main` (bản đã đọc `cdc0511`, 20/10/2026). Bug xuyên App+firmware phải đọc CẢ
   HAI repo. Luôn `git pull` App trước khi kết luận "App chưa có X".
 - Gateway thật (host nhúng SimplePLC): `ngoxuanloc2309/wg_ue`, `main` (STM32H563, FreeRTOS + lwIP, 3 cổng RS485
   USART3/6/10, TinyUSB do host sở hữu; bản đã đọc `60087b2`, chưa pull lại).
@@ -69,19 +71,17 @@ hai máy phải dùng hiệu số (bài học 24). `splc_config/splcopts.h` đ�
 **Nhúng vào `wg_ue`:** SimplePLC thêm +22 464 B RAM, +26 780 B FLASH (số đo trước MQTT). RAM host gần đầy:
 `configTOTAL_HEAP_SIZE`=296 KB, dư 2 992 B RAM tĩnh (quyết định 26); số đo sau khi bật MQTT chưa ghi.
 
-**Lỗi đang xử lý: Deploy MQTT từ App không xuống firmware (đã tìm ra, thuộc App).** Triệu chứng: App báo SUCCESS nhưng
-firmware ghi `COMMIT: MQTT draft_mask=0x00 ... app_configured=0 generation=0`. Nguyên nhân (đọc code `paa` `c0d4acb`, chưa
-chạy App): khi đã kết nối, `AppServices.OnSessionChanged` gán `RuleWriter = session.Rules` (`RuleTableGateway`). Gateway
-chỉ override 2 overload `DeployRulesAsync`; `DeployRulesUseCase` gọi overload 10 tham số nên C# chạy default interface
-method trong `IRuleTableWriter` (`=> DeployRulesAsync(slaveId, rules, cancellationToken)`) — vứt hết timers/counters/MQTT/
-broker/logger. `RuleTableWriter` bản có fail-safe (`[CAPS]`, fail deploy khi thiếu MQTT_PUB) không bao giờ được gọi.
-**Đã báo đội App; chờ họ sửa.** Firmware KHÔNG cần sửa. Kết quả đúng sau khi App sửa: log App có `[CAPS] MCU
-capabilities: 0x11|0x13`, `[MQTT Broker] Writing ...`; log firmware có `broker write`, `draft_mask` có bit `0x10` và
-`0x01`, `enabled=1 host_empty=0`, `app_configured=1 generation=1`; rồi đọc `0x0E54` (Connected / `last_error_code`).
-Khi đó nếu project có khối MQTT SUB, Deploy sẽ FAIL rõ ràng (firmware chưa khai `MQTT_SUB`) — đúng thiết kế.
+**Lỗi Deploy MQTT từ App không xuống firmware: App đã sửa (`paa` `cdc0511`), CHƯA chạy lại để xác nhận.** Triệu chứng cũ: App báo SUCCESS nhưng
+firmware ghi `COMMIT: MQTT draft_mask=0x00 ... app_configured=0 generation=0`. Nguyên nhân: `RuleTableGateway` chỉ override 2 overload nên C# rơi vào
+default interface method của `IRuleTableWriter`, vứt hết timers/counters/MQTT/broker. Bản sửa (đọc code + changelog 2.8.1, chưa chạy App): bỏ default
+interface method, overload tiện ích thành static extension method, `RuleTableGateway` chuyển tiếp đủ 10 tham số, có test `RuleTableGatewayDeployTests`.
+Firmware KHÔNG cần sửa. Cần xác nhận trên board: log App có `[CAPS] MCU capabilities: 0x11|0x13`, `[MQTT Broker] Writing ...`; log firmware có
+`broker write`, `draft_mask` có bit `0x10` và `0x01`, `enabled=1 host_empty=0`, `app_configured=1 generation=1`; rồi đọc `0x0E54` (Connected /
+`last_error_code`). Nếu project có khối MQTT SUB, Deploy sẽ FAIL rõ ràng (firmware chưa khai `MQTT_SUB`) — đúng thiết kế. Xác nhận xong thì hạ log
+chẩn đoán (quyết định 37).
 
 **Chưa làm:** bản đồ Flash host (4.A.5), slave board IO chính thức (4.A.4), chủ đồng hồ gateway (23), khoá Flash chung với
-OTA (hoãn, 27), **MQTT Subscribe / MB_READ / MB_WRITE / DIRECT_WRITE (mục 4.F)**.
+OTA (hoãn, 27), **MB_READ, MB_WRITE, MQTT Subscribe, PULSE_OUT (mục 4.F; chưa viết dòng code nào)**.
 
 **Chưa verify (không chặn việc tiếp):** lease/SAFE slave board IO; chạy lại `test_plc/test_fb/test_retain` sau các thay đổi
 đổi-tên/config/OS/Flash/logger; Remote I/O với board IO thật; FreeRTOS kernel thật (trễ task lúc erase Flash); PVD thật; mất
@@ -258,9 +258,7 @@ board (sau tầng đệm/đổi mức) mất xung ⇒ LED không sáng. Chưa ch
     `0x0E00..0x0E53` luôn ACK, lỗi bắt ở COMMIT. App ghi thứ tự Timer → Counter → Telemetry → Broker → staging/commit.
 33. **Layout khối MQTT Telemetry/Broker:** Header `splc_mqtt_wire.h` + Structs 3.9/3.10 + golden vector là đúng (`MqttTelemetryCodec.cs`
     của App khớp Header). ICD `SPLC_SPEC_MQTT_001` sai (layout khối Telemetry, code mẫu `memcpy` thẳng vào struct) — đã báo đội App.
-34. **MQTT Subscribe:** *(thay đổi 19/10/2026)* App đã có ICD `SPLC-SPEC-MQTT-002` và vùng `0x0D80..0x0DFF`. Điều kiện cũ "chờ App chốt
-    spec" coi như đã đủ, NHƯNG làm firmware còn bị chặn bởi các câu hỏi ở 4.F. Hướng dự kiến giữ nguyên: ống đối xứng
-    `splc_mqtt_input(...)` cắm bởi host (quyết định 31).
+34. **MQTT Subscribe:** App đã có ICD `SPLC-SPEC-MQTT-002` và vùng `0x0D80..0x0DFF`; layout ICD và `MqttSubscriptionCodec` khớp, header C đúng kích thước, codec ghi đủ fail-safe `0/1/2` (`paa` `cdc0511`). Hướng dự kiến: ống đối xứng `splc_mqtt_input(...)` cắm bởi host (quyết định 31). Thứ tự làm so với MB_READ chưa chốt; còn các câu hỏi ở F.2–F.3.
 35. **Thiết kế MQTT Publish (chi tiết `docs/plc_mqtt_design.md`):**
     - **Q1** QoS/retain theo từng khối; host có `mqtt_client_publish_ex(topic, payload, qos, retain)`.
     - **Q2** chưa dùng TLS: `SPLC_MQTT_TLS_SUPPORTED=0`, COMMIT từ chối `use_tls=1`. Host không hỗ trợ `clean_session=0`/MQTT 5 (port
@@ -280,12 +278,14 @@ board (sau tầng đệm/đổi mức) mất xung ⇒ LED không sáng. Chưa ch
     - `{device}` trên gateway lấy từ `g_sys_config.device.device_id`, KHÔNG phải `g_sys_config.mqtt.client_id` (rỗng).
 36. **Thanh ghi khả năng `0x0A08` (2 reg, uint32 big-endian) CHỈ tồn tại khi `SPLC_MQTT_ENABLE=1`** (người dùng chốt 19/10/2026; baseline
     MQTT=0 giữ 80 296/77 664 B). Bit: BASE_LOGIC 0x1, RETENTIVE 0x2, RTC 0x4, ETHERNET 0x8, MQTT_PUB 0x10, MQTT_SUB 0x20, SD 0x40 (header App
-    còn có MODBUS_MASTER 0x100 — firmware CHƯA khai). Hàm `read_hw_capabilities` trong `plc_modbus_cfg.c` khai MQTT_PUB, thêm BASE_LOGIC nếu
+    còn có MODBUS_MASTER 0x100 và WIFI 0x200 — firmware CHƯA khai). Hàm `read_hw_capabilities` trong `plc_modbus_cfg.c` khai MQTT_PUB, thêm BASE_LOGIC nếu
     `max_rules>0`, RETENTIVE nếu `vreg_retain_count>0`. App phải coi Modbus exception `0x02` khi đọc `0x0A08` = "thiết bị chỉ có khả năng cơ
     bản"; nhưng rule có khối MQTT mà thiết bị không khai bit tương ứng ⇒ FAIL deploy kèm lý do, không báo SUCCESS.
 37. **Log chẩn đoán MQTT đang ở mức INFO** (`plc_mqtt.c`, `plc_modbus_cfg.c`): `telemetry write`, `broker write`, `hw capabilities read`,
     `COMMIT: MQTT draft_mask=.. broker_draft: ..`. Giữ INFO cho tới khi lỗi Deploy (mục 0) được xác nhận xong; rồi đổi lời gọi
     `log_info` → `log_debug` (đổi `SPLC_LOG_LEVEL` một mình KHÔNG ẩn được chúng).
+38. **MB_READ / MB_WRITE (người dùng chốt 19/10/2026):** làm MB_READ trước, rồi MB_WRITE. Master Modbus của lib phải hỗ trợ tới **125 thanh ghi/request** (không chặn ở 16): mở rộng `modbus_serial` (nay chỉ FC03/FC16, `MODBUS_MASTER_MAX_REGS 16`, `MODBUS_MASTER_FRAME_MAX 64`) thêm FC01/02/04/05/06/15 và khung 256 B. Nguồn chuẩn layout = `ModbusMasterCodec.cs` + header (ICD khớp từ `cdc0511`); firmware giải mã từng thanh ghi, KHÔNG ép struct vào byte wire (thanh ghi big-endian, High byte trước).
+39. **Cổng RS485 cho MB_READ cấu hình được trong `splcopts.h` (người dùng chốt hướng 19/10/2026; TÊN option là đề xuất, chưa code):** host đăng ký cổng qua `splc_mbm_set_rs485_port()` (cùng kiểu `splc_gateway_set_rs485_port()`, quyết định 18); `SPLC_MBM_ENABLE` (mặc định 0, baseline MQTT=0 không đổi); `SPLC_MBM_BUS` = `DEDICATED` (cổng riêng, vd. USART10) / `SHARED_IO` (chung bus Remote I/O, cần bộ phân xử) / `SHARED_APP` (chung dây với link App); host chọn USART bằng `SPLC_HOST_MBM_RS485_PORT`. **Chỉ có một cổng RS485 và Studio nạp qua dongle USB-RS485 (`SHARED_APP`): MB_READ NHƯỜNG App** — khi Studio đang kết nối (có khung đến trong `SPLC_MBM_APP_YIELD_MS`, đề xuất 3000 ms) MB_READ không phát request mới, tag giữ giá trị cuối; Studio im quá thời gian đó thì chạy lại. Hệ quả: glue host cần MỘT bộ bơm byte duy nhất (master đang chờ trả lời → byte vào master, ngược lại → `splc_link_input()`), vì hai bên đọc chung hàng đợi RX; Studio đọc live liên tục nên khi đang kết nối MB_READ gần như dừng — chế độ này dành cho nạp/cấu hình, không cho chạy sản xuất lâu dài. `#error` khi `SHARED_APP` mà đường App không đi RS485 (`SPLC_PORT_USB_CDC=1`).
 
 ## 3. Quy trình làm việc
 
@@ -305,10 +305,8 @@ board (sau tầng đệm/đổi mức) mất xung ⇒ LED không sáng. Chưa ch
 
 ## 4. Kế hoạch
 
-**Việc tiếp theo (đề xuất):** (1) chờ đội App sửa `RuleTableGateway` rồi chạy lại Deploy MQTT (mục 0) — hết lỗi thì hạ log chẩn đoán
-(quyết định 37); (2) chốt các câu hỏi 4.F rồi bắt đầu MQTT Subscribe; (3) validate index tag khi nạp rule (4.D); (4) đo lại baseline
-Gateway + RAM/FLASH Gateway với MQTT bật + kiểm ranh giới layer bằng `nm`; (5) chờ người dùng quyết: chủ đồng hồ gateway (4.A.3), bản
-đồ Flash host (4.A.5), có sửa `network_manager.c` không (mục 0).
+**Việc tiếp theo (đề xuất):** (1) chạy lại Deploy MQTT với App `cdc0511` để xác nhận bản sửa (mục 0), rồi hạ log chẩn đoán (quyết định 37); (2) làm MB_READ (quyết định 38–39, kế hoạch F.4) sau khi người dùng chốt quy ước số thực (F.3.1); (3) gửi đội App tin nhắn rút gọn (F.3.3); (4) validate index tag khi nạp rule (4.D); (5) đo lại baseline
+Gateway + RAM/FLASH Gateway với MQTT bật + kiểm ranh giới layer bằng `nm`; (6) chờ người dùng quyết: chủ đồng hồ gateway (4.A.3), bản đồ Flash host (4.A.5), có sửa `network_manager.c` không (mục 0).
 
 **A. Nhúng vào `wg_ue` (còn lại)**
 1. *(đã xong)* SimplePLC nhúng và chạy trên board gateway.
@@ -349,62 +347,54 @@ Còn nên làm: đo RAM/FLASH Gateway với MQTT bật. **E.7 (đã gửi đội
 quy đổi 10^dec/deadband; thăm dò `0x0E54` + hiển thị `0x0E54..0x0E5F` + đổi nhãn nút Test Connection thành "PC tới broker" (nút chỉ mở TCP
 socket từ PC); sửa ICD và Conformance 11.2. Mật khẩu broker lưu chữ thường trong `ProjectMetadata` (phía App).
 
-**F. MQTT Subscribe, MB_READ, MB_WRITE, DIRECT_WRITE (MỚI — đã đọc ICD, CHƯA viết dòng code nào)**
+**F. MB_READ, MB_WRITE, MQTT Subscribe, PULSE_OUT (đã đọc ICD + codec + code firmware liên quan, CHƯA viết dòng code nào)**
 
-*F.0 Phạm vi theo ICD (`paa/docs/firmware/`):*
+*F.0 Phạm vi theo ICD (`paa/docs/firmware/`, `cdc0511`):*
 
 | Phân hệ | Vùng thanh ghi | Cấu trúc |
 |---|---|---|
 | MQTT SUB (`MQTT-002`) | `0x0D80..0x0DFF` | 2 khối × 64 reg: cờ (enable, QoS, FIFO/Latest, ignore retained, fail-safe action), timeout, topic 32 B, 4 pin (tag đích, kiểu, default, `json_key` 12 B) |
 | MB_READ (`MBM-001`) | `0x1000..0x10FF` | 4 khối × 64 reg: slave/FC, địa chỉ, số lượng, chu kỳ, timeout, tag valid/error/errcode, 4 pin (offset, kiểu, endian, multiplier, nhãn) |
-| MB_WRITE (`MBM-002`) | `0x1100..0x11FF` | 4 khối × 64 reg: FC 05/06/15/16, chế độ Direct hoặc ChannelIndexed (Sort-to-Light), trigger, 4 pin |
-| DIRECT_WRITE (`DIR-003`) | `0x1200..0x12FF` | 8 khối × 16 reg: DO0..DO7, mode DO/PWM/PTO/BUS(WS2812), tag kênh/tham số, fail-safe |
+| MB_WRITE (`MBM-002`) | `0x1100..0x11FF` | 4 khối × 64 reg (header 16 reg + payload 48 reg): FC 05/06/15/16, chế độ Direct (4 pin) hoặc ChannelIndexed (Sort-to-Light), trigger, tag Done/Busy/Err |
+| PULSE_OUT (`PULSE-003` v2.1.0, trước là DIRECT_WRITE) | `0x1200..0x12FF` | 8 khối × 16 reg (32 B): DO0..DO7, mode DO/PWM/PTO/BUS(WS2812), tag kênh/tham số, fail-safe |
 | (thêm) TLS cert (`MQTT-003`) | `0x0F00..0x0F43` | chuyển chứng chỉ theo mảnh — chưa xét |
+| (thêm) Wi-Fi ST67 (`WIFI-004`) | `0x1300..0x13FF` | cấu hình + quét AP, cờ `0x0A08` bit `0x0200` — ngoài phạm vi, nhưng nằm trong trình tự nạp 6 bước; firmware chưa khai cờ nên chưa xét Deploy khi project có Wi-Fi |
 
-Firmware hiện KHÔNG có gì cho các vùng này (grep `0x0D80/0x0F00/0x1000/0x1100/0x1200`, `DIRECT_WRITE`, `MB_READ/WRITE`: không có kết
-quả); `0x0A08` chưa khai `MQTT_SUB`/`MODBUS_MASTER`.
+Firmware hiện KHÔNG có gì cho các vùng này (kiểm 20/10 bằng grep `0x0D80/0x1000/0x1100/0x1200`, `PULSE_OUT`, `MB_READ/WRITE`: chỉ `plc_io_remote.c` và `modbus_serial.*` nhắc \"MODBUS_MASTER\", đó là master của Remote I/O); `0x0A08` chưa khai `MQTT_SUB`/`MODBUS_MASTER`/`WIFI`.
 
-*F.1 Mâu thuẫn đã tìm thấy (bằng chứng, đọc `paa` `c0d4acb`):*
-1. **Header C chuẩn không biên dịch:** `simpleplc_protocol_v2_0.h` — `gcc -std=c11` báo `static assertion failed: ModbusMasterReadBlock must be 128
-   bytes`; tính tay thực tế 126 B (`reserved[3]`, ICD ghi 4 reg dự phòng). Header cũng thiếu `#include <string.h>` cho `memcpy`.
-2. **MB_READ, kiểu dữ liệu pin:** ICD ghi `0=Bool 1=Int16 2=UInt16 3=Real 4=Int32 5=UInt32`; header và `ModbusMasterEnums.cs` (codec chạy thật) là
-   `1=Bool 2=Int16 3=UInt16 4=Int32 5=UInt32 6=Real`. Theo bài học 28: tin codec/enums, sai ở ICD.
-3. **MB_WRITE có 3 nguồn khác nhau:** (a) ICD: trigger mode nằm trong `CONTROL_FLAGS` bit 2..3, không có tag trigger/busy; `DONE/ERR/ERRCODE` ở
-   `+10..+12`; (b) header: `control_flags` bit 2..3 = WriteMode, có `trigger_mode`, `trig_tag_index`, `done/busy/error/err_code` tag, `base_address_param`
-   uint32; (c) `ModbusMasterCodec.EncodeWriteBlock`: bit 2..3 = WriteMode, trigger ở thanh ghi `+10`. ICD tự mâu thuẫn thêm: bảng ghi High byte = FC,
-   Low byte = Slave ID nhưng struct C khai `slave_id` trước `function_code`. **Chưa có nguồn nào đủ tin để code.**
-4. **App chưa gửi MB_WRITE và DIRECT_WRITE:** `RuleTableWriter.DeployRulesAsync` chỉ ghi `0x0D80` (SUB), `0x1000` (MB_READ); `RuleCompiler` có sinh
-   `ModbusMasterWriteConfigDto`/`DirectWriteConfigDto` nhưng writer không ghi `0x1100/0x1200`; không có codec DIRECT_WRITE trong `Protocol/Codec/`.
-   ⇒ chưa thể test đầu-cuối hai phân hệ này với App.
-5. **DIRECT_WRITE ICD:** ghi kiểu `uint16 (LE)` trong vùng thanh ghi Modbus (big-endian) và "Reg 0 (Lo) = target_pin, (Hi) = mode" — thứ tự byte trên
-   dây chưa rõ; cần golden vector từ App.
-6. **Tài liệu firmware cũ mâu thuẫn:** `SimplePLC_App_MCU_Structs_MQTT_IIoT_Profile.md` dòng 103 và test TC-MQTT-07 / TC07 (ICD Telemetry) quy
-   định `0x0D80..0x0DFF` là Reserved → Exception `0x02`. Làm SUB phải sửa các tài liệu và test này.
-7. **SUB:** `target_tag_index` "0..127" nhưng layout tag board là dense (`MAX_TAGS`, Zigbee 112); kiểu `REAL` (float32) không có trong firmware vì
-   tag là `int32`. MB_READ/MB_WRITE cũng có pin `Real` + `multiplier` float.
-8. SUB mô tả hàng đợi bằng FreeRTOS queue và `xTaskGetTickCount()`, `jsmn` — firmware lib chạy bare-metal hoặc FreeRTOS, không có client mạng
-   (quyết định 31): cần ống `splc_mqtt_input`, tick qua `sx_get_tick_ms()`, và tự viết bộ tách `json_key` không cấp phát (chưa quyết dùng `jsmn`).
+*F.1 Tài liệu App (đọc `paa` `cdc0511`, 20/10/2026):*
+
+Đã giải quyết so với bản `c0d4acb`:
+1. Header C: MB_READ có `reserved[4]`, đã có `#include <string.h>`; struct MB_READ/MB_WRITE 128 B và PULSE_OUT 32 B đúng kích thước (tính bằng gcc).
+2. MB_READ ICD: kiểu dữ liệu pin `1=Bool 2=Int16 3=UInt16 4=Int32 5=UInt32 6=Real`, khớp codec.
+3. MB_WRITE ICD viết lại khớp `ModbusMasterCodec.cs` + header: `CONTROL_FLAGS` bit 2..3 = WriteMode (0 Direct, 1 ChannelIndexed); `+2` start/base cmd; `+3` count/channels; `+4..+5` base_param (uint32); `+6..+7` interval; `+8..+9` timeout; `+10` trigger mode; `+11` trig tag; `+12..+15` done/busy/err/err_code tag; payload `+16..+63`: ChannelIndexed = channel/command/param tag ở `+16/+17/+18`, Direct = 4 pin × 12 reg.
+4. App đã gửi MB_WRITE và PULSE_OUT: `RuleTableWriter` ghi `0x1100` và `0x1200` (và ghi 0 vào đầu các khối cũ không còn dùng); có `DirectWriteCodec` + test.
+5. PULSE_OUT: thanh ghi big-endian rõ ràng (Reg 0 = `(mode<<8)|target_pin`, Reg 2 = `(trigger<<8)|flags`, Reg 6 = `(duty_max<<8)|duty_min`, 32-bit High Word trước); `DirectWriteCodec` khớp từng thanh ghi. Struct C trong ICD khai `target_pin` trước `mode` chỉ là bố cục bộ nhớ; trên dây `mode` ở High byte ⇒ firmware giải mã TỪNG THANH GHI, không ép struct vào byte wire.
+6. MQTT SUB: codec ghi đủ fail-safe `0/1/2` (`ResetToZero`).
+
+Còn mở:
+1. Header C vẫn không qua `gcc -std=c11`: `SPLC_WifiConfig_t` thực tế 130 B, `_Static_assert` đòi 128 (struct Wi-Fi, ngoài phạm vi nhưng làm hỏng phép thử biên dịch của cả header).
+2. `DirectWriteCodec` luôn ghi `ActiveHigh=1`, `duty_min=0`, `duty_max=100`, không ghi bit fail-safe: `DirectWriteConfigDto` thiếu trường mà ICD định nghĩa.
+3. `RuleCompiler` (không đổi ở `cdc0511`) chưa truyền Done/Busy/Error/ErrCode tag cho MB_WRITE (chỉ Trig/Channel/Command/Param) ⇒ các tag trạng thái luôn `0xFFFF`.
+4. Conformance 13.8 ghi `pwm_freq_hz` \"Little-Endian\": sai so với ICD và codec (High Word trước).
+5. Tài liệu firmware cũ: `SimplePLC_App_MCU_Structs_MQTT_IIoT_Profile.md` dòng 103 và test TC-MQTT-07 / TC07 định `0x0D80..0x0DFF` là Reserved → Exception `0x02`. Làm SUB phải sửa các tài liệu và test này.
+6. **Số thực:** tag là `int32` nên không có kiểu `REAL`; pin `Real` + `multiplier` (float) có ở SUB, MB_READ, MB_WRITE. App chỉ dùng `ModbusMasterDataParser.TryParsePinValue` (trả `double`) để xem trước trong hộp thoại cấu hình; App KHÔNG có quy ước ghi giá trị vào tag. SUB: `target_tag_index` \"0..127\" nhưng tag dense (`MAX_TAGS`); codec gộp Int16 vào INT32; `0xFFFF` ở `target_tag_index` = pin không dùng (ICD không nhắc).
+7. SUB ICD mô tả FreeRTOS queue, `xTaskGetTickCount()`, `jsmn` — không dùng: cần ống `splc_mqtt_input`, tick qua `sx_get_tick_ms()`, bộ tách `json_key` không cấp phát (chưa quyết dùng `jsmn`).
 
 *F.2 Rào cản kiến trúc:*
-- **SUB:** host phải `subscribe` các topic do lib khai (`wg_ue/apps/mqtt_client` cần thêm hàm — file host, chỉ sửa ở sandbox) và đẩy bản tin vào lib
-  trong ngữ cảnh engine. Cần thêm bit `MQTT_SUB` vào `0x0A08` và dùng cơ chế nháp/COMMIT/Flash như quyết định 32 (có thể cần chỗ trong bản ghi Flash).
-- **MB_READ / MB_WRITE:** cần MỘT cổng RS485 master. Gateway: USART6 = App, USART3 = bus board IO (đã có `plc_io_remote` làm master), USART10 chưa
-  dùng; board Zigbee-IO chỉ có UART của link App. Phải chốt cổng và tranh chấp bus với `plc_io_remote`; hợp đồng "không chặn trong scan" (quyết định 12/18)
-  ⇒ làm máy trạng thái không chặn, có timeout, một request/scan như Remote I/O.
-- **DIRECT_WRITE:** engine đã sở hữu DO qua `output_scan` ⇒ ghi trực tiếp GPIO sẽ tranh chấp với tag DO; PWM/PTO cần timer, BUS cần DMA 800 kHz
-  (nhưng đường tín hiệu OUT0 đang mất xung — mục 0). Trên gateway, DO là DO ảo của board IO qua RS485 nên `DO0..DO7` của ICD không có nghĩa trực tiếp.
+- **SUB:** host phải `subscribe` các topic do lib khai (`wg_ue/apps/mqtt_client` cần thêm hàm — file host, chỉ sửa ở sandbox) và đẩy bản tin vào lib trong ngữ cảnh engine. Cần thêm bit `MQTT_SUB` vào `0x0A08` và dùng cơ chế nháp/COMMIT/Flash như quyết định 32 (có thể cần chỗ trong bản ghi Flash).
+- **`modbus_serial` (đọc code 20/10):** chỉ FC03 + FC16; `MODBUS_MASTER_MAX_REGS 16`, `MODBUS_MASTER_FRAME_MAX 64`; mỗi master (`modbus_rtu_master_t`) chỉ có MỘT request đang chạy và `plc_io_remote` đang dùng nó. MB_READ cần thêm FC01/02/04, MB_WRITE cần FC05/06/15, và quyết định 38 đòi 125 reg/request (khung 256 B). Ước lượng +~400 B RAM mỗi master (chưa đo; RAM tĩnh dư 2 992 B — đo bằng build thật). Hàm gửi chặn tới khi bit cuối ra UART: khung FC16 123 reg = 255 B ≈ 25 ms ở 115200 ⇒ MB_WRITE nhiều thanh ghi sẽ chặn scan 10 ms, phải giải quyết khi làm MB_WRITE (MB_READ không bị: khung hỏi chỉ 8 B).
+- **Cổng/bus của MB_READ, MB_WRITE:** xem quyết định 39. Gateway: USART6 = App (nếu đi RS485), USART3 = bus board IO (`plc_io_remote`), USART10 chưa dùng; board Zigbee-IO chỉ có UART của link App. Chung bus với Remote I/O cần bộ phân xử (nếu không, Remote I/O poll mỗi scan có thể chiếm bus liên tục, MB_READ bị đói) và cùng baud (board IO 115200, cảm biến thường 9600). Hợp đồng \"không chặn trong scan\" (quyết định 12/18) ⇒ máy trạng thái không chặn, có timeout, một request/scan như Remote I/O.
+- **Tag:** `g_tag_value[]` là `int32_t`; ngưỡng rule là `int32`; `SPLC_ACT_SCALE_TAG` = `tag*param/1000+threshold_hi` (cắt phần lẻ); MQTT Publish in số lẻ bằng 10^dec. `core/plc_tag` có sẵn kind `TAG_MB_COIL`/`TAG_MB_HOLDING` (`reg_addr`, ghi chú \"future Gateway SKU\") — KHÔNG khớp thiết kế MB_READ (khối khai slave/địa chỉ, 4 pin ghi vào tag thường VFLAG/VREG); đề xuất không dùng cho MB_READ (chưa chốt).
+- **PULSE_OUT:** engine đã sở hữu DO qua `output_scan` ⇒ ghi trực tiếp GPIO sẽ tranh chấp với tag DO; PWM/PTO cần timer, BUS cần DMA 800 kHz (nhưng đường tín hiệu OUT0 đang mất xung — mục 0). Trên gateway, DO là DO ảo của board IO qua RS485 nên `DO0..DO7` của ICD không có nghĩa trực tiếp.
 
-*F.3 Câu hỏi CẦN người dùng/đội App chốt trước khi code (chưa hỏi hết):*
-1. Thứ tự làm các phân hệ (đề xuất: SUB → MB_READ; MB_WRITE và DIRECT_WRITE chờ App).
-2. Tag `REAL`: làm tròn về `int32` (có scale?), thêm kiểu tag REAL (đổi kiến trúc), hay từ chối ở COMMIT?
-3. Cổng RS485 cho MB_READ/MB_WRITE (USART10 gateway? dùng chung bus IO?) và board nào cần hỗ trợ.
-4. Đội App: chốt một nguồn đúng cho MB_WRITE (đề nghị lấy `ModbusMasterCodec` làm chuẩn), sửa header (`reserved`, `#include <string.h>`), sửa ICD (kiểu dữ
-   liệu MB_READ, MB_WRITE), thêm codec + deploy cho `0x1100/0x1200`, và cấp golden vector cho SUB/MB_READ/MB_WRITE/DIRECT_WRITE.
-5. DIRECT_WRITE: phạm vi giai đoạn đầu (đề xuất chỉ mode DO) và quan hệ với DO của engine.
+*F.3 Câu hỏi còn mở / việc cần gửi đội App:*
+1. **Quy ước số thực (chưa chốt; đề xuất cách 1):** pin `Real` hoặc multiplier ≠ 1 ghi vào tag `int32` bằng `round(giá trị × multiplier)`, chặn ở dải `int32`; muốn giữ phần lẻ thì người dùng đặt multiplier 1/10/100 và coi tag là số nguyên theo thang đó (vd. 253 = 25,3 °C, ngưỡng rule 305 = 30,5 °C). Cách 2: từ chối ở COMMIT (chỉ Bool/Int). Cách 3: thêm kiểu tag REAL (đổi Rule Engine/Retain/MQTT, không đề xuất). Chốt xong thì ghi vào mục 2 và báo đội App.
+2. Cổng RS485 thật cho MB_READ trên gateway: dùng riêng USART10 hay chung bus (cần biết baud cảm biến và phần cứng có đấu thêm được dây không).
+3. Tin nhắn rút gọn gửi đội App (chưa gửi): (a) xác nhận quy ước số thực (F.3.1); (b) sửa `SPLC_WifiConfig_t` (130 B, assert 128); (c) thêm trường `flags` (active-high, fail-safe) + duty_min/duty_max vào `DirectWriteConfigDto` và codec; (d) `RuleCompiler` truyền Done/Busy/Error/ErrCode tag cho MB_WRITE; (e) sửa Conformance 13.8 (endianness `pwm_freq_hz`).
+4. PULSE_OUT: phạm vi giai đoạn đầu (đề xuất chỉ mode DO) và quan hệ với DO của engine; thứ tự MQTT SUB và PULSE_OUT sau MB_READ/MB_WRITE.
 
-*F.4 Kế hoạch làm (sau khi chốt F.3):* mỗi phân hệ một file `plc_<tên>.c/.h` (tránh trùng tên host, quyết định 21), bật bằng option riêng trong `splc_opt.h`
-(mặc định 0 để baseline MQTT=0 không đổi); định tuyến trong `cb_write_multiple_registers`/`cb_read_holding_registers` của `plc_modbus_cfg`; lưu cấu hình qua nháp/COMMIT;
-thêm bit vào `0x0A08`; test Python `test_<tên>.py`; kiểm ranh giới layer bằng `nm`; build ARM `MQTT=0` (đúng baseline) và `=1`.
+*F.4 Kế hoạch làm:* mỗi phân hệ một file `plc_<tên>.c/.h` (tránh trùng tên host, quyết định 21), bật bằng option riêng trong `splc_opt.h` (mặc định 0 để baseline MQTT=0 không đổi); định tuyến trong `cb_write_multiple_registers`/`cb_read_holding_registers` của `plc_modbus_cfg`; lưu cấu hình qua nháp/COMMIT; thêm bit vào `0x0A08`; test Python `test_<tên>.py`; kiểm ranh giới layer bằng `nm`; build ARM `MQTT=0` (đúng baseline) và `=1`. MB_READ theo thứ tự: (a) mở rộng `modbus_serial` (FC01/02/04, 125 reg/256 B) + kiểm bằng slave giả trên PC (nói rõ là mô hình giả); (b) `plc_mbm.{c,h}`: nháp/COMMIT/Flash, lập lịch 4 khối mỗi scan một request, ghi tag valid/error/errcode theo ICD, nhường App khi `SHARED_APP`; (c) khai `MODBUS_MASTER` trong `0x0A08`; (d) glue host (`splc_mbm_set_rs485_port`, bộ bơm byte dùng chung khi `SHARED_APP`); (e) test Python + đo RAM/FLASH.
 
 Ghi nhớ: `0x0C00..0x0C06` trên slave board IO (Remote I/O) trùng SỐ với Telemetry Block 0 của gateway — khác thiết bị/bus nên không xung đột,
 nhưng dễ nhầm.
@@ -454,6 +444,8 @@ nhưng dễ nhầm.
     tác dụng", lần theo ĐƯỜNG GỌI thật (ai được gán vào biến interface lúc chạy) trước khi nghi code đã sửa; kiểm cả đối tượng được inject lúc có session và lúc không.
 32. **Một giả thuyết đã đưa ra phải được kiểm lại khi có dữ liệu mới:** giả thuyết "lần đọc `0x0A08` lúc Deploy lỗi" hoá ra sai về nguyên nhân gốc (code đó chưa từng chạy).
     Nói rõ "chưa chạy, chỉ đọc code" khi kết luận.
+33. **Đọc code firmware thật trước khi nói về firmware.** Từng suy "MQTT lưu số nguyên rồi in số lẻ" từ handoff; chỉ khi đọc `plc_tag.h` và `plc_mqtt.c` mới xác nhận được.
+34. **Đừng kết luận "file này không đổi" từ `git diff --stat | grep`:** đường dẫn dài bị cắt thành `...` và không khớp. Hỏi thẳng `git diff --stat <a> <b> -- <file>`. Changelog của App cũng chỉ là lời khai: đối chiếu bằng diff và codec thật.
 
 ## 6. Verify & test
 
