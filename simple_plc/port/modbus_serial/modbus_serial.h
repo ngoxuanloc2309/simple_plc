@@ -8,8 +8,10 @@
  * (RS485), for the Gateway. The port is a small callback struct, so this
  * layer depends on NO UART/GPIO driver: SimplePLC's own sx_uart_*, or a host
  * firmware's RS485 driver, are plugged in by the board / port file.
- * Supports exactly what the Remote I/O link needs: FC03 (read holding
- * registers) and FC16 (write multiple registers).
+ * Supports FC03 (read holding registers) and FC16 (write multiple
+ * registers) for the Remote I/O link. With SPLC_MBM_ENABLE = 1 it also reads
+ * coils / discrete inputs / input registers (FC01, FC02, FC04) for the Modbus
+ * master blocks, up to 125 values per request.
  *
  * Why not nanoMODBUS's client: its calls block until the slave answers
  * (up to the whole timeout), which would stall the scan cycle. Here a
@@ -20,8 +22,8 @@
  *
  * One request in flight at a time per master (one RS485 bus = one master).
  * A frame is complete when its length is known from the function code
- * (FC03: 5 + 2*qty bytes, FC16: 8 bytes, exception: 5 bytes), so no
- * inter-character timer is needed.
+ * (FC03/FC04: 5 + 2*qty bytes, FC01/FC02: 5 + ceil(qty/8) bytes, FC16: 8
+ * bytes, exception: 5 bytes), so no inter-character timer is needed.
  *
  * RS485 direction: if the port provides set_tx() the master calls it with
  *  true right before write() and false right after (the write callback must
@@ -36,6 +38,8 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+
+#include "splc_opt.h"   /* SPLC_MBM_ENABLE: every translation unit must agree on the master struct size */
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,8 +64,44 @@ typedef struct {
     uint32_t  baudrate;   /* real line speed, for the inter-frame gap */
 } modbus_serial_port_t;
 
+/* Per-request limits. 125 values is the Modbus maximum for a read (frame =
+ * 5 + 2*125 = 255 bytes); a write is limited to 123 registers (frame = 9 +
+ * 2*123 = 255 bytes). Each master instance carries one rx buffer and one
+ * value array of this size, so the large size is only used when
+ * SPLC_MBM_ENABLE = 1 (the Remote I/O link needs 16 / 64). */
+#ifndef MODBUS_MASTER_MAX_REGS
+#if SPLC_MBM_ENABLE
+#define MODBUS_MASTER_MAX_REGS   125U  /* values per request */
+#else
 #define MODBUS_MASTER_MAX_REGS   16U   /* per request, either direction */
+#endif
+#endif
+#ifndef MODBUS_MASTER_FRAME_MAX
+#if SPLC_MBM_ENABLE
+#define MODBUS_MASTER_FRAME_MAX  256U  /* RTU ADU maximum */
+#else
 #define MODBUS_MASTER_FRAME_MAX  64U
+#endif
+#endif
+#define MODBUS_MASTER_MAX_WRITE_REGS \
+    ((MODBUS_MASTER_MAX_REGS) < 123U ? (MODBUS_MASTER_MAX_REGS) : 123U)
+
+#if (MODBUS_MASTER_MAX_REGS < 1U) || (MODBUS_MASTER_MAX_REGS > 125U)
+#error "MODBUS_MASTER_MAX_REGS must be 1..125"
+#endif
+#if MODBUS_MASTER_FRAME_MAX < (9U + 2U * MODBUS_MASTER_MAX_WRITE_REGS)
+#error "MODBUS_MASTER_FRAME_MAX too small for MODBUS_MASTER_MAX_REGS"
+#endif
+
+#if SPLC_MBM_ENABLE
+/* Function codes accepted by modbus_rtu_master_read_fc(). */
+typedef enum {
+    MODBUS_FC_READ_COILS          = 0x01,
+    MODBUS_FC_READ_DISCRETE       = 0x02,
+    MODBUS_FC_READ_HOLDING        = 0x03,
+    MODBUS_FC_READ_INPUT          = 0x04
+} modbus_read_fc_t;
+#endif
 
 typedef enum {
     MODBUS_MASTER_IDLE = 0,    /* nothing in flight, no result pending      */
@@ -94,7 +134,7 @@ typedef struct {
     uint32_t  quiet_until_ms;         /* earliest next request (inter-frame gap) */
     uint8_t   rx[MODBUS_MASTER_FRAME_MAX];
     uint16_t  rx_len;
-    uint16_t  regs[MODBUS_MASTER_MAX_REGS];   /* FC03 answer, valid after DONE_OK */
+    uint16_t  regs[MODBUS_MASTER_MAX_REGS];   /* read answer, valid after DONE_OK */
 } modbus_rtu_master_t;
 
 /* The port struct is copied; port->ctx (if any) is borrowed and must outlive
@@ -105,11 +145,21 @@ bool modbus_rtu_master_init(modbus_rtu_master_t *m, const modbus_serial_port_t *
 /*
  * Starts a request. Returns false (nothing sent) if a request is already in
  * flight, if arguments are out of range (unit must be 1..247, qty
- * 1..MODBUS_MASTER_MAX_REGS), or if the inter-frame gap has not elapsed yet
- * -- the caller just tries again on a later cycle.
+ * 1..MODBUS_MASTER_MAX_REGS for a read, 1..MODBUS_MASTER_MAX_WRITE_REGS for a
+ * write), or if the inter-frame gap has not elapsed yet -- the caller just
+ * tries again on a later cycle.
+ *
+ * modbus_rtu_master_read() is FC03. With SPLC_MBM_ENABLE = 1,
+ * modbus_rtu_master_read_fc() also reads coils / discrete inputs (FC01/FC02,
+ * one bit per value: regs[i] is 0 or 1) and input registers (FC04); an
+ * unsupported fc is refused (returns false).
  */
 bool modbus_rtu_master_read(modbus_rtu_master_t *m, uint8_t unit, uint16_t addr,
                             uint16_t qty, uint32_t timeout_ms);
+#if SPLC_MBM_ENABLE
+bool modbus_rtu_master_read_fc(modbus_rtu_master_t *m, uint8_t unit, uint8_t fc,
+                               uint16_t addr, uint16_t qty, uint32_t timeout_ms);
+#endif
 bool modbus_rtu_master_write(modbus_rtu_master_t *m, uint8_t unit, uint16_t addr,
                              const uint16_t *values, uint16_t qty, uint32_t timeout_ms);
 
@@ -121,7 +171,8 @@ bool modbus_rtu_master_write(modbus_rtu_master_t *m, uint8_t unit, uint16_t addr
  */
 modbus_master_state_t modbus_rtu_master_poll(modbus_rtu_master_t *m);
 
-/* Valid after the poll() that returned DONE_OK for an FC03 read. */
+/* Valid after the poll() that returned DONE_OK for a read: qty values (registers,
+ * or one bit each, 0/1, for FC01/FC02). */
 const uint16_t *modbus_rtu_master_regs(const modbus_rtu_master_t *m);
 
 /* Valid after the poll() that returned DONE_ERR. */

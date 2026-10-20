@@ -47,6 +47,9 @@
 /* #define SPLC_REMOTE_OFFLINE_AFTER     3U */      /* failed requests -> node offline */
 /* #define SPLC_REMOTE_RETRY_MS          1000U */   /* retry period of an offline node */
 
+/* --- Modbus master blocks (MB_READ) ----------------------------------- */
+/* #define SPLC_MBM_ENABLE               0 */      /* 1 = Modbus-master service + 125-register master buffers; 0 = no change at all */
+
 /* --- MQTT Publish ---------------------------------------------------- */
 /* #define SPLC_MQTT_ENABLE              0 */      /* 1 = build plc_mqtt (Gateway); 0 = no change at all */
 /* #define SPLC_MQTT_PAYLOAD_MAX         256 */    /* 128..512 payload buffer (with NUL) */

@@ -5,7 +5,10 @@
 #include "splc_nmbs.h"   /* nmbs_crc_calc() only (renamed splc_nmbs_crc_calc) */
 #include "sx_time.h"
 
+#define FC_READ_COILS      0x01U
+#define FC_READ_DISCRETE   0x02U
 #define FC_READ_HOLDING    0x03U
+#define FC_READ_INPUT      0x04U
 #define FC_WRITE_MULTIPLE  0x10U
 
 /* --- helpers ------------------------------------------------------------ */
@@ -40,6 +43,31 @@ static uint16_t get_u16(const uint8_t *p)
 {
     return (uint16_t)(((uint16_t)p[0] << 8) | p[1]);
 }
+
+#if SPLC_MBM_ENABLE
+static bool is_read_fc(uint8_t fc)
+{
+    return fc == FC_READ_COILS || fc == FC_READ_DISCRETE ||
+           fc == FC_READ_HOLDING || fc == FC_READ_INPUT;
+}
+
+static bool is_bit_fc(uint8_t fc)
+{
+    return fc == FC_READ_COILS || fc == FC_READ_DISCRETE;
+}
+
+/* Bytes in a read answer's data section for this master's request. */
+static uint16_t read_data_bytes(const modbus_rtu_master_t *m)
+{
+    return is_bit_fc(m->func) ? (uint16_t)((m->qty + 7U) / 8U)
+                              : (uint16_t)(2U * m->qty);
+}
+#else
+/* Remote I/O only: FC03, so the compiled code is exactly what it always was. */
+#define is_read_fc(fc)       ((fc) == FC_READ_HOLDING)
+#define is_bit_fc(fc)        (false)
+#define read_data_bytes(m)   ((uint16_t)(2U * (m)->qty))
+#endif
 
 static void drain_rx(modbus_rtu_master_t *m)
 {
@@ -87,7 +115,20 @@ static bool send_frame(modbus_rtu_master_t *m, const uint8_t *frame, uint16_t le
     if (m->port.set_tx != NULL) {
         m->port.set_tx(m->port.ctx, true);
     }
-    int rc = m->port.write(m->port.ctx, frame, len, 50U);
+#if SPLC_MBM_ENABLE
+    /* 11 bits per byte on the wire; never below the historic 50 ms. A 255-byte
+     * frame at 9600 baud needs ~300 ms, so a fixed 50 ms would fail it. */
+    uint32_t tx_ms = 50U;
+    if (m->port.baudrate != 0U) {
+        uint32_t need = ((uint32_t)len * 11000U) / m->port.baudrate + 20U;
+        if (need > tx_ms) {
+            tx_ms = need;
+        }
+    }
+#else
+    const uint32_t tx_ms = 50U;
+#endif
+    int rc = m->port.write(m->port.ctx, frame, len, tx_ms);
     if (m->port.set_tx != NULL) {
         m->port.set_tx(m->port.ctx, false);
     }
@@ -131,6 +172,31 @@ bool modbus_rtu_master_init(modbus_rtu_master_t *m, const modbus_serial_port_t *
     return true;
 }
 
+#if SPLC_MBM_ENABLE
+bool modbus_rtu_master_read_fc(modbus_rtu_master_t *m, uint8_t unit, uint8_t fc,
+                               uint16_t addr, uint16_t qty, uint32_t timeout_ms)
+{
+    if (!is_read_fc(fc) || qty < 1U || qty > MODBUS_MASTER_MAX_REGS ||
+        !can_start(m, unit)) {
+        return false;
+    }
+    uint8_t f[8];
+    f[0] = unit;
+    f[1] = fc;
+    put_u16(&f[2], addr);
+    put_u16(&f[4], qty);
+    put_crc(f, 6U);
+
+    m->unit = unit; m->func = fc; m->addr = addr; m->qty = qty;
+    return send_frame(m, f, 8U, timeout_ms);
+}
+
+bool modbus_rtu_master_read(modbus_rtu_master_t *m, uint8_t unit, uint16_t addr,
+                            uint16_t qty, uint32_t timeout_ms)
+{
+    return modbus_rtu_master_read_fc(m, unit, FC_READ_HOLDING, addr, qty, timeout_ms);
+}
+#else
 bool modbus_rtu_master_read(modbus_rtu_master_t *m, uint8_t unit, uint16_t addr,
                             uint16_t qty, uint32_t timeout_ms)
 {
@@ -147,11 +213,12 @@ bool modbus_rtu_master_read(modbus_rtu_master_t *m, uint8_t unit, uint16_t addr,
     m->unit = unit; m->func = FC_READ_HOLDING; m->addr = addr; m->qty = qty;
     return send_frame(m, f, 8U, timeout_ms);
 }
+#endif
 
 bool modbus_rtu_master_write(modbus_rtu_master_t *m, uint8_t unit, uint16_t addr,
                              const uint16_t *values, uint16_t qty, uint32_t timeout_ms)
 {
-    if (values == NULL || qty < 1U || qty > MODBUS_MASTER_MAX_REGS || !can_start(m, unit)) {
+    if (values == NULL || qty < 1U || qty > MODBUS_MASTER_MAX_WRITE_REGS || !can_start(m, unit)) {
         return false;
     }
     uint8_t f[MODBUS_MASTER_FRAME_MAX];
@@ -176,8 +243,8 @@ static uint16_t expected_len(const modbus_rtu_master_t *m)
     if (m->rx[1] & 0x80U) {
         return 5U;                                   /* unit, func|0x80, code, crc */
     }
-    if (m->func == FC_READ_HOLDING) {
-        return (uint16_t)(5U + 2U * m->qty);         /* unit, func, bytes, data, crc */
+    if (is_read_fc(m->func)) {
+        return (uint16_t)(5U + read_data_bytes(m));  /* unit, func, bytes, data, crc */
     }
     return 8U;                                       /* unit, func, addr, qty, crc */
 }
@@ -215,9 +282,13 @@ modbus_master_state_t modbus_rtu_master_poll(modbus_rtu_master_t *m)
                 m->exception_code = m->rx[2];
             } else if (m->rx[1] != m->func) {
                 ok = false; err = MODBUS_MASTER_ERR_FRAME;
-            } else if (m->func == FC_READ_HOLDING) {
-                if (m->rx[2] != (uint8_t)(2U * m->qty)) {
+            } else if (is_read_fc(m->func)) {
+                if (m->rx[2] != (uint8_t)read_data_bytes(m)) {
                     ok = false; err = MODBUS_MASTER_ERR_FRAME;
+                } else if (is_bit_fc(m->func)) {
+                    for (uint16_t i = 0U; i < m->qty; i++) {   /* LSB first */
+                        m->regs[i] = (uint16_t)((m->rx[3U + (i >> 3)] >> (i & 7U)) & 1U);
+                    }
                 } else {
                     for (uint16_t i = 0U; i < m->qty; i++) {
                         m->regs[i] = get_u16(&m->rx[3U + 2U * i]);
