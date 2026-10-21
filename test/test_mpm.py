@@ -93,8 +93,25 @@ def block(enabled=True, fc=3, slave=1, start=0, count=2, interval=500, timeout=2
     return r
 
 
+READ_CHUNK = 64     # FC03 allows at most 125 registers per request; one block per read
+
+
 def read_mbm(d):
-    return d.read(REG_MBM, MBM_REGS)
+    out = []
+    for off in range(0, MBM_REGS, READ_CHUNK):
+        out += d.read(REG_MBM + off, READ_CHUNK)
+    return out
+
+
+def try_read_mbm(d):
+    """Like Dev.try_read() for the whole area, in chunks: (registers, None) or (None, error)."""
+    out = []
+    for off in range(0, MBM_REGS, READ_CHUNK):
+        regs, err = d.try_read(REG_MBM + off, READ_CHUNK)
+        if err is not None:
+            return None, err
+        out += regs
+    return out, None
 
 
 def image(blocks):
@@ -157,7 +174,7 @@ def run(d, args):
 
     # ---------------------------------------------------------------- 0
     print("\n0. Probe")
-    regs, err = d.try_read(REG_MBM, MBM_REGS)
+    regs, err = try_read_mbm(d)
     if err is not None and getattr(err, "link", False):
         raise LinkError(f"probe 0x1000: {err}")
     if err is not None:
@@ -165,12 +182,20 @@ def run(d, args):
         check(False, "MB_READ area readable")
         return
     check(len(regs) == MBM_REGS, "0x1000..0x10FF readable (256 registers)")
+    # NOTE: an unmapped register reads 0 (it does not raise), so "readable" proves nothing
+    # about the build. The capability bit is the real probe, and it is fatal: without it
+    # every later check would only be measuring a firmware that has no MB_READ.
     caps, cerr = d.try_read(REG_CAPS, 2)
     if cerr is None:
         v = (caps[0] << 16) | caps[1]
-        check(v & CAP_MODBUS_MASTER != 0, f"0x0A08 announces MODBUS_MASTER (caps 0x{v:08X})")
+        if not check(v & CAP_MODBUS_MASTER != 0, f"0x0A08 announces MODBUS_MASTER (caps 0x{v:08X})"):
+            print("  This image has no MB_READ: build with SPLC_MBM_ENABLE 1 in splcopts.h "
+                  "(splc_config/splcopts.h does not set it, the default is 0), do a clean rebuild "
+                  "and flash it. Stopping: the other checks would be meaningless.")
+            return
     else:
-        info("0x0A08 not readable on this build: capability bit not checked")
+        info("0x0A08 not readable on this build (SPLC_MQTT_ENABLE=0 and SPLC_MBM_ENABLE=0?): "
+             "writes below will show whether MB_READ exists")
 
     # ---------------------------------------------------------------- 1
     print("\n1. Clean start: CLEAR_RULES")
@@ -221,7 +246,8 @@ def run(d, args):
             info(f"{name}: board has no such tag, skipped")
             return
         pins = kw.pop("pins", [pin(TAGV, 0, DT_INT16)])
-        base = block(count=4, pins=pins, **kw)
+        kw.setdefault("count", 4)
+        base = block(pins=pins, **kw)
         # a GOOD change to block 3 in the same draft must not be applied either
         good = block(slave=2, count=2, pins=[pin(TAGV, 0, DT_INT16)])
         deploy_rejected(d, rule, {3: good, 2: base}, name)

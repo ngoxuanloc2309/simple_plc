@@ -238,6 +238,21 @@
 #define SPLC_MBM_ENABLE                  0
 #endif
 
+/* Line settings of the MB_READ RS485 port, used until the App can set them over
+ * the wire (the wire has no field for them yet -- see plc_mbm.h). The host port
+ * applies them through the optional configure() callback of
+ * splc_mbm_set_rs485_port(); a host that cannot re-configure its UART keeps the
+ * baud rate its port has. */
+#ifndef SPLC_MBM_SERIAL_BAUD
+#define SPLC_MBM_SERIAL_BAUD             9600U
+#endif
+#ifndef SPLC_MBM_SERIAL_PARITY
+#define SPLC_MBM_SERIAL_PARITY           0     /* 0 = none, 1 = odd, 2 = even */
+#endif
+#ifndef SPLC_MBM_SERIAL_STOP_BITS
+#define SPLC_MBM_SERIAL_STOP_BITS        1     /* 1 or 2 */
+#endif
+
 /* Size of the payload buffer in bytes (including the NUL). */
 #ifndef SPLC_MQTT_PAYLOAD_MAX
 #define SPLC_MQTT_PAYLOAD_MAX            256
@@ -353,6 +368,15 @@
 #endif
 #if (SPLC_MBM_ENABLE != 0) && (SPLC_MBM_ENABLE != 1)
 #error "SPLC_MBM_ENABLE must be 0 or 1"
+#endif
+#if (SPLC_MBM_SERIAL_BAUD < 1200U) || (SPLC_MBM_SERIAL_BAUD > 921600U)
+#error "SPLC_MBM_SERIAL_BAUD must be 1200..921600"
+#endif
+#if (SPLC_MBM_SERIAL_PARITY < 0) || (SPLC_MBM_SERIAL_PARITY > 2)
+#error "SPLC_MBM_SERIAL_PARITY must be 0 (none), 1 (odd) or 2 (even)"
+#endif
+#if (SPLC_MBM_SERIAL_STOP_BITS != 1) && (SPLC_MBM_SERIAL_STOP_BITS != 2)
+#error "SPLC_MBM_SERIAL_STOP_BITS must be 1 or 2"
 #endif
 #if (SPLC_REAL_ENABLE != 0) && (SPLC_REAL_ENABLE != 1)
 #error "SPLC_REAL_ENABLE must be 0 or 1"

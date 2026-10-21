@@ -49,6 +49,9 @@
 
 /* --- Modbus master blocks (MB_READ) ----------------------------------- */
 /* #define SPLC_MBM_ENABLE               0 */      /* 1 = Modbus-master service + 125-register master buffers; 0 = no change at all */
+/* #define SPLC_MBM_SERIAL_BAUD          9600U */  /* MB_READ sensor bus line settings until the App can set them (plc_mbm.h) */
+/* #define SPLC_MBM_SERIAL_PARITY        0 */      /* 0 none, 1 odd, 2 even */
+/* #define SPLC_MBM_SERIAL_STOP_BITS     1 */      /* 1 or 2 */
 
 /* --- REAL (float32) tags ---------------------------------------------- */
 /* #define SPLC_REAL_ENABLE              0 */      /* 1 = Tag DataType Registry 0x0080 (BOOL/INT32/REAL per tag); 0 = no change at all */
