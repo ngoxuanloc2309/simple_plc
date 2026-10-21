@@ -76,6 +76,21 @@ int sx_uart_write(sx_uart_t *uart, const uint8_t *data, int len, uint32_t timeou
  */
 void sx_uart_set_rx_enabled(sx_uart_t *uart, bool enabled);
 
+/*
+ * Re-applies uart->config (baudrate, bits, parity, stopbits) to the already
+ * initialised UART: aborts the running receive, re-programs the peripheral,
+ * then re-arms the single-byte receive. Used when the line settings are not
+ * known at boot (MB_READ: the sensor bus speed is the App's choice). Bytes in
+ * rxQueue are kept; a byte that was being shifted in is lost.
+ *   bits     : 8 only
+ *   parity   : 0 none, 1 odd, 2 even
+ *   stopbits : 1 or 2
+ * Returns 0 on success, negative (nothing changed) for an unsupported value
+ * or when uart was never passed to sx_uart_init(). Call from normal context,
+ * never from the UART interrupt.
+ */
+int sx_uart_reconfigure(sx_uart_t *uart);
+
 #ifdef __cplusplus
 }
 #endif

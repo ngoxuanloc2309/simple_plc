@@ -132,6 +132,46 @@ void sx_uart_set_rx_enabled(sx_uart_t *uart, bool enabled)
     ATOMIC_SET_BIT(huart->Instance->CR1, USART_CR1_RE);
 }
 
+int sx_uart_reconfigure(sx_uart_t *uart)
+{
+    UART_HandleTypeDef *huart = (UART_HandleTypeDef *)uart->config->pDriver;
+    sx_uart_binding_t  *binding = find_binding(huart);
+    const sx_uart_config_t *c = uart->config;
+
+    if (binding == NULL || binding->uart != uart || c->baudrate == 0U || c->bits != 8U) {
+        return -1;
+    }
+
+    /* A parity bit is part of the word on the STM32: 8 data bits + parity = 9-bit word. */
+    uint32_t word, parity, stop;
+    switch (c->parity) {
+    case 0:  parity = UART_PARITY_NONE; word = UART_WORDLENGTH_8B; break;
+    case 1:  parity = UART_PARITY_ODD;  word = UART_WORDLENGTH_9B; break;
+    case 2:  parity = UART_PARITY_EVEN; word = UART_WORDLENGTH_9B; break;
+    default: return -1;
+    }
+    switch (c->stopbits) {
+    case 1:  stop = UART_STOPBITS_1; break;
+    case 2:  stop = UART_STOPBITS_2; break;
+    default: return -1;
+    }
+
+    /* Stop the armed receive first: HAL_UART_Init() resets RxState to READY and
+     * would leave the interrupt receive half-armed. */
+    (void)HAL_UART_AbortReceive(huart);
+
+    huart->Init.BaudRate   = c->baudrate;
+    huart->Init.WordLength = word;
+    huart->Init.Parity     = parity;
+    huart->Init.StopBits   = stop;
+    if (HAL_UART_Init(huart) != HAL_OK) {
+        arm_rx_byte(binding);     /* keep the old receiver alive if possible */
+        return -2;
+    }
+    arm_rx_byte(binding);
+    return 0;
+}
+
 /*
  * Shared ISR-context callback for every UART instance registered via
  * sx_uart_init(). Pushes the just-received byte into that instance's

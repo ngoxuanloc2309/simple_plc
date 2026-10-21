@@ -44,6 +44,10 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_ZIGBEE_IO_4DI_4DO);
 #include "plc_rule.h"       /* MAX_RULES */
 #include "plc_modbus_cfg.h" /* g_device_descriptor / g_device_resource_info */
 #include "plc_rtc.h"        /* g_rtc_caps */
+#if SPLC_MBM_ENABLE
+#include "plc_mbm.h"        /* splc_mbm_set_rs485_port() */
+#include "modbus_serial.h"  /* modbus_serial_port_t */
+#endif
 #include "tim.h"
 #include "stm32h5xx_hal.h"
 
@@ -418,6 +422,91 @@ static void board_app_link_init(void)
 
 #endif /* SPLC_PORT_USB_CDC */
 
+#if SPLC_MBM_ENABLE
+/*
+ * MB_READ master bus: USART1 + the RS485 transceiver on PB13 (DE and /RE tied
+ * together, high = transmit). The only RS485 of this board, so the App link
+ * must be USB: sharing the port with the App (decision 39a) is not built.
+ * Line settings are the App's choice and are applied through
+ * sx_uart_reconfigure() by plc_mbm (callback below); until the wire carries
+ * them the defaults are SPLC_MBM_SERIAL_* from splcopts.h.
+ */
+#if !SPLC_PORT_USB_CDC
+#error "Zigbee-IO: MB_READ needs USART1, which is the App link when SPLC_PORT_USB_CDC = 0. Set SPLC_PORT_USB_CDC 1 (App over USB) or SPLC_MBM_ENABLE 0."
+#endif
+
+static sx_uart_t        s_mbm_uart;
+static sx_uart_config_t s_mbm_uart_cfg;
+static uint8_t          s_mbm_rx_buf[256];   /* one full 125-register answer = 255 bytes */
+static uint8_t          s_mbm_tx_buf[1];     /* sx_uart_write() is direct, no TX queue */
+
+static void mbm_de(bool transmit)
+{
+    HAL_GPIO_WritePin(RS485_DE_PORT, RS485_DE_PIN,
+                      (transmit == (RS485_DE_ACTIVE_HIGH != 0)) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+static int mbm_read(void *ctx, uint8_t *buf, uint16_t max_len)
+{
+    (void)ctx;
+    return sx_uart_read(&s_mbm_uart, buf, (int)max_len);
+}
+
+/* Direction is handled here (set_tx = NULL in the port). HAL_UART_Transmit()
+ * returns after the TC flag, i.e. when the last bit has left the shifter, so
+ * DE can drop right away. The receiver is off while we drive the bus and is
+ * flushed when it comes back on. Blocks for one request frame (8 bytes = ~9 ms
+ * at 9600 baud): one scan may slip, nothing is lost. */
+static int mbm_write(void *ctx, const uint8_t *buf, uint16_t len, uint32_t timeout_ms)
+{
+    (void)ctx;
+    sx_uart_set_rx_enabled(&s_mbm_uart, false);
+    mbm_de(true);
+    int rc = sx_uart_write(&s_mbm_uart, buf, (int)len, timeout_ms);
+    mbm_de(false);
+    sx_uart_set_rx_enabled(&s_mbm_uart, true);
+    return rc;
+}
+
+static int mbm_configure(void *ctx, const plc_mbm_serial_t *cfg)
+{
+    (void)ctx;
+    s_mbm_uart_cfg.baudrate = cfg->baud;
+    s_mbm_uart_cfg.bits     = 8;
+    s_mbm_uart_cfg.parity   = cfg->parity;
+    s_mbm_uart_cfg.stopbits = cfg->stop_bits;
+    return sx_uart_reconfigure(&s_mbm_uart);
+}
+
+static void board_mbm_init(void)
+{
+    s_mbm_uart_cfg.pDriver  = &UART_RS485;
+    s_mbm_uart_cfg.baudrate = SPLC_MBM_SERIAL_BAUD;
+    s_mbm_uart_cfg.bits     = 8;
+    s_mbm_uart_cfg.parity   = SPLC_MBM_SERIAL_PARITY;
+    s_mbm_uart_cfg.stopbits = SPLC_MBM_SERIAL_STOP_BITS;
+
+    s_mbm_uart.rxBuffer     = s_mbm_rx_buf;
+    s_mbm_uart.rxBufferSize = (int)sizeof(s_mbm_rx_buf);
+    s_mbm_uart.txBuffer     = s_mbm_tx_buf;
+    s_mbm_uart.txBufferSize = (int)sizeof(s_mbm_tx_buf);
+
+    mbm_de(false);   /* listen */
+    sx_uart_init(&s_mbm_uart, &s_mbm_uart_cfg);
+
+    static const modbus_serial_port_t port = {
+        .read     = mbm_read,
+        .write    = mbm_write,
+        .set_tx   = NULL,
+        .ctx      = NULL,
+        .baudrate = SPLC_MBM_SERIAL_BAUD,
+    };
+    splc_mbm_set_rs485_port(&port, mbm_configure);
+    log_info(TAG, "MB_READ master on USART1 (DE PB13), %lu baud default",
+             (unsigned long)SPLC_MBM_SERIAL_BAUD);
+}
+#endif /* SPLC_MBM_ENABLE */
+
 void board_hw_init(void)
 {
     board_log_uart_init();
@@ -457,6 +546,10 @@ void board_hw_init(void)
     if (s_link_ok) {
         log_info(TAG, "UART/RS485 App link initialized (USART1, unit %d)", (int)MODBUS_UNIT_ID);
     }
+#endif
+
+#if SPLC_MBM_ENABLE
+    board_mbm_init();
 #endif
 }
 
