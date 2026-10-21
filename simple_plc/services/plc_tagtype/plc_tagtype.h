@@ -31,6 +31,8 @@
  *   - REAL only on tags whose kind can hold a number from the field: AI, VREG,
  *     VREG_RETAIN and MB_HOLDING (a DI/DO/VFLAG/COUNTER typed REAL is refused).
  *     Entries for tags >= MAX_TAGS do not exist on this board and are ignored.
+ *     A slot below MAX_TAGS that no layout group covers (kind NONE, e.g. Gateway
+ *     with 112 runtime tags and MAX_TAGS 128) is NOT ignored: REAL there is refused.
  *
  * When a tag changes between an integer type and REAL at COMMIT, its stored
  * value would be reinterpreted as the wrong kind of number, so a VREG,
