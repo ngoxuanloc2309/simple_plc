@@ -7,6 +7,7 @@
 
 #include "plc_rule_action.h"
 
+#include "plc_rule_eval.h"   /* splc_bits_to_f32() / splc_f32_to_bits() */
 #include "plc_tag.h"
 
 /*
@@ -69,8 +70,36 @@ static void action_add_tag(const SPLC_RuleRecord *rule)
     tag_write(rule->action_tag, current + trigger);
 }
 
+#if SPLC_REAL_ENABLE
+/*
+ * Float rule (SPLC_RULE_FLAG_FLOAT_DATA): action_tag = x * gain + offset with
+ * x = float(tag_read(trigger_tag)), gain = float(action_param), offset =
+ * float(threshold_hi); the result's float32 bits go into the tag (NaN/Inf
+ * written as they are, same as the App's reference simulator).
+ *
+ * The product goes through a volatile so GCC cannot fuse it with the add into
+ * one FMA (default on Cortex-M33 / FPv5): an FMA rounds once, the App rounds
+ * the product to float32 first, so the last bit would differ.
+ */
+static void action_scale_tag_f(const SPLC_RuleRecord *rule)
+{
+    const float x      = splc_bits_to_f32(tag_read(rule->trigger_tag));
+    const float gain   = splc_bits_to_f32(rule->action_param);
+    const float offset = splc_bits_to_f32(rule->threshold_hi);
+    volatile float product = x * gain;
+    const float y = product + offset;
+    tag_write(rule->action_tag, splc_f32_to_bits(y));
+}
+#endif /* SPLC_REAL_ENABLE */
+
 static void action_scale_tag(const SPLC_RuleRecord *rule)
 {
+#if SPLC_REAL_ENABLE
+    if ((rule->flags & SPLC_RULE_FLAG_FLOAT_DATA) != 0u) {
+        action_scale_tag_f(rule);
+        return;
+    }
+#endif
     int32_t trigger_value = tag_read(rule->trigger_tag);
     int32_t scaled = (trigger_value * rule->action_param) / 1000 + rule->threshold_hi;
     tag_write(rule->action_tag, scaled);

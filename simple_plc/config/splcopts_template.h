@@ -54,7 +54,7 @@
 /* #define SPLC_MBM_SERIAL_STOP_BITS     1 */      /* 1 or 2 */
 
 /* --- REAL (float32) tags ---------------------------------------------- */
-/* #define SPLC_REAL_ENABLE              0 */      /* 1 = Tag DataType Registry 0x0080 (BOOL/INT32/REAL per tag); 0 = no change at all */
+/* #define SPLC_REAL_ENABLE              0 */      /* 1 = Tag DataType Registry 0x0080 (BOOL/INT32/REAL per tag) + float32 Rule Engine (rule flags bit 0); 0 = no change at all */
 
 /* --- MQTT Publish ---------------------------------------------------- */
 /* #define SPLC_MQTT_ENABLE              0 */      /* 1 = build plc_mqtt (Gateway); 0 = no change at all */

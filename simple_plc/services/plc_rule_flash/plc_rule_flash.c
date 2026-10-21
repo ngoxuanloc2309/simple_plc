@@ -328,7 +328,10 @@ static void rule_wire_to_record(const uint8_t in[32], SPLC_RuleRecord *r)
     r->trigger_type  = (uint8_t)(w[11] & 0xFFU);
     r->compare_op    = (uint8_t)(w[12] >> 8);
     r->action_type   = (uint8_t)(w[12] & 0xFFU);
-    memset(r->reserved, 0, sizeof(r->reserved)); /* wire w[13..15] are reserved/ignored, same as write_staging_rule_table() */
+#if SPLC_REAL_ENABLE
+    r->flags = (uint8_t)(w[13] >> 8);            /* wire w[13] high byte = rule flags (SPLC_RULE_FLAG_*) */
+#endif
+    memset(r->reserved, 0, sizeof(r->reserved)); /* wire w[13] low byte, w[14..15] are reserved/ignored, same as write_staging_rule_table() */
 }
 
 /*

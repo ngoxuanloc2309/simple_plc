@@ -97,6 +97,24 @@ bool rule_table_commit(const uint8_t *raw_data, uint16_t rule_count)
 }
 
 /*
+ * compare_op of one rule against the value read from trigger_tag. A rule that
+ * carries SPLC_RULE_FLAG_FLOAT_DATA (only possible when SPLC_REAL_ENABLE=1;
+ * docs/handoff.md decision 45) compares float32 bit patterns; every other rule
+ * compares int32 exactly as before.
+ */
+static bool rule_compare(const SPLC_RuleRecord *rule, int32_t current)
+{
+#if SPLC_REAL_ENABLE
+    if ((rule->flags & SPLC_RULE_FLAG_FLOAT_DATA) != 0u) {
+        return compare_ok_f((SPLC_CompareOp)rule->compare_op, current,
+                            rule->threshold_lo, rule->threshold_hi);
+    }
+#endif
+    return compare_ok((SPLC_CompareOp)rule->compare_op, current,
+                      rule->threshold_lo, rule->threshold_hi);
+}
+
+/*
  * State machine re-evaluated FROM SCRATCH every scan cycle for the
  * Trigger/Compare/Guard steps (they have no concept of "persisting across
  * scan cycles" -- Trigger is an instantaneous event, Compare/Guard are
@@ -171,7 +189,7 @@ bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt,
          * compare; its compare_op only selects the exact-minute form. */
         if (trigger_type != SPLC_TRG_TIME_WINDOW &&
             rule->compare_op != SPLC_OP_NONE &&
-            !compare_ok((SPLC_CompareOp)rule->compare_op, current, rule->threshold_lo, rule->threshold_hi)) {
+            !rule_compare(rule, current)) {
             rt->state = RULE_STATE_BLOCKED;
             return false;
         }
@@ -215,7 +233,7 @@ bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt,
                                                        true; /* ON_CHANGE: no fixed "level" to hold */
             level_still_holds = trigger_level_holds &&
                 ((rule->compare_op == SPLC_OP_NONE) ||
-                 compare_ok((SPLC_CompareOp)rule->compare_op, current, rule->threshold_lo, rule->threshold_hi));
+                 rule_compare(rule, current));
         } else {
             level_still_holds = true;
         }

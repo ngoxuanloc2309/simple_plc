@@ -101,6 +101,24 @@ bool trigger_timing_ok(SPLC_TriggerType type,
  */
 bool compare_ok(SPLC_CompareOp op, int32_t current, int32_t lo, int32_t hi);
 
+#if SPLC_REAL_ENABLE
+/*
+ * Float32 variant of compare_ok(), used when a rule carries
+ * SPLC_RULE_FLAG_FLOAT_DATA. All value arguments are IEEE-754 float32 BIT
+ * PATTERNS held in int32 slots.
+ *   EQ   |current - lo| <= SPLC_RULE_FLOAT_EPSILON (absolute)
+ *   NEQ  |current - lo| >  SPLC_RULE_FLOAT_EPSILON
+ *   GT/LT/GTE/LTE/BETWEEN exact float comparison (no tolerance)
+ * NaN never satisfies any comparison (NEQ included), as in the App's reference
+ * simulator. OP_NONE returns true; an unknown op returns false.
+ */
+bool compare_ok_f(SPLC_CompareOp op, int32_t current, int32_t lo, int32_t hi);
+
+/* Bit-pattern <-> float helpers (memcpy, no aliasing UB). */
+float   splc_bits_to_f32(int32_t bits);
+int32_t splc_f32_to_bits(float value);
+#endif /* SPLC_REAL_ENABLE */
+
 #ifdef __cplusplus
 }
 #endif

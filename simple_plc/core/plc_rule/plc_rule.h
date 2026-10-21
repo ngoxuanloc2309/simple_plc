@@ -100,7 +100,8 @@ typedef enum {
     SPLC_ACT_LOG_EVENT,       /* Append an entry to the internal RAM event log */
     SPLC_ACT_SEND_ALARM,      /* Set an alarm code into a dedicated tag */
     SPLC_ACT_ADD_TAG,         /* action_tag += tag_read(trigger_tag) */
-    SPLC_ACT_SCALE_TAG,       /* action_tag = tag_read(trigger_tag) * action_param / 1000 + threshold_hi */
+    SPLC_ACT_SCALE_TAG,       /* action_tag = tag_read(trigger_tag) * action_param / 1000 + threshold_hi
+                                 (float rule: x * action_param_f + threshold_hi_f) */
 } SPLC_ActionType;
 
 
@@ -120,8 +121,42 @@ typedef struct {
     uint8_t  trigger_type;    /* One of SPLC_TriggerType */
     uint8_t  compare_op;      /* One of SPLC_CompareOp */
     uint8_t  action_type;     /* One of SPLC_ActionType */
+#if SPLC_REAL_ENABLE
+    uint8_t  flags;           /* SPLC_RULE_FLAG_* bits (wire reg 13, high byte). Exists, and is carried on the wire / in Flash / in RAM, only when SPLC_REAL_ENABLE=1. */
+    uint8_t  reserved[5];     /* Wire reg 13 low byte + regs 14..15: sender writes 0 */
+#else
     uint8_t reserved[6];      /* Padding to make the struct size a multiple of 4 bytes */
+#endif
 } SPLC_RuleRecord;
+
+/* The in-RAM record mirrors the 32-byte (16-register) wire record; Flash and the
+ * CRC use the wire image, but rule_table_commit() memcpy()s the table. */
+#ifndef __cplusplus
+_Static_assert(sizeof(SPLC_RuleRecord) == 32u, "SPLC_RuleRecord must stay 32 bytes");
+#endif
+
+/*
+ * SPLC_RuleRecord.flags (wire reg 13, high byte; Structs v2.0 / header
+ * SPLC_RuleFlags_t). Only bit 0 is defined; other bits are stored and echoed
+ * back verbatim (so the CRC over the wire image equals the App's) but not
+ * interpreted.
+ *
+ *   SPLC_RULE_FLAG_FLOAT_DATA (bit 0, REAL / R2, docs/handoff.md decision 40a/45):
+ *     the Rule Engine treats threshold_lo, threshold_hi, action_param and the
+ *     current value of trigger_tag as IEEE-754 float32 bit patterns held in the
+ *     int32 slots:
+ *       - compare_op    : float32 compare (EQ/NEQ with absolute tolerance
+ *                         SPLC_RULE_FLOAT_EPSILON; GT/LT/GTE/LTE/BETWEEN exact)
+ *       - ACT_SCALE_TAG : action_tag = x * action_param_f + threshold_hi_f
+ *     The engine reads ONLY this flag; it never consults the Tag DataType table
+ *     (plc_tagtype). Edge detection without compare, SET/TOGGLE/INC/ADD act on
+ *     the raw 32-bit pattern exactly as for an integer rule. With
+ *     SPLC_REAL_ENABLE=0 the flag is neither carried nor interpreted.
+ */
+#define SPLC_RULE_FLAG_FLOAT_DATA   0x01u
+
+/* Absolute tolerance used by float EQ / NEQ (same as the App's McuReferenceSimulator). */
+#define SPLC_RULE_FLOAT_EPSILON     1e-5f
 
 /*
  * RuleExecState drives the explicit state machine used by

@@ -216,7 +216,7 @@ datasheet khi dùng chip mới: hai bank bằng nhau.
   Modbus. Giá trị MAX_TAGS từ `board/board_tag_define.h`.
 - **`plc_rule`**: `SPLC_RuleRecord` **32 byte** (16 thanh ghi): `threshold_lo/hi`, `for_ms`,
   `action_param` (4 byte); `trigger_tag`, `action_tag`, `guard_tag` (2 byte); `enabled`,
-  `trigger_type`, `compare_op`, `action_type` (1 byte); `reserved[6]` (sender ghi 0).
+  `trigger_type`, `compare_op`, `action_type` (1 byte); `flags` (1 byte, chỉ khi `SPLC_REAL_ENABLE=1`: nửa cao thanh ghi 13; bit 0 `SPLC_RULE_FLAG_FLOAT_DATA`) + `reserved[5]` (sender ghi 0; khi `REAL=0` là `reserved[6]`). Rule có `flags & 1` (R2): `threshold_lo/hi`, `action_param` và giá trị tag trigger là bit float32 trong ô int32 — `compare_ok_f()` (EQ/NEQ dung sai tuyệt đối 1e-5, còn lại so chính xác; NaN không thoả phép so nào) và `ACT_SCALE_TAG` = `x*float(action_param) + float(threshold_hi)`; engine chỉ nhìn cờ này, KHÔNG tra bảng kiểu tag.
   Định danh rule = vị trí. `guard_tag`: bit 0-14 = index, bit 15 = NEGATE, **"không có
   guard" = `GUARD_TAG_NONE` = `0x7FFF`** (KHÔNG phải 0, vì index 0 là `TAG_DI0` thật).
   Trigger: ON_CHANGE, ON_RISE, ON_FALL, TIME_WINDOW, INTERVAL. Compare: NONE, EQ, NEQ,
@@ -260,7 +260,7 @@ timeout bằng tick thật, CRC bằng `nmbs_crc_calc()` (byte-swapped, ghi big-
   rule (staging → verify CRC16 → commit nguyên tử), Diag Control (ENTER/HEARTBEAT/EXIT,
   lease, ghi tag trong diag, retain draft), RTC, FB, System Command.
 - **`plc_rule_flash`**: lưu Rule Table A/B (xem handoff mục 1 về thứ tự và recovery); bản
-  ghi = header 8 B (seq_num, rule_count + cờ FB/MQTT, crc16) + rule wire + đoạn FB 128 B [+ đoạn MQTT 960 B, bit 13,
+  ghi = header 8 B (seq_num, rule_count + cờ FB/MQTT, crc16) + rule wire (byte `flags` ở thanh ghi 13 nằm trong ảnh wire nên được CRC phủ) + đoạn FB 128 B [+ đoạn MQTT 960 B, bit 13,
   chỉ khi `SPLC_MQTT_ENABLE=1`] [+ bảng kiểu tag 128 B, bit 11, chỉ khi `SPLC_REAL_ENABLE=1`].
 - **`plc_retain`**: snapshot xoay vòng cho VREG_RETAIN (record 208 B: seq, count, crc16,
   tag_idx+value); khôi phục lúc boot lấy record CRC-hợp-lệ có seq lớn nhất; lưu theo
@@ -302,7 +302,7 @@ ghi, high byte trước; CRC khung RTU little-endian.
 | `0x0010` | R | Rule Table Info (số rule active) |
 | `0x0020..0x0029` | R | Device Resource Info |
 | `0x0080..0x00BF` | R/W | Tag DataType Registry (chỉ khi `SPLC_REAL_ENABLE=1`; 1 byte/tag: 0 chưa khai=INT32, 1 BOOL, 2 INT32, 3 REAL; tag chẵn ở High byte; ghi vào nháp, COMMIT áp dụng) |
-| `0x0100..0x073F` | R | Active Rule Table (16 reg/rule, tối đa 100) |
+| `0x0100..0x073F` | R | Active Rule Table (16 reg/rule, tối đa 100; reg +13 nửa cao = `flags` khi `SPLC_REAL_ENABLE=1`) |
 | `0x0800..0x0809` | R | Device Health |
 | `0x0810..0x0813` | R/W | RTC (`epoch_utc_s`, `tz_offset_min`, `status_flags` RO) |
 | `0x0900..0x09FF` | R (W khi `DIAG_CONTROL`) | Runtime tag, 2 reg/tag, cửa sổ 128 tag (tag ≥ `MAX_TAGS` đọc 0, ghi bị từ chối `0x02`) |

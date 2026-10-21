@@ -8,6 +8,8 @@
 
 #include "plc_rule_eval.h"
 
+#include <string.h>
+
 /*
  * FIX: see the comment in plc_rule_eval.h. This is now edge-detection
  * only for the three edge trigger types. TRG_TIME_WINDOW and TRG_INTERVAL
@@ -107,3 +109,40 @@ bool compare_ok(SPLC_CompareOp op, int32_t current, int32_t lo, int32_t hi)
             return false;
     }
 }
+
+#if SPLC_REAL_ENABLE
+float splc_bits_to_f32(int32_t bits)
+{
+    float f;
+    memcpy(&f, &bits, sizeof(f));
+    return f;
+}
+
+int32_t splc_f32_to_bits(float value)
+{
+    int32_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+/* |x| without libm; NaN stays NaN (every comparison below is then false). */
+static float abs_f32(float x) { return (x < 0.0f) ? -x : x; }
+
+bool compare_ok_f(SPLC_CompareOp op, int32_t current, int32_t lo, int32_t hi)
+{
+    const float v = splc_bits_to_f32(current);
+    const float l = splc_bits_to_f32(lo);
+
+    switch (op) {
+        case SPLC_OP_NONE:    return true;
+        case SPLC_OP_EQ:      return abs_f32(v - l) <= SPLC_RULE_FLOAT_EPSILON;
+        case SPLC_OP_NEQ:     return abs_f32(v - l) >  SPLC_RULE_FLOAT_EPSILON;
+        case SPLC_OP_GT:      return v >  l;
+        case SPLC_OP_LT:      return v <  l;
+        case SPLC_OP_GTE:     return v >= l;
+        case SPLC_OP_LTE:     return v <= l;
+        case SPLC_OP_BETWEEN: return v >= l && v <= splc_bits_to_f32(hi);
+        default:              return false;
+    }
+}
+#endif /* SPLC_REAL_ENABLE */
