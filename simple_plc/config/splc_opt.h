@@ -224,7 +224,7 @@
  * staged with the Deploy, saved in the Flash Rule Table record as flag bit 11).
  * 0 = nothing changes: no table, no Flash flag, the exact baseline size. */
 #ifndef SPLC_REAL_ENABLE
-#define SPLC_REAL_ENABLE                 0
+#define SPLC_REAL_ENABLE                 1
 #endif
 
 /* ======================================================================
