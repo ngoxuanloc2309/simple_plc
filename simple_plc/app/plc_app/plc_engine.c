@@ -10,6 +10,7 @@
 #include "plc_fb.h"
 #include "plc_mqtt.h"
 #include "plc_tagtype.h"
+#include "plc_mbm.h"
 #include "plc_system_cmd_service.h"
 #include "splc_board.h"
 #include "sx_time.h"
@@ -56,6 +57,9 @@ void plc_engine_init(void)
 #endif
 #if SPLC_MQTT_ENABLE
     plc_mqtt_init();   /* before plc_rule_flash_load(): the Flash record will fill it (step E.3) */
+#endif
+#if SPLC_MBM_ENABLE
+    plc_mbm_init();    /* before plc_rule_flash_load(): the Flash record will fill it (decision 41) */
 #endif
 
     rule_table_load_from_flash();
@@ -145,6 +149,12 @@ static void scan_cycle(uint32_t now_ms)
      * Host then, not real data (docs/plc_mqtt_design.md, Q4). */
     if (!suspended) {
         plc_mqtt_scan(now_ms);
+    }
+#endif
+#if SPLC_MBM_ENABLE
+    /* Same reason as MQTT: not while a diag session forces the tags. */
+    if (!suspended) {
+        plc_mbm_scan(now_ms);
     }
 #endif
     modbus_config_service();

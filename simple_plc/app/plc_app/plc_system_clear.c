@@ -13,6 +13,9 @@
 #if SPLC_MQTT_ENABLE
 #include "plc_mqtt.h"
 #endif
+#if SPLC_MBM_ENABLE
+#include "plc_mbm.h"
+#endif
 #if SPLC_REAL_ENABLE
 #include "plc_tagtype.h"
 #endif
@@ -41,6 +44,9 @@ static uint8_t         s_fb_backup[PLC_FB_FLASH_SIZE];
 #if SPLC_MQTT_ENABLE
 static uint8_t         s_mqtt_backup[PLC_MQTT_FLASH_SIZE];   /* holds the broker password: cleared right after use */
 #endif
+#if SPLC_MBM_ENABLE
+static uint8_t         s_mb_backup[PLC_MBM_FLASH_SIZE];
+#endif
 #if SPLC_REAL_ENABLE
 static uint8_t         s_types_backup[PLC_TAGTYPE_FLASH_SIZE];
 #endif
@@ -53,6 +59,9 @@ bool plc_clear_rules(void)
     plc_fb_export(s_fb_backup);   /* FB config is part of the program being cleared */
 #if SPLC_MQTT_ENABLE
     plc_mqtt_export(s_mqtt_backup);   /* so is the MQTT config (telemetry blocks + broker) */
+#endif
+#if SPLC_MBM_ENABLE
+    plc_mbm_export(s_mb_backup);          /* and the MB_READ blocks */
 #endif
 #if SPLC_REAL_ENABLE
     plc_tagtype_export(s_types_backup);   /* and the tag-type table */
@@ -75,6 +84,9 @@ bool plc_clear_rules(void)
     plc_fb_clear_all();
 #if SPLC_MQTT_ENABLE
     plc_mqtt_clear_all();   /* also drops any MQTT draft; runs BEFORE the save like the FB clear */
+#endif
+#if SPLC_MBM_ENABLE
+    plc_mbm_clear_all();       /* every block disabled, draft dropped; BEFORE the save like the others */
 #endif
 #if SPLC_REAL_ENABLE
     plc_tagtype_clear_all();   /* every tag undeclared, draft dropped; BEFORE the save like the others */
@@ -99,6 +111,9 @@ bool plc_clear_rules(void)
 #if SPLC_MQTT_ENABLE
     (void)plc_mqtt_import(s_mqtt_backup);
     memset(s_mqtt_backup, 0, sizeof(s_mqtt_backup));
+#endif
+#if SPLC_MBM_ENABLE
+    (void)plc_mbm_import(s_mb_backup);          /* valid before, tag layout unchanged */
 #endif
 #if SPLC_REAL_ENABLE
     (void)plc_tagtype_import(s_types_backup);   /* valid before, tag layout unchanged */

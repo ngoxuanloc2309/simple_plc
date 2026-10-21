@@ -18,6 +18,7 @@ set(SPLC_SERVICES_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_fb/plc_fb.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_mqtt/plc_mqtt.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_tagtype/plc_tagtype.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_mbm/plc_mbm.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule_flash/plc_rule_flash.c
 )
 
@@ -36,6 +37,7 @@ target_include_directories(splc_services PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_fb
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_mqtt
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_tagtype
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_mbm
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule_flash
 )
 

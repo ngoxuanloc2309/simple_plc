@@ -12,6 +12,7 @@
 #include "plc_fb.h"         /* FB block 0x0B00..0x0B7F, see cb_write_multiple_registers() */
 #include "plc_mqtt.h"       /* MQTT blocks 0x0C00..0x0D7F / 0x0E00..0x0E5F (SPLC_MQTT_ENABLE=1 only) */
 #include "plc_tagtype.h"    /* Tag DataType Registry 0x0080..0x00BF (SPLC_REAL_ENABLE=1 only) */
+#include "plc_mbm.h"        /* MB_READ blocks 0x1000..0x10FF (SPLC_MBM_ENABLE=1 only) */
 #include "sx_time.h"
 #include "splc_log.h"
 
@@ -151,7 +152,7 @@ static void read_device_resource_info(uint16_t offset, uint16_t quantity, uint16
     }
 }
 
-#if SPLC_MQTT_ENABLE
+#if SPLC_MQTT_ENABLE || SPLC_MBM_ENABLE
 /* --- HARDWARE_CAPABILITIES (0x0A08-0x0A09, RO, uint32, High Word first) -------------------------
  * App contract: docs/platform/SimplePLC_App_MCU_Structs_v2.0 (paa) and simpleplc_protocol_v2_0.h,
  * SPLC_HardwareCapabilities_t. The App reads this before it writes the MQTT blocks and SKIPS the
@@ -165,7 +166,13 @@ static void read_device_resource_info(uint16_t offset, uint16_t quantity, uint16
 
 static void read_hw_capabilities(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
 {
-    uint32_t caps = SPLC_CAP_MQTT_PUB;
+    uint32_t caps = 0U;
+#if SPLC_MQTT_ENABLE
+    caps |= SPLC_CAP_MQTT_PUB;
+#endif
+#if SPLC_MBM_ENABLE
+    caps |= PLC_MBM_CAP_MODBUS_MASTER;
+#endif
     if (g_device_resource_info.max_rules > 0U)        { caps |= SPLC_CAP_BASE_LOGIC; }
     if (g_device_resource_info.vreg_retain_count > 0U) { caps |= SPLC_CAP_RETENTIVE; }
 
@@ -1028,6 +1035,9 @@ static void write_commit_command(uint16_t value)
 #if SPLC_REAL_ENABLE
         plc_tagtype_discard_draft();
 #endif
+#if SPLC_MBM_ENABLE
+        plc_mbm_discard_draft();
+#endif
         return;
     }
 
@@ -1045,6 +1055,9 @@ static void write_commit_command(uint16_t value)
         plc_mqtt_discard_draft();
 #if SPLC_REAL_ENABLE
         plc_tagtype_discard_draft();
+#endif
+#if SPLC_MBM_ENABLE
+        plc_mbm_discard_draft();
 #endif
         return;
     }
@@ -1065,6 +1078,28 @@ static void write_commit_command(uint16_t value)
         plc_mqtt_discard_draft();
 #endif
         plc_tagtype_discard_draft();
+#if SPLC_MBM_ENABLE
+        plc_mbm_discard_draft();
+#endif
+        return;
+    }
+#endif
+
+#if SPLC_MBM_ENABLE
+    /* MB_READ draft: checked as a whole BEFORE anything is applied, like MQTT and
+     * the tag types (plc_mbm.h). */
+    if (!plc_mbm_validate_draft()) {
+        log_warn(TAG, "commit rejected: MB_READ draft failed validation");
+        s_config_status     = CONFIG_STATUS_ERROR;
+        s_config_error_code = SPLC_ERROR_INVALID_PARAMETER;
+        plc_fb_discard_draft();
+#if SPLC_MQTT_ENABLE
+        plc_mqtt_discard_draft();
+#endif
+#if SPLC_REAL_ENABLE
+        plc_tagtype_discard_draft();
+#endif
+        plc_mbm_discard_draft();
         return;
     }
 #endif
@@ -1082,6 +1117,9 @@ static void write_commit_command(uint16_t value)
 #endif
 #if SPLC_REAL_ENABLE
         plc_tagtype_discard_draft();
+#endif
+#if SPLC_MBM_ENABLE
+        plc_mbm_discard_draft();
 #endif
         return;
     }
@@ -1103,6 +1141,11 @@ static void write_commit_command(uint16_t value)
     /* Like MQTT: a table the Host wrote takes its draft, otherwise the running
      * table stays. Before the Flash save so one record carries it all. */
     plc_tagtype_commit_draft();
+#endif
+#if SPLC_MBM_ENABLE
+    /* Like MQTT: blocks the Host wrote take their draft, the others keep running.
+     * Before the Flash save so one record carries it all. */
+    plc_mbm_commit_draft();
 #endif
 
     /*
@@ -1206,7 +1249,7 @@ static const modbus_block_t s_blocks[] = {
     { 0x0810, 0x0813, true,  plc_rtc_read,                NULL },   /* FC16 writes handled in cb_write_multiple_registers (needs distinct exceptions) */
     { 0x0900, 0x09FF, false, read_runtime_tag_values,     NULL },
     { 0x0A01, 0x0A02, true,  read_system_command_result,  NULL },
-#if SPLC_MQTT_ENABLE
+#if SPLC_MQTT_ENABLE || SPLC_MBM_ENABLE
     { 0x0A08, 0x0A09, true,  read_hw_capabilities,        NULL },   /* RO; App gates the MQTT deploy on bit 4 */
 #endif
     { 0x0A20, 0x0A24, true,  read_diag_block,             NULL },   /* 0x0A20 writes handled in cb_write_*, not here */
@@ -1214,6 +1257,9 @@ static const modbus_block_t s_blocks[] = {
 #if SPLC_MQTT_ENABLE
     { 0x0C00, 0x0D7F, true,  plc_mqtt_telemetry_read,     NULL },   /* FC16 writes handled in cb_write_multiple_registers */
     { 0x0E00, 0x0E5F, true,  plc_mqtt_broker_read,        NULL },   /* 0x0E54..0x0E5F read-only status; FC16 writes handled in cb_write_multiple_registers */
+#endif
+#if SPLC_MBM_ENABLE
+    { 0x1000, 0x10FF, true,  plc_mbm_read,                NULL },   /* FC16 writes handled in cb_write_multiple_registers (go to the draft) */
 #endif
 
     { 0x9000, 0x9000, true,  read_config_status,          NULL },
@@ -1346,6 +1392,18 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
     if (address >= PLC_TAGTYPE_BASE && address < PLC_TAGTYPE_BASE + PLC_TAGTYPE_REGS) {
         return (plc_tagtype_write((uint16_t)(address - PLC_TAGTYPE_BASE), quantity, registers)
                 == PLC_TAGTYPE_WRITE_OK) ? NMBS_ERROR_NONE : NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+    }
+#endif
+
+#if SPLC_MBM_ENABLE
+    /*
+     * MB_READ blocks (plc_mbm.h): writes go to the draft and are checked at
+     * COMMIT, so a write inside the area always ACKs; only a request that runs
+     * past 0x10FF is rejected (0x02).
+     */
+    if (address >= PLC_MBM_BASE && address < PLC_MBM_BASE + PLC_MBM_REGS) {
+        return (plc_mbm_write((uint16_t)(address - PLC_MBM_BASE), quantity, registers)
+                == PLC_MBM_WRITE_OK) ? NMBS_ERROR_NONE : NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
     }
 #endif
 

@@ -19,6 +19,9 @@
 #if SPLC_MQTT_ENABLE
 #include "plc_mqtt.h"       /* plc_mqtt_export()/plc_mqtt_import(): MQTT config image (step E.3) */
 #endif
+#if SPLC_MBM_ENABLE
+#include "plc_mbm.h"        /* plc_mbm_export()/plc_mbm_import(): MB_READ blocks (decision 41) */
+#endif
 #if SPLC_REAL_ENABLE
 #include "plc_tagtype.h"    /* plc_tagtype_export()/plc_tagtype_import(): tag-type table (decision 41) */
 #endif
@@ -32,8 +35,9 @@ static const char *TAG = "PLC_RULE_FLASH";
  * drifting if either formula is edited. */
 _Static_assert(SPLC_RULE_FLASH_RECORD_MAX_SIZE ==
                (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE +
-                SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE + SPLC_RULE_FLASH_TYPES_RESERVE),
-               "SPLC_RULE_FLASH_RECORD_MAX_SIZE out of sync with MAX_RULES / FB / MQTT / TYPES size");
+                SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE + SPLC_RULE_FLASH_MB_RESERVE +
+                SPLC_RULE_FLASH_TYPES_RESERVE),
+               "SPLC_RULE_FLASH_RECORD_MAX_SIZE out of sync with MAX_RULES / FB / MQTT / MB / TYPES size");
 
 /* Same literal-duplication story for the FB image sizes. */
 _Static_assert(SPLC_RULE_FLASH_FB_SIZE == PLC_FB_FLASH_SIZE,
@@ -48,23 +52,29 @@ _Static_assert(SPLC_RULE_FLASH_FB_SIZE_V1 == PLC_FB_FLASH_SIZE_V1,
 _Static_assert(SPLC_RULE_FLASH_MQTT_SIZE == PLC_MQTT_FLASH_SIZE,
                "SPLC_RULE_FLASH_MQTT_SIZE out of sync with PLC_MQTT_FLASH_SIZE");
 #endif
+#if SPLC_MBM_ENABLE
+_Static_assert(SPLC_RULE_FLASH_MB_SIZE == PLC_MBM_FLASH_SIZE,
+               "SPLC_RULE_FLASH_MB_SIZE out of sync with PLC_MBM_FLASH_SIZE");
+#endif
 #if SPLC_REAL_ENABLE
 _Static_assert(SPLC_RULE_FLASH_TYPES_SIZE == PLC_TAGTYPE_FLASH_SIZE,
                "SPLC_RULE_FLASH_TYPES_SIZE out of sync with PLC_TAGTYPE_FLASH_SIZE");
 #endif
 #define RULE_FLASH_FLAGS_OWNED (SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG | \
-                                SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_TYPES_OWNED_FLAG)
+                                SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_MB_OWNED_FLAG | \
+                                SPLC_RULE_FLASH_TYPES_OWNED_FLAG)
 _Static_assert((SPLC_RULE_FLASH_FB_FLAG & SPLC_RULE_FLASH_FB_V2_FLAG) == 0U &&
                (SPLC_RULE_FLASH_FB_FLAG & SPLC_RULE_FLASH_MQTT_OWNED_FLAG) == 0U &&
                (SPLC_RULE_FLASH_FB_FLAG & SPLC_RULE_FLASH_TYPES_OWNED_FLAG) == 0U &&
                (SPLC_RULE_FLASH_FB_V2_FLAG & SPLC_RULE_FLASH_MQTT_OWNED_FLAG) == 0U &&
                (SPLC_RULE_FLASH_FB_V2_FLAG & SPLC_RULE_FLASH_TYPES_OWNED_FLAG) == 0U &&
                (SPLC_RULE_FLASH_MQTT_OWNED_FLAG & SPLC_RULE_FLASH_TYPES_OWNED_FLAG) == 0U &&
+               (SPLC_RULE_FLASH_MB_OWNED_FLAG & SPLC_RULE_FLASH_MQTT_OWNED_FLAG) == 0U &&
+               (SPLC_RULE_FLASH_MB_OWNED_FLAG & SPLC_RULE_FLASH_TYPES_OWNED_FLAG) == 0U &&
+               (SPLC_RULE_FLASH_MB_OWNED_FLAG & (SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG)) == 0U &&
                (RULE_FLASH_FLAGS_OWNED & SPLC_RULE_FLASH_COUNT_MASK) == 0U,
                "FB / FB V2 / MQTT / TYPES flags and the count mask must not overlap");
-/* Every bit outside the flags this build owns is part of the count mask. Bit 12
- * is still part of it: when MB_READ gets its section (decision 41) it becomes a
- * flag owned by SPLC_MBM_ENABLE builds and leaves the mask. */
+/* Every bit outside the flags this build owns is part of the count mask. */
 _Static_assert((RULE_FLASH_FLAGS_OWNED | SPLC_RULE_FLASH_COUNT_MASK) == 0xFFFFU,
                "the owned flags and the count mask must cover the whole rule_count field");
 
@@ -116,6 +126,9 @@ typedef struct {
     uint16_t rule_count;
     uint32_t fb_size;     /* 0 (none), 112 (legacy) or 128 (V2) */
     uint32_t mqtt_size;   /* 0 (none) or 960; always 0 when SPLC_MQTT_ENABLE = 0 */
+#if SPLC_MBM_ENABLE
+    uint32_t mb_size;     /* 0 (none) or 512; the member does not exist when SPLC_MBM_ENABLE = 0 */
+#endif
 #if SPLC_REAL_ENABLE
     uint32_t types_size;  /* 0 (none) or 128; the member does not exist when SPLC_REAL_ENABLE = 0 (keeps that build byte-identical) */
 #endif
@@ -154,21 +167,26 @@ static void rule_flash_split_field(uint16_t field, rule_flash_layout_t *l)
 #else
     l->mqtt_size = 0U;
 #endif
+#if SPLC_MBM_ENABLE
+    l->mb_size = ((field & SPLC_RULE_FLASH_MB_FLAG) != 0U) ? SPLC_RULE_FLASH_MB_SIZE : 0U;
+#endif
 #if SPLC_REAL_ENABLE
     l->types_size = ((field & SPLC_RULE_FLASH_TYPES_FLAG) != 0U) ? SPLC_RULE_FLASH_TYPES_SIZE : 0U;
 #endif
 }
 
 /* Total bytes of a record: header + rules [+ FB section] [+ MQTT section] [+ TYPES].
- * Layout: header | rules | FB | MQTT | TYPES (decision 41; MB_READ will go between
- * MQTT and TYPES), so the MQTT section starts at
- * RULE_FLASH_DATA_OFFSET + rule_count * 32 + fb_size and TYPES at that + mqtt_size
- * (+ the MB section once it exists). */
+ * Layout: header | rules | FB | MQTT | TYPES (decision 41), so the MQTT section starts at
+ * RULE_FLASH_DATA_OFFSET + rule_count * 32 + fb_size, MB at that + mqtt_size and
+ * TYPES at that + mb_size. */
 static uint32_t rule_flash_record_size(const rule_flash_layout_t *l)
 {
     uint32_t size = RULE_FLASH_DATA_OFFSET +
                     (uint32_t)l->rule_count * SPLC_RULE_FLASH_RECORD_WIRE_SIZE +
                     l->fb_size + l->mqtt_size;
+#if SPLC_MBM_ENABLE
+    size += l->mb_size;
+#endif
 #if SPLC_REAL_ENABLE
     size += l->types_size;
 #endif
@@ -221,6 +239,9 @@ static uint32_t rule_flash_build_record(uint32_t seq_num)
         .rule_count = g_rule_count.rule_count,
         .fb_size    = SPLC_RULE_FLASH_FB_SIZE,
         .mqtt_size  = SPLC_RULE_FLASH_MQTT_RESERVE,   /* 960 with MQTT, else 0 */
+#if SPLC_MBM_ENABLE
+        .mb_size    = SPLC_RULE_FLASH_MB_RESERVE,     /* 512 with MBM */
+#endif
 #if SPLC_REAL_ENABLE
         .types_size = SPLC_RULE_FLASH_TYPES_RESERVE,  /* 128 with REAL */
 #endif
@@ -228,6 +249,9 @@ static uint32_t rule_flash_build_record(uint32_t seq_num)
     uint16_t field = (uint16_t)(layout.rule_count | SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG);
 #if SPLC_MQTT_ENABLE
     field |= SPLC_RULE_FLASH_MQTT_FLAG;   /* every save of an MQTT build carries the MQTT section */
+#endif
+#if SPLC_MBM_ENABLE
+    field |= SPLC_RULE_FLASH_MB_FLAG;     /* every save of an MBM build carries the MB_READ section */
 #endif
 #if SPLC_REAL_ENABLE
     field |= SPLC_RULE_FLASH_TYPES_FLAG;  /* every save of a REAL build carries the tag-type section */
@@ -253,12 +277,17 @@ static uint32_t rule_flash_build_record(uint32_t seq_num)
      * run). It holds the broker password in clear text. */
     plc_mqtt_export(&s_rule_flash_buf[fb_off + SPLC_RULE_FLASH_FB_SIZE]);
 #endif
+#if SPLC_MBM_ENABLE
+    /* MB_READ section: the RUNNING blocks (plc_mbm_commit_draft() has already run). */
+    plc_mbm_export(&s_rule_flash_buf[fb_off + SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE]);
+#endif
 #if SPLC_REAL_ENABLE
     /* Tag-type section: the RUNNING table (plc_tagtype_commit_draft() has already run). */
-    plc_tagtype_export(&s_rule_flash_buf[fb_off + SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE]);
+    plc_tagtype_export(&s_rule_flash_buf[fb_off + SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE +
+                                         SPLC_RULE_FLASH_MB_RESERVE]);
 #endif
 
-    /* The one CRC covers header + rules + FB + MQTT + TYPES sections. */
+    /* The one CRC covers header + rules + FB + MQTT + MB + TYPES sections. */
     uint32_t record_size = rule_flash_record_size(&layout);
     uint16_t crc = rule_flash_record_crc(s_rule_flash_buf, record_size);
     write_u16_be(&s_rule_flash_buf[RULE_FLASH_CRC_OFFSET], crc);
@@ -463,10 +492,25 @@ static void rule_flash_apply_buffer(const rule_flash_layout_t *l, const char *fr
         log_warn(TAG, "MQTT section in Flash %s failed validation -- MQTT config left DISABLED", from);
     }
 #endif
+#if SPLC_MBM_ENABLE
+    if (l->mb_size == 0U) {
+        log_info(TAG, "Flash %s has no MB_READ section -- every block left DISABLED", from);
+    } else if (plc_mbm_import(fb + l->fb_size + l->mqtt_size)) {
+        log_info(TAG, "MB_READ blocks restored from Flash %s", from);
+    } else {
+        log_warn(TAG, "MB_READ section in Flash %s failed validation -- every block left DISABLED", from);
+    }
+#endif
 #if SPLC_REAL_ENABLE
     if (l->types_size == 0U) {
         log_info(TAG, "Flash %s has no tag-type section -- every tag left undeclared (INT32)", from);
-    } else if (plc_tagtype_import(fb + l->fb_size + l->mqtt_size)) {
+    } else if (plc_tagtype_import(fb + l->fb_size + l->mqtt_size +
+#if SPLC_MBM_ENABLE
+                                      l->mb_size
+#else
+                                      0U
+#endif
+                                      )) {
         log_info(TAG, "tag types restored from Flash %s", from);
     } else {
         log_warn(TAG, "tag-type section in Flash %s failed validation -- every tag left undeclared (INT32)", from);
