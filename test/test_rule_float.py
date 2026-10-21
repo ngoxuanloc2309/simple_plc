@@ -72,7 +72,8 @@ def as_float(u):
 
 
 def model(x):
-    """Expected outputs for trigger value x (float32 semantics of the firmware)."""
+    """Expected outputs {A,B,E,F,H,G} for trigger value x (float32 semantics of the firmware);
+    keys must match stimulate()'s return value exactly."""
     x = f32(x)
     prod = f32(x * f32(GAIN))              # product rounded to float32 first (no FMA)
     return {
@@ -81,6 +82,7 @@ def model(x):
         "E": 7 if f32(THR_LO) <= x <= f32(THR_HI) else 0,
         "F": 3 if abs(x - f32(THR_EQ)) <= 1e-5 else 0,
         "H": bits(f32(PARAM_F)),
+        "G": 0,                              # integer rule: Y stays 0 in the float stimuli
     }
 
 
