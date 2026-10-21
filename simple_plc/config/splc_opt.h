@@ -217,6 +217,17 @@
 #endif
 
 /* ======================================================================
+ * REAL (IEEE-754 float32) tags: Tag DataType Registry 0x0080..0x00BF
+ * (docs/handoff.md decisions 40 and 41)
+ * ==================================================================== */
+/* 1 = build plc_tagtype (the table that says which tag is BOOL / INT32 / REAL;
+ * staged with the Deploy, saved in the Flash Rule Table record as flag bit 11).
+ * 0 = nothing changes: no table, no Flash flag, the exact baseline size. */
+#ifndef SPLC_REAL_ENABLE
+#define SPLC_REAL_ENABLE                 0
+#endif
+
+/* ======================================================================
  * Modbus master blocks: MB_READ (0x1000..0x10FF), later MB_WRITE (0x1100..)
  * ==================================================================== */
 /* 1 = build the Modbus-master service and enlarge the RS485 master buffers to
@@ -342,6 +353,9 @@
 #endif
 #if (SPLC_MBM_ENABLE != 0) && (SPLC_MBM_ENABLE != 1)
 #error "SPLC_MBM_ENABLE must be 0 or 1"
+#endif
+#if (SPLC_REAL_ENABLE != 0) && (SPLC_REAL_ENABLE != 1)
+#error "SPLC_REAL_ENABLE must be 0 or 1"
 #endif
 #if (SPLC_MQTT_PAYLOAD_MAX < 128) || (SPLC_MQTT_PAYLOAD_MAX > 512)
 #error "SPLC_MQTT_PAYLOAD_MAX must be 128..512 (compact JSON worst case is 127 characters + NUL)"

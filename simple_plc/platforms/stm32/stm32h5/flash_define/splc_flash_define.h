@@ -323,14 +323,36 @@ _Static_assert(SPLC_FLASH_RETAIN_BASE_ADDR == SPLC_FLASH_DATA_BASE_ADDR,
  * the MQTT=0 build byte-for-byte the same size as before. */
 #define SPLC_RULE_FLASH_MQTT_FLAG         0x2000U /* bit 13 of the rule_count field: MQTT section present */
 #define SPLC_RULE_FLASH_MQTT_SIZE         960U    /* 4 telemetry blocks x 192 B + broker image 192 B; cross-checked against PLC_MQTT_FLASH_SIZE in plc_rule_flash.c */
+/* Bit 11 of the rule_count field: a tag-type table (SPLC_RULE_FLASH_TYPES_SIZE
+ * bytes, one per tag; plc_tagtype.h, decision 41) follows the MQTT section
+ * (layout: header | rules | FB | MQTT | [MB, bit 12, later] | TYPES). Only a
+ * build with SPLC_REAL_ENABLE=1 knows this flag; a build with it 0 keeps its
+ * old count mask and rejects such a record as "count > MAX_RULES" (the same
+ * downgrade rule as for the FB and MQTT flags), so it stays byte-for-byte the
+ * same size as before. */
+#define SPLC_RULE_FLASH_TYPES_FLAG        0x0800U /* bit 11 of the rule_count field: tag-type section present */
+#define SPLC_RULE_FLASH_TYPES_SIZE        128U    /* one byte per tag; cross-checked against PLC_TAGTYPE_FLASH_SIZE in plc_rule_flash.c */
+
+/* The flag bits THIS build owns (0 for a feature that is compiled out): they are
+ * taken out of the count mask. */
 #if SPLC_MQTT_ENABLE
-#define SPLC_RULE_FLASH_COUNT_MASK        0x1FFFU /* bits 0..12 of the rule_count field: the real count */
 #define SPLC_RULE_FLASH_MQTT_RESERVE      SPLC_RULE_FLASH_MQTT_SIZE
+#define SPLC_RULE_FLASH_MQTT_OWNED_FLAG   SPLC_RULE_FLASH_MQTT_FLAG
 #else
-#define SPLC_RULE_FLASH_COUNT_MASK        0x3FFFU /* bits 0..13 of the rule_count field: the real count */
 #define SPLC_RULE_FLASH_MQTT_RESERVE      0U
+#define SPLC_RULE_FLASH_MQTT_OWNED_FLAG   0U
 #endif
-#define SPLC_RULE_FLASH_RECORD_MAX_SIZE   (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE + SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE) /* 3336 bytes at MAX_RULES = 100 (4296 with SPLC_MQTT_ENABLE=1) */
+#if SPLC_REAL_ENABLE
+#define SPLC_RULE_FLASH_TYPES_RESERVE     SPLC_RULE_FLASH_TYPES_SIZE
+#define SPLC_RULE_FLASH_TYPES_OWNED_FLAG  SPLC_RULE_FLASH_TYPES_FLAG
+#else
+#define SPLC_RULE_FLASH_TYPES_RESERVE     0U
+#define SPLC_RULE_FLASH_TYPES_OWNED_FLAG  0U
+#endif
+/* The real rule count: bits 0..13 minus the flags this build owns
+ * (0x3FFF, 0x1FFF with MQTT, 0x37FF with REAL, 0x17FF with both). */
+#define SPLC_RULE_FLASH_COUNT_MASK        ((uint16_t)(0x3FFFU & ~(SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_TYPES_OWNED_FLAG)))
+#define SPLC_RULE_FLASH_RECORD_MAX_SIZE   (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE + SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE + SPLC_RULE_FLASH_TYPES_RESERVE) /* 3336 bytes at MAX_RULES = 100 (4296 with SPLC_MQTT_ENABLE=1, +128 with SPLC_REAL_ENABLE=1) */
 _Static_assert(SPLC_RULE_FLASH_RECORD_MAX_SIZE <= SPLC_FLASH_SECTOR_SIZE,
                "a rule record must fit in one Flash sector");
 

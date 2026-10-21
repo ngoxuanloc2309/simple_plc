@@ -9,6 +9,7 @@
 #include "plc_rtc.h"
 #include "plc_fb.h"
 #include "plc_mqtt.h"
+#include "plc_tagtype.h"
 #include "plc_system_cmd_service.h"
 #include "splc_board.h"
 #include "sx_time.h"
@@ -50,6 +51,9 @@ void plc_engine_init(void)
     SPLC_TagLayout tag_layout = board_get_tag_layout();
     tag_table_load_from_flash(&tag_layout);
     plc_fb_init();
+#if SPLC_REAL_ENABLE
+    plc_tagtype_init();   /* before plc_rule_flash_load(): the Flash record will fill it (decision 41) */
+#endif
 #if SPLC_MQTT_ENABLE
     plc_mqtt_init();   /* before plc_rule_flash_load(): the Flash record will fill it (step E.3) */
 #endif

@@ -11,6 +11,7 @@
 #include "plc_rtc.h"        /* RTC block 0x0810..0x0813, see cb_write_multiple_registers() */
 #include "plc_fb.h"         /* FB block 0x0B00..0x0B7F, see cb_write_multiple_registers() */
 #include "plc_mqtt.h"       /* MQTT blocks 0x0C00..0x0D7F / 0x0E00..0x0E5F (SPLC_MQTT_ENABLE=1 only) */
+#include "plc_tagtype.h"    /* Tag DataType Registry 0x0080..0x00BF (SPLC_REAL_ENABLE=1 only) */
 #include "sx_time.h"
 #include "splc_log.h"
 
@@ -1024,6 +1025,9 @@ static void write_commit_command(uint16_t value)
 #if SPLC_MQTT_ENABLE
         plc_mqtt_discard_draft();
 #endif
+#if SPLC_REAL_ENABLE
+        plc_tagtype_discard_draft();
+#endif
         return;
     }
 
@@ -1039,6 +1043,28 @@ static void write_commit_command(uint16_t value)
         s_config_error_code = SPLC_ERROR_INVALID_PARAMETER;
         plc_fb_discard_draft();
         plc_mqtt_discard_draft();
+#if SPLC_REAL_ENABLE
+        plc_tagtype_discard_draft();
+#endif
+        return;
+    }
+#endif
+
+#if SPLC_REAL_ENABLE
+    /*
+     * Tag-type draft: checked as a whole BEFORE anything is applied, like the
+     * MQTT draft -- a bad table rejects the entire COMMIT (rules, FB, MQTT and
+     * types all stay as they were). See plc_tagtype.h.
+     */
+    if (!plc_tagtype_validate_draft()) {
+        log_warn(TAG, "commit rejected: tag-type table failed validation");
+        s_config_status     = CONFIG_STATUS_ERROR;
+        s_config_error_code = SPLC_ERROR_INVALID_PARAMETER;
+        plc_fb_discard_draft();
+#if SPLC_MQTT_ENABLE
+        plc_mqtt_discard_draft();
+#endif
+        plc_tagtype_discard_draft();
         return;
     }
 #endif
@@ -1053,6 +1079,9 @@ static void write_commit_command(uint16_t value)
         plc_fb_discard_draft();   /* same reason as the CRC-mismatch path above */
 #if SPLC_MQTT_ENABLE
         plc_mqtt_discard_draft();
+#endif
+#if SPLC_REAL_ENABLE
+        plc_tagtype_discard_draft();
 #endif
         return;
     }
@@ -1069,6 +1098,11 @@ static void write_commit_command(uint16_t value)
     /* Blocks/broker the Host wrote take their draft; the others keep what runs
      * (unlike FB). NOTE: not saved to Flash yet -- step E.3. */
     plc_mqtt_commit_draft();
+#endif
+#if SPLC_REAL_ENABLE
+    /* Like MQTT: a table the Host wrote takes its draft, otherwise the running
+     * table stays. Before the Flash save so one record carries it all. */
+    plc_tagtype_commit_draft();
 #endif
 
     /*
@@ -1164,6 +1198,9 @@ static const modbus_block_t s_blocks[] = {
     { 0x0000, 0x0009, true,  read_device_descriptor,      NULL },
     { 0x0010, 0x0010, true,  read_rule_table_info,        NULL },
     { 0x0020, 0x0029, true,  read_device_resource_info,   NULL },
+#if SPLC_REAL_ENABLE
+    { 0x0080, 0x00BF, true,  plc_tagtype_read,            NULL },   /* FC16 writes handled in cb_write_multiple_registers (go to the draft) */
+#endif
     { 0x0100, 0x073F, false, read_active_rule_table,      NULL },
     { 0x0800, 0x0809, true,  read_device_health,          NULL },
     { 0x0810, 0x0813, true,  plc_rtc_read,                NULL },   /* FC16 writes handled in cb_write_multiple_registers (needs distinct exceptions) */
@@ -1297,6 +1334,20 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
             default:                       return NMBS_EXCEPTION_SERVER_DEVICE_FAILURE;
         }
     }
+
+#if SPLC_REAL_ENABLE
+    /*
+     * Tag DataType Registry (plc_tagtype.h): writes go to the draft and are
+     * checked at COMMIT, so a write inside the area always ACKs; only a request
+     * that runs past 0x00BF is rejected (0x02). A request that starts below
+     * 0x0080 and runs into the area starts in an unmapped gap and is rejected
+     * by the generic table path below.
+     */
+    if (address >= PLC_TAGTYPE_BASE && address < PLC_TAGTYPE_BASE + PLC_TAGTYPE_REGS) {
+        return (plc_tagtype_write((uint16_t)(address - PLC_TAGTYPE_BASE), quantity, registers)
+                == PLC_TAGTYPE_WRITE_OK) ? NMBS_ERROR_NONE : NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+    }
+#endif
 
 #if SPLC_MQTT_ENABLE
     /*
