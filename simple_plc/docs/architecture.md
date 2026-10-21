@@ -91,7 +91,7 @@ splc_config/splcopts.h   (gốc repo) — file cấu hình của sản phẩm hi
   (`SPLC_FLASH_SIZE_KB`), retain (`RETAIN_SNAPSHOT_PERIOD_MS`,
   `PLC_PVD_EMERGENCY_SAVE_ENABLE`, `RETAIN_EMERGENCY_MIN_INTERVAL_MS`), link App
   (`SPLC_PORT_USB_CDC`, `SPLC_MODBUS_UNIT_ID`, `SPLC_LINK_RX_BUF_SIZE`: lũy thừa của 2,
-  ≥ 256, mặc định 512), Remote I/O (`SPLC_REMOTE_MAX_NODES`,
+  ≥ 256, mặc định 512), REAL (`SPLC_REAL_ENABLE`), Remote I/O (`SPLC_REMOTE_MAX_NODES`,
   `_TIMEOUT_MS`, `_POLL_MS`, `_OFFLINE_AFTER`, `_RETRY_MS`), log (`SPLC_LOG_LEVEL`,
   `SPLC_LOG_BUFFER_SIZE`, `SPLC_LOGGER_BUILTIN`, macro `SPLC_LOG_OUTPUT`).
 - CMake đọc `SPLC_BOARD`, `SPLC_PLATFORM`, `SPLC_LOGGER_BUILTIN` thẳng từ `splcopts.h`
@@ -261,17 +261,18 @@ timeout bằng tick thật, CRC bằng `nmbs_crc_calc()` (byte-swapped, ghi big-
   lease, ghi tag trong diag, retain draft), RTC, FB, System Command.
 - **`plc_rule_flash`**: lưu Rule Table A/B (xem handoff mục 1 về thứ tự và recovery); bản
   ghi = header 8 B (seq_num, rule_count + cờ FB/MQTT, crc16) + rule wire + đoạn FB 128 B [+ đoạn MQTT 960 B, bit 13,
-  chỉ khi `SPLC_MQTT_ENABLE=1`].
+  chỉ khi `SPLC_MQTT_ENABLE=1`] [+ bảng kiểu tag 128 B, bit 11, chỉ khi `SPLC_REAL_ENABLE=1`].
 - **`plc_retain`**: snapshot xoay vòng cho VREG_RETAIN (record 208 B: seq, count, crc16,
   tag_idx+value); khôi phục lúc boot lấy record CRC-hợp-lệ có seq lớn nhất; lưu theo
   COMMIT_RETAIN, chu kỳ, và PVD khẩn cấp (ISR).
 - **`plc_fb`**: khối Timer/Counter `0x0B00..0x0B7F` (nháp + COMMIT; Timer báo cáo qua
   `rule_ref`; Counter đọc CV từ tag do Host chọn).
+- **`plc_tagtype`** (chỉ khi `SPLC_REAL_ENABLE=1`): bảng kiểu tag `0x0080..0x00BF` (nháp + COMMIT, `plc_tagtype_get()` cho MB_READ/Publish/SUB; Rule Engine không tra bảng). Lưu trong bản ghi Rule Table (bit 11); xem handoff quyết định 41–42.
 - **`plc_rtc`**: khối `0x0810` (epoch UTC, tz, `status_flags` RO), `plc_rtc_get_local_hhmm()`.
 
 ### Layer 4 — Engine
 `plc_engine_init()` theo thứ tự: `tag_table_load_from_flash(&layout)` (từ
-`board_get_tag_layout()`, phải trước `board_init()`) → `plc_fb_init()` →
+`board_get_tag_layout()`, phải trước `board_init()`) → `plc_fb_init()` → `plc_tagtype_init()` (`SPLC_REAL_ENABLE`) →
 `rule_table_load_from_flash()` + `plc_rule_flash_load()` → `retain_store_restore()` →
 đăng ký callback PVD (nếu bật) → `board_init()` (nối chân, tạo transport) →
 `plc_modbus_cfg_init()`.
@@ -299,6 +300,7 @@ ghi, high byte trước; CRC khung RTU little-endian.
 | `0x0000..0x0009` | R | Device Descriptor |
 | `0x0010` | R | Rule Table Info (số rule active) |
 | `0x0020..0x0029` | R | Device Resource Info |
+| `0x0080..0x00BF` | R/W | Tag DataType Registry (chỉ khi `SPLC_REAL_ENABLE=1`; 1 byte/tag: 0 chưa khai=INT32, 1 BOOL, 2 INT32, 3 REAL; tag chẵn ở High byte; ghi vào nháp, COMMIT áp dụng) |
 | `0x0100..0x073F` | R | Active Rule Table (16 reg/rule, tối đa 100) |
 | `0x0800..0x0809` | R | Device Health |
 | `0x0810..0x0813` | R/W | RTC (`epoch_utc_s`, `tz_offset_min`, `status_flags` RO) |
