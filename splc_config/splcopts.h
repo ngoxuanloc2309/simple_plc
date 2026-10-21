@@ -31,4 +31,7 @@
 /*ON MQTT*/
 #define SPLC_MQTT_ENABLE              1
 
+/*ON MB*/
+#define SPLC_MBM_ENABLE               1
+
 #endif /* SPLCOPTS_H */
