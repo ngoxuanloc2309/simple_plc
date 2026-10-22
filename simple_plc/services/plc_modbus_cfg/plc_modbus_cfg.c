@@ -13,6 +13,9 @@
 #include "plc_mqtt.h"       /* MQTT blocks 0x0C00..0x0D7F / 0x0E00..0x0E5F (SPLC_MQTT_ENABLE=1 only) */
 #include "plc_tagtype.h"    /* Tag DataType Registry 0x0080..0x00BF (SPLC_REAL_ENABLE=1 only) */
 #include "plc_mbm.h"        /* MB_READ blocks 0x1000..0x10FF (SPLC_MBM_ENABLE=1 only) */
+#if SPLC_MQTT_SUB_ENABLE
+#include "plc_mqtt_sub.h"    /* MQTT Subscribe blocks 0x0D80..0x0DFF (SPLC_MQTT_SUB_ENABLE=1 only) */
+#endif
 #include "sx_time.h"
 #include "splc_log.h"
 
@@ -157,8 +160,8 @@ static void read_device_resource_info(uint16_t offset, uint16_t quantity, uint16
  * App contract: docs/platform/SimplePLC_App_MCU_Structs_v2.0 (paa) and simpleplc_protocol_v2_0.h,
  * SPLC_HardwareCapabilities_t. The App reads this before it writes the MQTT blocks and SKIPS the
  * whole MQTT step when SPLC_CAP_MQTT_PUB is missing (or when this address answers an exception).
- * Only what the library can prove is declared; ETHERNET / RTC / MQTT_SUB / SD are board or host
- * facts and stay 0 here. Compiled only with SPLC_MQTT_ENABLE=1 so that SPLC_MQTT_ENABLE=0 builds
+ * Only what the library can prove is declared; ETHERNET / RTC / SD are board or host
+ * facts and stay 0 here (MQTT_SUB is declared when SPLC_MQTT_SUB_ENABLE=1). Compiled only with SPLC_MQTT_ENABLE=1 so that SPLC_MQTT_ENABLE=0 builds
  * keep the exact baseline size (handoff.md: SPLC_MQTT_ENABLE=0 must match it). */
 #define SPLC_CAP_BASE_LOGIC   0x00000001UL
 #define SPLC_CAP_RETENTIVE    0x00000002UL
@@ -172,6 +175,9 @@ static void read_hw_capabilities(uint16_t offset, uint16_t quantity, uint16_t *r
 #endif
 #if SPLC_MBM_ENABLE
     caps |= PLC_MBM_CAP_MODBUS_MASTER;
+#endif
+#if SPLC_MQTT_SUB_ENABLE
+    caps |= PLC_MQTT_SUB_CAP_MQTT_SUB;
 #endif
     if (g_device_resource_info.max_rules > 0U)        { caps |= SPLC_CAP_BASE_LOGIC; }
     if (g_device_resource_info.vreg_retain_count > 0U) { caps |= SPLC_CAP_RETENTIVE; }
@@ -1067,6 +1073,9 @@ static void write_commit_command(uint16_t value)
 #if SPLC_MBM_ENABLE
         plc_mbm_discard_draft();
 #endif
+#if SPLC_MQTT_SUB_ENABLE
+        plc_mqtt_sub_discard_draft();
+#endif
         return;
     }
 
@@ -1087,6 +1096,9 @@ static void write_commit_command(uint16_t value)
 #endif
 #if SPLC_MBM_ENABLE
         plc_mbm_discard_draft();
+#endif
+#if SPLC_MQTT_SUB_ENABLE
+        plc_mqtt_sub_discard_draft();
 #endif
         return;
     }
@@ -1110,6 +1122,9 @@ static void write_commit_command(uint16_t value)
 #if SPLC_MBM_ENABLE
         plc_mbm_discard_draft();
 #endif
+#if SPLC_MQTT_SUB_ENABLE
+        plc_mqtt_sub_discard_draft();
+#endif
         return;
     }
 #endif
@@ -1129,6 +1144,29 @@ static void write_commit_command(uint16_t value)
         plc_tagtype_discard_draft();
 #endif
         plc_mbm_discard_draft();
+#if SPLC_MQTT_SUB_ENABLE
+        plc_mqtt_sub_discard_draft();
+#endif
+        return;
+    }
+#endif
+
+#if SPLC_MQTT_SUB_ENABLE
+    /* MQTT Subscribe draft: checked as a whole BEFORE anything is applied, like the
+     * others (plc_mqtt_sub.h). */
+    if (!plc_mqtt_sub_validate_draft()) {
+        log_warn(TAG, "commit rejected: MQTT Subscribe draft failed validation");
+        s_config_status     = CONFIG_STATUS_ERROR;
+        s_config_error_code = SPLC_ERROR_INVALID_PARAMETER;
+        plc_fb_discard_draft();
+        plc_mqtt_discard_draft();
+#if SPLC_REAL_ENABLE
+        plc_tagtype_discard_draft();
+#endif
+#if SPLC_MBM_ENABLE
+        plc_mbm_discard_draft();
+#endif
+        plc_mqtt_sub_discard_draft();
         return;
     }
 #endif
@@ -1149,6 +1187,9 @@ static void write_commit_command(uint16_t value)
 #endif
 #if SPLC_MBM_ENABLE
         plc_mbm_discard_draft();
+#endif
+#if SPLC_MQTT_SUB_ENABLE
+        plc_mqtt_sub_discard_draft();
 #endif
         return;
     }
@@ -1175,6 +1216,11 @@ static void write_commit_command(uint16_t value)
     /* Like MQTT: blocks the Host wrote take their draft, the others keep running.
      * Before the Flash save so one record carries it all. */
     plc_mbm_commit_draft();
+#endif
+#if SPLC_MQTT_SUB_ENABLE
+    /* Like MQTT: blocks the Host wrote take their draft, the others keep running.
+     * Before the Flash save so one record carries it all. */
+    plc_mqtt_sub_commit_draft();
 #endif
 
     /*
@@ -1289,6 +1335,9 @@ static const modbus_block_t s_blocks[] = {
 #if SPLC_MQTT_ENABLE
     { 0x0C00, 0x0D7F, true,  plc_mqtt_telemetry_read,     NULL },   /* FC16 writes handled in cb_write_multiple_registers */
     { 0x0E00, 0x0E5F, true,  plc_mqtt_broker_read,        NULL },   /* 0x0E54..0x0E5F read-only status; FC16 writes handled in cb_write_multiple_registers */
+#endif
+#if SPLC_MQTT_SUB_ENABLE
+    { 0x0D80, 0x0DFF, true,  plc_mqtt_sub_read,           NULL },   /* RUNNING blocks; FC16 writes handled in cb_write_multiple_registers (go to the draft) */
 #endif
 #if SPLC_MBM_ENABLE
         { 0x1000, 0x10FF, true,  plc_mbm_read,                NULL },   /* FC16 writes handled in cb_write_multiple_registers (go to the draft) */
@@ -1463,6 +1512,19 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
         address < PLC_MQTT_BROKER_BASE + PLC_MQTT_BROKER_REGS) {
         return (plc_mqtt_broker_write((uint16_t)(address - PLC_MQTT_BROKER_BASE), quantity, registers)
                 == PLC_MQTT_WRITE_OK) ? NMBS_ERROR_NONE : NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+    }
+#endif
+
+#if SPLC_MQTT_SUB_ENABLE
+    /*
+     * MQTT Subscribe blocks (plc_mqtt_sub.h): writes go to the draft and are checked
+     * at COMMIT, so a write inside the area always ACKs; only a request that runs
+     * past 0x0DFF is rejected (0x02). A request that starts below 0x0D80 and runs
+     * into the area starts in the telemetry area and is handled there.
+     */
+    if (address >= PLC_MQTT_SUB_BASE && address < PLC_MQTT_SUB_BASE + PLC_MQTT_SUB_REGS) {
+        return (plc_mqtt_sub_write((uint16_t)(address - PLC_MQTT_SUB_BASE), quantity, registers)
+                == PLC_MQTT_SUB_WRITE_OK) ? NMBS_ERROR_NONE : NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
     }
 #endif
 

@@ -11,6 +11,9 @@
 #include "plc_mqtt.h"
 #include "plc_tagtype.h"
 #include "plc_mbm.h"
+#if SPLC_MQTT_SUB_ENABLE
+#include "plc_mqtt_sub.h"
+#endif
 #include "plc_system_cmd_service.h"
 #include "splc_board.h"
 #include "sx_time.h"
@@ -60,6 +63,9 @@ void plc_engine_init(void)
 #endif
 #if SPLC_MBM_ENABLE
     plc_mbm_init();    /* before plc_rule_flash_load(): the Flash record will fill it (decision 41) */
+#endif
+#if SPLC_MQTT_SUB_ENABLE
+    plc_mqtt_sub_init();   /* before plc_rule_flash_load(): the Flash record will fill it (decision 47) */
 #endif
 
     rule_table_load_from_flash();
@@ -122,6 +128,12 @@ static void scan_cycle(uint32_t now_ms)
         if (s_rule_engine_was_suspended) {
             rule_runtime_reset();
         }
+#if SPLC_MQTT_SUB_ENABLE
+        /* Remote commands land in the tags BEFORE the rules run, so this very scan's
+         * rules already see them (plc_mqtt_sub.h). Not while a diag session forces
+         * the tags: the Host owns them then. */
+        plc_mqtt_sub_scan(now_ms);
+#endif
         /*
          * Local time of day for TRG_TIME_WINDOW (Structs doc V2.0 section
          * 7), read once per cycle so every rule in the pass sees the same

@@ -341,6 +341,15 @@ _Static_assert(SPLC_FLASH_RETAIN_BASE_ADDR == SPLC_FLASH_DATA_BASE_ADDR,
 #define SPLC_RULE_FLASH_TYPES_FLAG        0x0800U /* bit 11 of the rule_count field: tag-type section present */
 #define SPLC_RULE_FLASH_TYPES_SIZE        128U    /* one byte per tag; cross-checked against PLC_TAGTYPE_FLASH_SIZE in plc_rule_flash.c */
 
+/* Bit 10 of the rule_count field: an MQTT Subscribe section (SPLC_RULE_FLASH_SUB_SIZE
+ * bytes = 2 blocks x 64 registers, big-endian as on the wire; plc_mqtt_sub.h) follows
+ * the tag-type section -- the LAST section, so a build with SPLC_MQTT_SUB_ENABLE=0
+ * moves no offset (layout: header | rules | FB | MQTT | MB | TYPES | SUB). Only a
+ * build with SPLC_MQTT_SUB_ENABLE=1 knows this flag; a build with it 0 keeps bit 10
+ * in its count mask (same downgrade rule as the other flags). */
+#define SPLC_RULE_FLASH_SUB_FLAG          0x0400U /* bit 10 of the rule_count field: MQTT Subscribe section present */
+#define SPLC_RULE_FLASH_SUB_SIZE          256U    /* 2 x 128 B blocks; cross-checked against PLC_MQTT_SUB_FLASH_SIZE in plc_rule_flash.c */
+
 /* The flag bits THIS build owns (0 for a feature that is compiled out): they are
  * taken out of the count mask. */
 #if SPLC_MQTT_ENABLE
@@ -364,10 +373,17 @@ _Static_assert(SPLC_FLASH_RETAIN_BASE_ADDR == SPLC_FLASH_DATA_BASE_ADDR,
 #define SPLC_RULE_FLASH_TYPES_RESERVE     0U
 #define SPLC_RULE_FLASH_TYPES_OWNED_FLAG  0U
 #endif
+#if SPLC_MQTT_SUB_ENABLE
+#define SPLC_RULE_FLASH_SUB_RESERVE       SPLC_RULE_FLASH_SUB_SIZE
+#define SPLC_RULE_FLASH_SUB_OWNED_FLAG    SPLC_RULE_FLASH_SUB_FLAG
+#else
+#define SPLC_RULE_FLASH_SUB_RESERVE       0U
+#define SPLC_RULE_FLASH_SUB_OWNED_FLAG    0U
+#endif
 /* The real rule count: bits 0..13 minus the flags this build owns
- * (0x3FFF; minus bit 13 with MQTT, bit 12 with MBM, bit 11 with REAL). */
-#define SPLC_RULE_FLASH_COUNT_MASK        ((uint16_t)(0x3FFFU & ~(SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_MB_OWNED_FLAG | SPLC_RULE_FLASH_TYPES_OWNED_FLAG)))
-#define SPLC_RULE_FLASH_RECORD_MAX_SIZE   (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE + SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE + SPLC_RULE_FLASH_MB_RESERVE + SPLC_RULE_FLASH_TYPES_RESERVE) /* 3336 bytes at MAX_RULES = 100 (4296 with SPLC_MQTT_ENABLE=1, +640 with SPLC_MBM_ENABLE=1, +128 with SPLC_REAL_ENABLE=1) */
+ * (0x3FFF; minus bit 13 with MQTT, bit 12 with MBM, bit 11 with REAL, bit 10 with MQTT SUB). */
+#define SPLC_RULE_FLASH_COUNT_MASK        ((uint16_t)(0x3FFFU & ~(SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_MB_OWNED_FLAG | SPLC_RULE_FLASH_TYPES_OWNED_FLAG | SPLC_RULE_FLASH_SUB_OWNED_FLAG)))
+#define SPLC_RULE_FLASH_RECORD_MAX_SIZE   (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE + SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE + SPLC_RULE_FLASH_MB_RESERVE + SPLC_RULE_FLASH_TYPES_RESERVE + SPLC_RULE_FLASH_SUB_RESERVE) /* 3336 bytes at MAX_RULES = 100 (4296 with SPLC_MQTT_ENABLE=1, +640 with SPLC_MBM_ENABLE=1, +128 with SPLC_REAL_ENABLE=1, +256 with SPLC_MQTT_SUB_ENABLE=1) */
 _Static_assert(SPLC_RULE_FLASH_RECORD_MAX_SIZE <= SPLC_FLASH_SECTOR_SIZE,
                "a rule record must fit in one Flash sector");
 

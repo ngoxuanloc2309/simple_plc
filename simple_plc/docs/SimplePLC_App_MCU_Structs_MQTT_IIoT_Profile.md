@@ -100,7 +100,7 @@ Tài liệu này xác lập đặc tả cấu trúc dữ liệu nhị phân cấ
 | `0x0C60..0x0CBF` | **Telemetry Block 1** | R/W | FC03/FC16 | 96 regs (192 B) | Khối xuất bản dữ liệu viễn trắc 1. |
 | `0x0CC0..0x0D1F` | **Telemetry Block 2** | R/W | FC03/FC16 | 96 regs (192 B) | Khối xuất bản dữ liệu viễn trắc 2. |
 | `0x0D20..0x0D7F` | **Telemetry Block 3** | R/W | FC03/FC16 | 96 regs (192 B) | Khối xuất bản dữ liệu viễn trắc 3. |
-| `0x0D80..0x0DFF` | **Reserved Space** | - | - | 128 regs (256 B) | Vùng nhớ dự phòng cho mở rộng thêm 8 khối Telemetry tương lai. Bị cấm truy cập. |
+| `0x0D80..0x0DFF` | **MQTT Subscribe Blocks** | R/W | FC03/FC16 | 128 regs (256 B) | 2 khối nhận lệnh Inbound (SPLC-SPEC-MQTT-002, `firmware/SPLC_SPEC_MQTT_002_SUBSCRIBE_ICD.md`). Chỉ có khi firmware khai `SPLC_CAP_MQTT_SUB` (0x0A08 bit `0x20`); build không có SUB trả Exception 0x02. |
 | `0x0E00..0x0E53` | **Broker Config Store** | R/W | FC03/FC16 | 84 regs (168 B) | Cấu hình máy chủ Broker: Control (1 reg), Port (1 reg), KeepAlive (1 reg), Reserved (1 reg), Host (32 regs), ClientID (16 regs), User (16 regs), Pass (16 regs). |
 | `0x0E54..0x0E5F` | **Broker Live Status** | R | FC03 | 12 regs (24 B) | Vùng phản hồi trực tiếp từ MCU: Status Flags (1 reg), Latency Ping ms (1 reg), Tx Msg Count (2 regs), Tx Byte Count (2 regs), Error Code (1 reg), Reserved (5 regs). |
 
@@ -444,7 +444,7 @@ Hệ thống truyền thông nhị phân MQTT V2.0 đã được thẩm định 
 | `TC-MQTT-04` | Nạp đồng thời cả 4 khối Telemetry (384 Holding Registers) | Cả 4 khối được nạp toàn vẹn qua 4 lệnh FC16 riêng biệt | **PASS** |
 | `TC-MQTT-05` | Vô hiệu hóa an toàn khối cũ khi người dùng xóa trên Studio | Ghi đè 0x0000 vào Control Flags, MCU dừng xuất bản ngay | **PASS** |
 | `TC-MQTT-06` | Ký tự đặc biệt, dấu ngoặc nhọn lồng nhau trong Custom JSON | Không làm sai lệch thứ tự byte ASCII trên đường truyền | **PASS** |
-| `TC-MQTT-07` | Chặn truy cập vùng nhớ bất hợp pháp ngoài `0x0D80` | MCU trả về Modbus Exception 0x02 (Illegal Data Address) | **PASS** |
+| `TC-MQTT-07` | Chặn truy cập vùng nhớ bất hợp pháp ngoài `0x0DFF` (và `0x0D80..0x0DFF` khi build không có MQTT Subscribe) | MCU trả về Modbus Exception 0x02 (Illegal Data Address) | **PASS** |
 | `TC-MQTT-08` | Stress test nạp liên tục 5 lần tốc độ cao chu kỳ 50ms | Không rò rỉ bộ nhớ, không treo tác vụ Modbus Slave | **PASS** |
 | `TC-MQTT-09` | Nạp và đọc lại phân vùng Broker `0x0E00` (96 registers) | Đạt round-trip chính xác 100% từng byte Host, Port, Auth | **PASS** |
 | `TC-MQTT-10` | Nạp kết hợp Rule + Timer + Counter + Telemetry + Broker trong 1 chu kỳ | Toàn bộ các phân vùng không xung đột địa chỉ nhớ | **PASS** |

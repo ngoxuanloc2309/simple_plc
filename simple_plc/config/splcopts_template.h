@@ -51,6 +51,10 @@
 /* #define SPLC_MBM_ENABLE               0 */      /* 1 = Modbus-master service + 125-register master buffers; 0 = no change at all */
 /* #define SPLC_MBM_PORT_COUNT           1 */      /* 1, 2 or 4 RS-485 ports for MB_READ/MB_WRITE (reported at 0x0A0A); the host registers one UART per port with splc_mbm_set_rs485_port(); line settings come from the App (0x1400) */
 
+/* --- MQTT Subscribe ----------------------------------------------------- */
+/* #define SPLC_MQTT_SUB_ENABLE          0 */      /* 1 = remote commands/setpoints from MQTT into tags (needs SPLC_MQTT_ENABLE 1); 0 = no change at all */
+/* #define SPLC_MQTT_SUB_FIFO_DEPTH      1 */      /* 1..8 queued messages per block for FIFO delivery; 1 = latest only */
+
 /* --- REAL (float32) tags ---------------------------------------------- */
 /* #define SPLC_REAL_ENABLE              0 */      /* 1 = Tag DataType Registry 0x0080 (BOOL/INT32/REAL per tag) + float32 Rule Engine (rule flags bit 0); 0 = no change at all */
 

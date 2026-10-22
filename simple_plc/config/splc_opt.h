@@ -232,6 +232,23 @@
 #endif
 
 /* ======================================================================
+ * MQTT Subscribe (0x0D80..0x0DFF, ICD SPLC-SPEC-MQTT-002): commands / setpoints
+ * from the broker land in tags. Needs SPLC_MQTT_ENABLE = 1 (the broker config and
+ * the connection status live there). The library holds the LOGIC and the data;
+ * the host subscribes the topics it is asked for (splc_mqtt_sub_get()) and hands
+ * every message to splc_mqtt_input() (plc_mqtt_sub.h).
+ * 0 = nothing changes: no code, no Flash flag, the exact baseline binary. */
+#ifndef SPLC_MQTT_SUB_ENABLE
+#define SPLC_MQTT_SUB_ENABLE             0
+#endif
+/* Messages queued per block when the App asks for FIFO delivery (1..8). One is
+ * applied per scan. 1 = latest message only (a FIFO request then behaves as such).
+ * RAM: 2 blocks x depth x (128 payload + length) bytes. */
+#ifndef SPLC_MQTT_SUB_FIFO_DEPTH
+#define SPLC_MQTT_SUB_FIFO_DEPTH         1
+#endif
+
+/* ======================================================================
  * Modbus master blocks: MB_READ (0x1000..0x10FF), later MB_WRITE (0x1100..)
  * ==================================================================== */
 /* 1 = build the Modbus-master service and enlarge the RS485 master buffers to
@@ -374,6 +391,15 @@
 #endif
 #if (SPLC_REAL_ENABLE != 0) && (SPLC_REAL_ENABLE != 1)
 #error "SPLC_REAL_ENABLE must be 0 or 1"
+#endif
+#if (SPLC_MQTT_SUB_ENABLE != 0) && (SPLC_MQTT_SUB_ENABLE != 1)
+#error "SPLC_MQTT_SUB_ENABLE must be 0 or 1"
+#endif
+#if SPLC_MQTT_SUB_ENABLE && !SPLC_MQTT_ENABLE
+#error "SPLC_MQTT_SUB_ENABLE = 1 needs SPLC_MQTT_ENABLE = 1"
+#endif
+#if SPLC_MQTT_SUB_ENABLE && ((SPLC_MQTT_SUB_FIFO_DEPTH < 1) || (SPLC_MQTT_SUB_FIFO_DEPTH > 8))
+#error "SPLC_MQTT_SUB_FIFO_DEPTH must be 1..8"
 #endif
 #if (SPLC_MQTT_PAYLOAD_MAX < 128) || (SPLC_MQTT_PAYLOAD_MAX > 512)
 #error "SPLC_MQTT_PAYLOAD_MAX must be 128..512 (compact JSON worst case is 127 characters + NUL)"
