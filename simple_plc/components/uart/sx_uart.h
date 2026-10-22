@@ -90,6 +90,11 @@ void sx_uart_set_rx_enabled(sx_uart_t *uart, bool enabled);
  * at once. 0 = started; negative = a transmit is already running, len is 0 or the
  * HAL refused. `data` is NOT copied: it must stay valid until sx_uart_tx_busy()
  * is false. Completion = last stop bit has left the UART (TC).
+ *
+ * NOT USED by any board today: on the Zigbee-IO board (STM32H523, USART1) this
+ * path put corrupted/missing bytes on the RS485 bus although the timing was right
+ * (docs/handoff.md, decision 46). Board Zigbee-IO sends with the blocking
+ * sx_uart_write() instead. Kept for a later fix; measure DE/TX on the bus first.
  */
 int  sx_uart_write_start(sx_uart_t *uart, const uint8_t *data, int len);
 /* true while a sx_uart_write_start() transmit has not finished. */

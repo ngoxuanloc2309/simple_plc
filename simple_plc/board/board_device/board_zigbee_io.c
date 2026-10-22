@@ -430,9 +430,15 @@ static void board_app_link_init(void)
  * built. Line settings (baud, data bits, parity, stop bits) are the App's choice
  * (0x1400, MBM-003), applied through sx_uart_reconfigure() by plc_mbm (callback
  * below); until the App writes them the port runs 9600-8-N-1.
- * Transmit is non-blocking: sx_uart_write_start() hands the frame to the UART
- * interrupt and the scan carries on; the transmit-complete interrupt drops DE and
- * turns the receiver back on, so the turnaround is exact however long the frame is.
+ *
+ * Transmit on this board is BLOCKING. The master runs its asynchronous state
+ * machine (write_start / tx_done), but write_start() sends the whole frame with the
+ * blocking HAL_UART_Transmit, so tx_done() is already true when it returns. The scan
+ * therefore stalls for the length of the frame (~8.3 ms for 8 bytes at 9600 8N1; a
+ * 255-byte frame would be ~300 ms). The interrupt-driven path (sx_uart_write_start(),
+ * sx_uart_tx_busy(), sx_uart_set_tx_done_callback(), sx_uart_write_abort() and
+ * HAL_UART_TxCpltCallback in Layer 0/1) is kept in the tree but is NOT used here: on
+ * this board it corrupted the bus (see docs/handoff.md, decision 46).
  */
 #if !SPLC_PORT_USB_CDC
 #error "Zigbee-IO: MB_READ needs USART1, which is the App link when SPLC_PORT_USB_CDC = 0. Set SPLC_PORT_USB_CDC 1 (App over USB) or SPLC_MBM_ENABLE 0."
@@ -442,24 +448,6 @@ static void board_app_link_init(void)
 #endif
 
 #define MBM_DEFAULT_BAUD  9600U
-
-/* TEMPORARY A/B switch to isolate the TX path:
- *   0 = non-blocking interrupt transmit (HAL_UART_Transmit_IT + TC ISR)
- *   1 = old blocking transmit through write() (sync path of the master, as in ed68fa5)
- *   3 = master's ASYNC state machine (write_start/tx_done) but the bytes go out through the
- *       blocking HAL_UART_Transmit inside write_start: tests the master half without the IT UART.
- *   4 = like 0 (interrupt transmit) but the TC ISR only drops DE; the receiver is switched back on
- *       (flush + RE) from the main context, inside tx_done(). Tests "RX enable inside the ISR". */
-#ifndef MBM_TX_BLOCKING
-#define MBM_TX_BLOCKING 0
-#endif
-#define MBM_DBG_FIRST     8U     /* TEMPORARY diagnostics: log the first N frame starts */
-
-static volatile uint32_t s_dbg_start, s_dbg_tc, s_dbg_abort;   /* TEMPORARY diagnostics */
-static volatile uint32_t s_dbg_t0, s_dbg_dt;                    /* TEMPORARY: start tick, last TX duration (ms) */
-static volatile uint32_t s_dbg_c0, s_dbg_cdt;                   /* TEMPORARY: DWT cycles at start, last TX duration */
-static volatile uint32_t s_dbg_cdt_max;
-static volatile bool     s_rx_pending;                          /* TEMPORARY (variant 4): RX still to be switched on */
 
 static sx_uart_t        s_mbm_uart;
 static sx_uart_config_t s_mbm_uart_cfg;
@@ -478,97 +466,31 @@ static int mbm_read(void *ctx, uint8_t *buf, uint16_t max_len)
     return sx_uart_read(&s_mbm_uart, buf, (int)max_len);
 }
 
-/* UART interrupt, last bit of the frame is out: hand the bus back. The receiver
- * comes on flushed, so the echo of our own frame never reaches mbm_read(). */
-static void mbm_tx_done_isr(void *ctx)
-{
-    (void)ctx;
-    s_dbg_dt = HAL_GetTick() - s_dbg_t0;
-    s_dbg_cdt = DWT->CYCCNT - s_dbg_c0;
-    if (s_dbg_cdt > s_dbg_cdt_max) { s_dbg_cdt_max = s_dbg_cdt; }
-    s_dbg_tc++;
-    mbm_de(false);
-#if MBM_TX_BLOCKING != 4
-    sx_uart_set_rx_enabled(&s_mbm_uart, true);
-#endif
-}
-
+/* Receiver off, DE up, blocking send (returns after the last bit left the UART),
+ * DE down, receiver on again. Switching the receiver back on flushes it, so the
+ * echo of our own frame never reaches mbm_read(). */
 static int mbm_write_start(void *ctx, const uint8_t *buf, uint16_t len)
 {
     (void)ctx;
-    s_dbg_start++;
-    if (s_dbg_start <= MBM_DBG_FIRST) {   /* tc of the PREVIOUS frame shows here */
-        log_info(TAG, "MBM TX start #%lu len=%u [%02X %02X] tc_so_far=%lu prev_tx_ms=%lu prev_tx_us=%lu max_us=%lu (ideal 8 B @9600 = 8333 us)",
-                 (unsigned long)s_dbg_start, (unsigned)len, buf[0], (len > 1U) ? buf[1] : 0U,
-                 (unsigned long)s_dbg_tc, (unsigned long)s_dbg_dt,
-                 (unsigned long)(s_dbg_cdt / (SystemCoreClock / 1000000UL)),
-                 (unsigned long)(s_dbg_cdt_max / (SystemCoreClock / 1000000UL)));
-    }
-    s_dbg_t0 = HAL_GetTick();
-    s_dbg_c0 = DWT->CYCCNT;
-#if MBM_TX_BLOCKING == 3
-    sx_uart_set_rx_enabled(&s_mbm_uart, false);
-    mbm_de(true);
-    int rc3 = sx_uart_write(&s_mbm_uart, buf, (int)len, 100U);   /* returns after TC, txBusy never set */
-    mbm_de(false);
-    sx_uart_set_rx_enabled(&s_mbm_uart, true);
-    s_dbg_dt = HAL_GetTick() - s_dbg_t0;
-    s_dbg_cdt = DWT->CYCCNT - s_dbg_c0;
-    s_dbg_tc++;
-    return rc3;
-#endif
-    sx_uart_set_rx_enabled(&s_mbm_uart, false);
-    mbm_de(true);
-#if MBM_TX_BLOCKING == 4
-    s_rx_pending = true;
-#endif
-    if (sx_uart_write_start(&s_mbm_uart, buf, (int)len) != 0) {
-        mbm_de(false);
-        sx_uart_set_rx_enabled(&s_mbm_uart, true);
-        log_warn(TAG, "MBM TX start REFUSED: gState=0x%02lX txBusy=%u",
-                 (unsigned long)UART_RS485.gState, (unsigned)sx_uart_tx_busy(&s_mbm_uart));
-        return -1;
-    }
-    return 0;
-}
+    /* Worst case 12 bit times per character (start + 8 data + parity + 2 stop),
+     * plus a margin; never below 20 ms. */
+    uint32_t baud = (s_mbm_uart_cfg.baudrate != 0U) ? s_mbm_uart_cfg.baudrate : MBM_DEFAULT_BAUD;
+    uint32_t timeout_ms = (((uint32_t)len * 12U * 1000U) / baud) + 20U;
 
-static bool mbm_tx_done(void *ctx)
-{
-    (void)ctx;
-    if (sx_uart_tx_busy(&s_mbm_uart)) { return false; }
-#if MBM_TX_BLOCKING == 4
-    if (s_rx_pending) { s_rx_pending = false; sx_uart_set_rx_enabled(&s_mbm_uart, true); }
-#endif
-    return true;
-}
-
-static void mbm_write_abort(void *ctx)
-{
-    (void)ctx;
-    s_dbg_abort++;
-    log_warn(TAG, "MBM TX ABORT #%lu: start=%lu tc=%lu gState=0x%02lX err=0x%02lX CR1=0x%08lX ISR=0x%08lX DE=%d",
-             (unsigned long)s_dbg_abort, (unsigned long)s_dbg_start, (unsigned long)s_dbg_tc,
-             (unsigned long)UART_RS485.gState, (unsigned long)UART_RS485.ErrorCode,
-             (unsigned long)UART_RS485.Instance->CR1, (unsigned long)UART_RS485.Instance->ISR,
-             (int)HAL_GPIO_ReadPin(RS485_DE_PORT, RS485_DE_PIN));
-    sx_uart_write_abort(&s_mbm_uart);
-    mbm_de(false);
-    sx_uart_set_rx_enabled(&s_mbm_uart, true);
-}
-
-#if MBM_TX_BLOCKING == 1
-/* Same pin sequence as before: receiver off, DE up, blocking send (returns after TC), DE down, receiver on. */
-static int mbm_write_blocking(void *ctx, const uint8_t *buf, uint16_t len, uint32_t timeout_ms)
-{
-    (void)ctx;
     sx_uart_set_rx_enabled(&s_mbm_uart, false);
     mbm_de(true);
     int rc = sx_uart_write(&s_mbm_uart, buf, (int)len, timeout_ms);
     mbm_de(false);
     sx_uart_set_rx_enabled(&s_mbm_uart, true);
-    return rc;
+    return (rc == 0) ? 0 : -1;
 }
-#endif
+
+/* The frame is already out when mbm_write_start() returns. */
+static bool mbm_tx_done(void *ctx)
+{
+    (void)ctx;
+    return true;
+}
 
 static int mbm_configure(void *ctx, const plc_mbm_serial_t *cfg)
 {
@@ -594,32 +516,22 @@ static void board_mbm_init(void)
     s_mbm_uart.txBuffer     = s_mbm_tx_buf;
     s_mbm_uart.txBufferSize = (int)sizeof(s_mbm_tx_buf);
 
-    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;   /* TEMPORARY: cycle counter for TX timing */
-    DWT->CYCCNT = 0U;
-    DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
     mbm_de(false);   /* listen */
     sx_uart_init(&s_mbm_uart, &s_mbm_uart_cfg);
-    sx_uart_set_tx_done_callback(&s_mbm_uart, mbm_tx_done_isr, NULL);
 
     static const modbus_serial_port_t port = {
         .read        = mbm_read,
-#if MBM_TX_BLOCKING == 1
-        .write       = mbm_write_blocking,
-#else
         .write       = NULL,
-#endif
         .set_tx      = NULL,
         .ctx         = NULL,
         .baudrate    = MBM_DEFAULT_BAUD,
-#if MBM_TX_BLOCKING != 1
         .write_start = mbm_write_start,
         .tx_done     = mbm_tx_done,
-        .write_abort = mbm_write_abort,
-#endif
+        .write_abort = NULL,
     };
     splc_mbm_set_rs485_port(0U, &port, mbm_configure);
-    log_info(TAG, "MB_READ master port 1 on USART1 (DE PB13), %s TX, %lu baud until the App sets it",
-             (MBM_TX_BLOCKING == 1) ? "BLOCKING (A/B test)" : (MBM_TX_BLOCKING == 3) ? "async-state-machine + blocking HAL (A/B test)" : (MBM_TX_BLOCKING == 4) ? "IT TX, RX enabled from main (A/B test)" : "non-blocking", (unsigned long)MBM_DEFAULT_BAUD);
+    log_info(TAG, "MB_READ master port 1 on USART1 (DE PB13), blocking TX, %lu baud until the App sets it",
+             (unsigned long)MBM_DEFAULT_BAUD);
 }
 #endif /* SPLC_MBM_ENABLE */
 
