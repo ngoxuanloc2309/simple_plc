@@ -227,9 +227,15 @@ typedef struct {
 static const float P10[11] = { 1e0f, 1e1f, 1e2f, 1e3f, 1e4f, 1e5f, 1e6f, 1e7f, 1e8f, 1e9f, 1e10f };
 
 /* Decimal literal [+-]digits[.digits][(e|E)[+-]digits], the whole of s[0..n).
- * The float result is within about 1 ulp for up to 9 significant digits (the
- * mantissa keeps 9 digits, the power of ten is exact up to 1e10); a value beyond
- * float range is refused. */
+ * Accuracy (measured on the PC against strtof, docs/handoff.md decision 47):
+ * EXACT (correctly rounded, identical to the App's float parse) when the literal has
+ * at most 7 significant digits and the decimal exponent is within -10..10 -- every
+ * ordinary setpoint ("12.3", "101.325", "0.0001", "2.5e3"). Beyond that it is 1 ulp
+ * off for about a quarter of the literals with 8-9 digits (the mantissa is rounded
+ * to float before the power of ten is applied) and up to 3 ulp off with an exponent
+ * outside -10..10 (the power of ten is built from 1e10 steps). That is far below the
+ * 1e-5 tolerance of the rule engine, but a bit-exact match with the App is not
+ * promised there. A value beyond float range is refused. */
 static bool parse_num(const char *s, size_t n, num_t *o)
 {
     size_t i = 0U;
