@@ -37,4 +37,7 @@
 /*ON REAL PROCESS*/
 #define SPLC_REAL_ENABLE              1
 
+/*ON MB WRITE*/
+#define SPLC_MBW_ENABLE               1
+
 #endif /* SPLCOPTS_H */
