@@ -148,6 +148,175 @@ bool splc_mqtt_fmt_deadband_threshold(float deadband, uint8_t dec, uint32_t *out
     return true;
 }
 
+#if SPLC_MQTT_FMT_REAL_ENABLE
+/* ---------------------------------------------------------------- REAL (%.4g) */
+
+/* Exact decimal expansion of a float32 (value = m * 2^e, m < 2^24):
+ *   e >= 0 : digits of m * 2^e        (at most 39 digits)
+ *   e <  0 : digits of m * 5^-e, value = digits * 10^e   (at most 113 digits)
+ * so the rounding to 4 significant digits sees every discarded digit and ties
+ * come out exactly as glibc prints them (round half to even). */
+#define REAL_DIGITS_MAX 120U
+
+static void real_mul_small(uint8_t *dg, uint8_t *len, uint8_t f)
+{
+    uint16_t carry = 0U;
+    for (uint8_t i = 0U; i < *len; i++) {
+        uint16_t t = (uint16_t)((uint16_t)dg[i] * f + carry);
+        dg[i] = (uint8_t)(t % 10U);
+        carry = (uint16_t)(t / 10U);
+    }
+    while (carry != 0U) {
+        dg[(*len)++] = (uint8_t)(carry % 10U);
+        carry = (uint16_t)(carry / 10U);
+    }
+}
+
+static void w_real(fmt_w_t *w, uint32_t bits)
+{
+    const bool     neg = (bits >> 31) != 0U;
+    const uint32_t ex  = (bits >> 23) & 0xFFU;
+    const uint32_t fr  = bits & 0x7FFFFFU;
+
+    if (ex == 0xFFU) {
+        if (fr != 0U) {
+            w_str(w, "nan");
+        } else {
+            w_str(w, neg ? "-inf" : "inf");
+        }
+        return;
+    }
+    if (neg) {
+        w_ch(w, '-');
+    }
+    uint32_t m;
+    int      e;
+    if (ex == 0U) {
+        m = fr;                 /* subnormal */
+        e = -149;
+    } else {
+        m = fr | 0x800000UL;
+        e = (int)ex - 150;
+    }
+    if (m == 0U) {
+        w_ch(w, '0');
+        return;
+    }
+
+    uint8_t dg[REAL_DIGITS_MAX];    /* least significant digit first */
+    uint8_t len = 0U;
+    for (uint32_t t = m; t != 0U; t /= 10U) {
+        dg[len++] = (uint8_t)(t % 10U);
+    }
+    if (e >= 0) {
+        for (int i = 0; i < e; i++) {
+            real_mul_small(dg, &len, 2U);
+        }
+    } else {
+        for (int i = 0; i < -e; i++) {
+            real_mul_small(dg, &len, 5U);
+        }
+    }
+    int d = (int)len - 1 + ((e < 0) ? e : 0);       /* decimal exponent of the leading digit */
+
+    /* first 4 significant digits, then round on what is left */
+    uint32_t n = 0U;
+    for (uint8_t j = 0U; j < 4U; j++) {
+        n = (n * 10U) + ((j < len) ? dg[len - 1U - j] : 0U);
+    }
+    if (len > 4U) {
+        const uint8_t r0 = dg[len - 5U];
+        bool up;
+        if (r0 != 5U) {
+            up = (r0 > 5U);
+        } else {
+            bool tail = false;
+            for (uint8_t i = 0U; (len >= 6U) && (i < (uint8_t)(len - 5U)); i++) {
+                if (dg[i] != 0U) {
+                    tail = true;
+                    break;
+                }
+            }
+            up = tail || ((n & 1U) != 0U);
+        }
+        if (up) {
+            n++;
+            if (n == 10000U) {
+                n = 1000U;
+                d++;
+            }
+        }
+    }
+
+    uint8_t s[4] = {(uint8_t)(n / 1000U), (uint8_t)((n / 100U) % 10U),
+                    (uint8_t)((n / 10U) % 10U), (uint8_t)(n % 10U)};
+    uint8_t nd = 4U;
+    while ((nd > 1U) && (s[nd - 1U] == 0U)) {
+        nd--;
+    }
+
+    if ((d < -4) || (d >= 4)) {                     /* %e style: d.ddde+XX */
+        w_ch(w, (char)('0' + s[0]));
+        if (nd > 1U) {
+            w_ch(w, '.');
+            for (uint8_t i = 1U; i < nd; i++) {
+                w_ch(w, (char)('0' + s[i]));
+            }
+        }
+        w_ch(w, 'e');
+        w_ch(w, (d < 0) ? '-' : '+');
+        uint32_t ad = (uint32_t)((d < 0) ? -d : d);
+        w_ch(w, (char)('0' + (ad / 10U)));
+        w_ch(w, (char)('0' + (ad % 10U)));
+    } else if (d >= 0) {                            /* fixed, integer part has d+1 digits */
+        for (int i = 0; i <= d; i++) {
+            w_ch(w, (i < (int)nd) ? (char)('0' + s[i]) : '0');
+        }
+        if ((int)nd > (d + 1)) {
+            w_ch(w, '.');
+            for (int i = d + 1; i < (int)nd; i++) {
+                w_ch(w, (char)('0' + s[i]));
+            }
+        }
+    } else {                                        /* 0.000ddd */
+        w_str(w, "0.");
+        for (int i = 0; i < (-d - 1); i++) {
+            w_ch(w, '0');
+        }
+        for (uint8_t i = 0U; i < nd; i++) {
+            w_ch(w, (char)('0' + s[i]));
+        }
+    }
+}
+
+int splc_mqtt_fmt_real(char *buf, size_t cap, uint32_t bits)
+{
+    if (buf == NULL) {
+        return -1;
+    }
+    fmt_w_t w;
+    w_init(&w, buf, cap);
+    w_real(&w, bits);
+    return w_done(&w);
+}
+
+/* One bound value: REAL and BOOL by kind, everything else int32 with dec. */
+static void w_val(fmt_w_t *w, const splc_mqtt_fmt_in_t *in, uint8_t idx, int dec_override)
+{
+    if (in->kind[idx] == SPLC_MQTT_FMT_KIND_REAL) {
+        w_real(w, (uint32_t)in->val[idx]);
+    } else if (in->kind[idx] == SPLC_MQTT_FMT_KIND_BOOL) {
+        w_ch(w, (in->val[idx] != 0) ? '1' : '0');
+    } else {
+        w_num(w, in->val[idx], (dec_override >= 0) ? (uint8_t)dec_override : in->dec[idx]);
+    }
+}
+#define W_VAL(w, in, idx, dec_override) w_val((w), (in), (idx), (dec_override))
+#else
+#define W_VAL(w, in, idx, dec_override) \
+    w_num((w), (in)->val[idx], ((dec_override) >= 0) ? (uint8_t)(dec_override) : (in)->dec[idx])
+#endif /* SPLC_MQTT_FMT_REAL_ENABLE */
+
 /* ---------------------------------------------------------------- compact / raw */
 
 static bool in_valid(const splc_mqtt_fmt_in_t *in)
@@ -166,14 +335,14 @@ int splc_mqtt_fmt_compact(char *buf, size_t cap, const splc_mqtt_fmt_in_t *in)
         w_str(&w, "{\"tag\":");
         w_u32(&w, in->tag[0]);
         w_str(&w, ",\"val\":");
-        w_num(&w, in->val[0], in->dec[0]);
+        W_VAL(&w, in, 0U, -1);
     } else {
         w_str(&w, "{\"d\":[");
         for (uint8_t i = 0U; i < in->count; i++) {
             if (i != 0U) {
                 w_ch(&w, ',');
             }
-            w_num(&w, in->val[i], in->dec[i]);
+            W_VAL(&w, in, i, -1);
         }
         w_ch(&w, ']');
     }
@@ -190,7 +359,7 @@ int splc_mqtt_fmt_raw(char *buf, size_t cap, const splc_mqtt_fmt_in_t *in)
     }
     fmt_w_t w;
     w_init(&w, buf, cap);
-    w_num(&w, in->val[0], in->dec[0]);
+    W_VAL(&w, in, 0U, -1);
     return w_done(&w);
 }
 
@@ -380,7 +549,7 @@ int splc_mqtt_fmt_custom(char *buf, size_t cap, const char *tmpl, size_t tmpl_ma
         uint8_t idx = (uint8_t)(t.k - 1U);
         switch (t.kind) {
         case TK_VAL:
-            w_num(&w, in->val[idx], (t.dec >= 0) ? (uint8_t)t.dec : in->dec[idx]);
+            W_VAL(&w, in, idx, t.dec);
             break;
         case TK_TAG:
             w_u32(&w, in->tag[idx]);
@@ -390,7 +559,7 @@ int splc_mqtt_fmt_custom(char *buf, size_t cap, const char *tmpl, size_t tmpl_ma
                 if (v != 0U) {
                     w_ch(&w, ',');
                 }
-                w_num(&w, in->val[v], in->dec[v]);
+                W_VAL(&w, in, v, -1);
             }
             break;
         case TK_TS:

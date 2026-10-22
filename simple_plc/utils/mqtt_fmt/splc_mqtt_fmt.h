@@ -13,6 +13,14 @@
  * done with integer arithmetic only. -5 with dec=1 prints "-0.5";
  * 2457 with dec=2 prints "24.57"; 812 with dec=0 prints "812".
  *
+ * REAL tags (SPLC_REAL_ENABLE = 1, docs/handoff.md decision 40c): the int32 cell
+ * holds the bits of an IEEE-754 float32 and the value prints like printf("%.4g")
+ * (4 significant digits, trailing zeros dropped, exponent form below 1e-4 and from
+ * 1e4 up, e.g. "24.57", "0.0001235", "1.235e+04", "1e-05"), computed with integer
+ * arithmetic only (exact decimal expansion, round half to even, like glibc). BOOL
+ * tags print 0 or 1. "dec" and the "{valK:N}" override apply to integer tags only.
+ * A non-finite REAL prints "nan"/"inf"/"-inf"; plc_mqtt never publishes one.
+ *
  * Every render function writes a NUL-terminated string and returns its
  * length, or -1 when the result would not fit (buf[0] is then '\0', nothing
  * partial is left behind).
@@ -32,6 +40,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* REAL/BOOL rendering is compiled in only with SPLC_REAL_ENABLE, so a REAL=0 build
+ * is byte-for-byte the build without it. A PC unit test defines
+ * SPLC_MQTT_FMT_REAL_ENABLE itself and needs no splcopts.h. */
+#ifndef SPLC_MQTT_FMT_REAL_ENABLE
+#include "splc_opt.h"
+#define SPLC_MQTT_FMT_REAL_ENABLE SPLC_REAL_ENABLE
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -45,11 +61,20 @@ extern "C" {
 #define SPLC_MQTT_FMT_TAG_MAX     5U    /* "65535" */
 #define SPLC_MQTT_FMT_TS_MAX      10U   /* "4294967295" */
 
+#if SPLC_MQTT_FMT_REAL_ENABLE
+#define SPLC_MQTT_FMT_KIND_INT   0U   /* int32, scaled by dec */
+#define SPLC_MQTT_FMT_KIND_BOOL  1U   /* prints 0 or 1 */
+#define SPLC_MQTT_FMT_KIND_REAL  2U   /* val holds float32 bits, prints like %.4g */
+#endif
+
 typedef struct {
     uint8_t     count;                          /* bound tags, 1..8 */
     uint16_t    tag[SPLC_MQTT_FMT_MAX_TAGS];    /* tag index of each bound tag */
     int32_t     val[SPLC_MQTT_FMT_MAX_TAGS];    /* raw tag value */
     uint8_t     dec[SPLC_MQTT_FMT_MAX_TAGS];    /* decimal digits 0..3 (larger is clamped to 3) */
+#if SPLC_MQTT_FMT_REAL_ENABLE
+    uint8_t     kind[SPLC_MQTT_FMT_MAX_TAGS];   /* SPLC_MQTT_FMT_KIND_*; every entry must be set */
+#endif
     uint32_t    ts;                             /* epoch seconds UTC, 0 = no clock */
     const char *device;                         /* NULL = "" */
 } splc_mqtt_fmt_in_t;
@@ -68,6 +93,18 @@ uint32_t splc_mqtt_fmt_pow10(uint8_t dec);
 
 /* Prints v scaled by 10^-dec. */
 int splc_mqtt_fmt_number(char *buf, size_t cap, int32_t v, uint8_t dec);
+
+#if SPLC_MQTT_FMT_REAL_ENABLE
+/* Prints float32 `bits` like printf("%.4g"). At most 10 characters for a finite value
+ * ("-1.235e+38"). */
+int splc_mqtt_fmt_real(char *buf, size_t cap, uint32_t bits);
+
+/* false for NaN and +-Inf. */
+static inline bool splc_mqtt_fmt_real_is_finite(uint32_t bits)
+{
+    return (bits & 0x7F800000UL) != 0x7F800000UL;
+}
+#endif
 
 /* Compact JSON. 1 tag : {"tag":16,"val":24.5,"ts":1773228945}
  *               n tags: {"d":[24.5,101.3],"ts":1773228945}

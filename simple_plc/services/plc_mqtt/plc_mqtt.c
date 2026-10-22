@@ -7,6 +7,10 @@
 #include "plc_tag.h"          /* MAX_TAGS, tag_read() */
 #include "plc_rtc.h"          /* plc_rtc_get_epoch(): {ts} */
 #include "splc_mqtt_fmt.h"    /* template check, deadband check */
+#include "splc_opt.h"         /* SPLC_REAL_ENABLE */
+#if SPLC_REAL_ENABLE
+#include "plc_tagtype.h"      /* plc_tagtype_get(): REAL / BOOL / INT32 per tag */
+#endif
 #include "splc_log.h"
 
 /*
@@ -96,6 +100,9 @@ static char s_default_device[SPLC_MQTT_BROKER_CRED_MAX_CHARS + 1U];
 typedef struct {
     int32_t  last_val[SPLC_MQTT_MAX_TAGS_PER_BLOCK]; /* values at the last accepted publish */
     uint32_t cov_thr[SPLC_MQTT_MAX_TAGS_PER_BLOCK];  /* COV threshold in raw tag units, per tag */
+#if SPLC_REAL_ENABLE
+    float    cov_real;        /* COV threshold for REAL tags: the deadband itself (engineering units) */
+#endif
     uint32_t last_pub_ms;
     uint32_t retry_at_ms;
     bool     need_first;      /* publish once, regardless of mode (baseline value) */
@@ -108,6 +115,9 @@ static unsigned   s_rr;                 /* block the next scan looks at first */
 static bool       s_was_ready;          /* broker was ready at the previous scan */
 static uint32_t   s_format_errors;
 static bool       s_format_warned;
+#if SPLC_REAL_ENABLE
+static bool       s_nonfinite_warned;
+#endif
 static splc_mqtt_publish_fn s_publish;  /* NOT cleared by plc_mqtt_init(): the Host registers before the engine starts */
 static void      *s_publish_ctx;
 
@@ -175,6 +185,10 @@ static void rt_prepare(unsigned i)
     memcpy(&deadband, &bits, sizeof(deadband));
 
     memset(rt, 0, sizeof(*rt));
+#if SPLC_REAL_ENABLE
+    /* NaN, Inf and negative are rejected at COMMIT; FLT_MAX = "never" if one slipped through. */
+    rt->cov_real = ((deadband >= 0.0f) && (deadband <= 3.4028234e38f)) ? deadband : 3.4028234e38f;
+#endif
     for (unsigned k = 0; k < SPLC_MQTT_MAX_TAGS_PER_BLOCK; k++) {
         uint32_t thr;
         if (!splc_mqtt_fmt_deadband_threshold(deadband, tag_dec(blk, k), &thr)) {
@@ -580,6 +594,32 @@ static bool block_active(const uint16_t *blk)
     return (en == 0xFFFFU) || (en < MAX_TAGS && tag_read(en) != 0);
 }
 
+#if SPLC_REAL_ENABLE
+static bool tag_is_real(const uint16_t *blk, unsigned k)
+{
+    return plc_tagtype_get(blk[TB_TAGS + k]) == PLC_TAGTYPE_REAL;
+}
+
+static float bits_to_float(int32_t v)
+{
+    float f;
+    memcpy(&f, &v, sizeof(f));
+    return f;
+}
+
+/* true when a bound REAL tag holds NaN or +-Inf: such a block is not published
+ * (docs/handoff.md F.3 assumption), it waits for the next finite value. */
+static bool block_has_nonfinite(const uint16_t *blk, const int32_t *cur, unsigned count)
+{
+    for (unsigned k = 0; k < count; k++) {
+        if (tag_is_real(blk, k) && !splc_mqtt_fmt_real_is_finite((uint32_t)cur[k])) {
+            return true;
+        }
+    }
+    return false;
+}
+#endif
+
 /* Should block i publish now? `cur` holds the current values of its bound tags. */
 static bool block_due(unsigned i, uint32_t now_ms, const int32_t *cur)
 {
@@ -602,6 +642,20 @@ static bool block_due(unsigned i, uint32_t now_ms, const int32_t *cur)
             return false;
         case SPLC_MQTT_MODE_COV:
             for (unsigned k = 0; k < count; k++) {
+#if SPLC_REAL_ENABLE
+                if (tag_is_real(blk, k)) {      /* |cur - last| in engineering units, against the deadband */
+                    if (cur[k] != rt->last_val[k]) {
+                        float df = bits_to_float(cur[k]) - bits_to_float(rt->last_val[k]);
+                        if (df < 0.0f) {
+                            df = -df;
+                        }
+                        if (df >= rt->cov_real) {
+                            return true;
+                        }
+                    }
+                    continue;
+                }
+#endif
                 int64_t d = (int64_t)cur[k] - (int64_t)rt->last_val[k];
                 if (d < 0) {
                     d = -d;
@@ -633,6 +687,17 @@ static int block_render(unsigned i, const int32_t *cur)
         in.tag[k] = blk[TB_TAGS + k];
         in.val[k] = (k < in.count) ? cur[k] : 0;
         in.dec[k] = tag_dec(blk, k);
+#if SPLC_REAL_ENABLE
+        in.kind[k] = SPLC_MQTT_FMT_KIND_INT;
+        if (k < in.count) {
+            const plc_tagtype_t ty = plc_tagtype_get(blk[TB_TAGS + k]);
+            if (ty == PLC_TAGTYPE_REAL) {
+                in.kind[k] = SPLC_MQTT_FMT_KIND_REAL;
+            } else if (ty == PLC_TAGTYPE_BOOL) {
+                in.kind[k] = SPLC_MQTT_FMT_KIND_BOOL;
+            }
+        }
+#endif
     }
     if (!plc_rtc_get_epoch(&epoch)) {
         epoch = 0U;                         /* no clock yet: {ts} = 0, never a made-up time */
@@ -699,6 +764,15 @@ void plc_mqtt_scan(uint32_t now_ms)
         for (unsigned k = 0; k < count && k < SPLC_MQTT_MAX_TAGS_PER_BLOCK; k++) {
             cur[k] = tag_read(blk[TB_TAGS + k]);
         }
+#if SPLC_REAL_ENABLE
+        if (block_has_nonfinite(blk, cur, count)) {
+            if (!s_nonfinite_warned) {
+                s_nonfinite_warned = true;
+                log_warn(TAG, "block %u: a REAL tag is NaN/Inf; not published until it is finite", i);
+            }
+            continue;
+        }
+#endif
         if (!block_due(i, now_ms, cur)) {
             continue;
         }
