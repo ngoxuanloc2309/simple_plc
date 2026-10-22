@@ -34,4 +34,7 @@
 /*ON MB*/
 #define SPLC_MBM_ENABLE               1
 
+/*ON REAL PROCESS*/
+#define SPLC_REAL_ENABLE              1
+
 #endif /* SPLCOPTS_H */

@@ -442,6 +442,10 @@ static void board_app_link_init(void)
 #endif
 
 #define MBM_DEFAULT_BAUD  9600U
+#define MBM_DBG_FIRST     8U     /* TEMPORARY diagnostics: log the first N frame starts */
+
+static volatile uint32_t s_dbg_start, s_dbg_tc, s_dbg_abort;   /* TEMPORARY diagnostics */
+static volatile uint32_t s_dbg_t0, s_dbg_dt;                    /* TEMPORARY: start tick, last TX duration (ms) */
 
 static sx_uart_t        s_mbm_uart;
 static sx_uart_config_t s_mbm_uart_cfg;
@@ -465,6 +469,8 @@ static int mbm_read(void *ctx, uint8_t *buf, uint16_t max_len)
 static void mbm_tx_done_isr(void *ctx)
 {
     (void)ctx;
+    s_dbg_dt = HAL_GetTick() - s_dbg_t0;
+    s_dbg_tc++;
     mbm_de(false);
     sx_uart_set_rx_enabled(&s_mbm_uart, true);
 }
@@ -472,11 +478,20 @@ static void mbm_tx_done_isr(void *ctx)
 static int mbm_write_start(void *ctx, const uint8_t *buf, uint16_t len)
 {
     (void)ctx;
+    s_dbg_start++;
+    if (s_dbg_start <= MBM_DBG_FIRST) {   /* tc of the PREVIOUS frame shows here */
+        log_info(TAG, "MBM TX start #%lu len=%u [%02X %02X] tc_so_far=%lu prev_tx_ms=%lu (8 B @9600 = ~9)",
+                 (unsigned long)s_dbg_start, (unsigned)len, buf[0], (len > 1U) ? buf[1] : 0U,
+                 (unsigned long)s_dbg_tc, (unsigned long)s_dbg_dt);
+    }
+    s_dbg_t0 = HAL_GetTick();
     sx_uart_set_rx_enabled(&s_mbm_uart, false);
     mbm_de(true);
     if (sx_uart_write_start(&s_mbm_uart, buf, (int)len) != 0) {
         mbm_de(false);
         sx_uart_set_rx_enabled(&s_mbm_uart, true);
+        log_warn(TAG, "MBM TX start REFUSED: gState=0x%02lX txBusy=%u",
+                 (unsigned long)UART_RS485.gState, (unsigned)sx_uart_tx_busy(&s_mbm_uart));
         return -1;
     }
     return 0;
@@ -491,6 +506,12 @@ static bool mbm_tx_done(void *ctx)
 static void mbm_write_abort(void *ctx)
 {
     (void)ctx;
+    s_dbg_abort++;
+    log_warn(TAG, "MBM TX ABORT #%lu: start=%lu tc=%lu gState=0x%02lX err=0x%02lX CR1=0x%08lX ISR=0x%08lX DE=%d",
+             (unsigned long)s_dbg_abort, (unsigned long)s_dbg_start, (unsigned long)s_dbg_tc,
+             (unsigned long)UART_RS485.gState, (unsigned long)UART_RS485.ErrorCode,
+             (unsigned long)UART_RS485.Instance->CR1, (unsigned long)UART_RS485.Instance->ISR,
+             (int)HAL_GPIO_ReadPin(RS485_DE_PORT, RS485_DE_PIN));
     sx_uart_write_abort(&s_mbm_uart);
     mbm_de(false);
     sx_uart_set_rx_enabled(&s_mbm_uart, true);

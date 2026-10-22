@@ -256,7 +256,7 @@
  * per master instance). 0 = nothing changes: the master keeps its 16-register
  * / 64-byte buffers and the exact code of the Remote I/O link. */
 #ifndef SPLC_MBM_ENABLE
-#define SPLC_MBM_ENABLE                  0
+#define SPLC_MBM_ENABLE                  1
 #endif
 
 /* Number of physical RS-485 ports the device offers to the Modbus-master blocks
