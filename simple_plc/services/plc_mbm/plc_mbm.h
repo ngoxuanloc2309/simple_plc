@@ -189,6 +189,26 @@ void plc_mbm_clear_all(void);
  * flight, then start at most one new request. Never blocks beyond one TX. */
 void plc_mbm_scan(uint32_t now_ms);
 
+#if SPLC_MBW_ENABLE
+/* ---- shared ports for MB_WRITE (plc_mbw.h) ------------------------------
+ *
+ * The RS-485 ports, their line settings and their one-request-in-flight rule belong
+ * to this module; MB_WRITE borrows a port's master for ONE transaction at a time:
+ *   claim   -> OK: *master is idle and yours until you release it; *retries is the
+ *              port's retry count. BUSY: a read (or another write) is on the bus, or
+ *              the line settings are being applied, or a blocking send already took
+ *              this scan's slot; ask again next scan (reads then keep off that port).
+ *              UNUSABLE: the host registered no port with that index, or the App
+ *              disabled it in the port table.
+ *   release -> `sent` = true once a request was started on it (also after its answer
+ *              came back); false when you claimed it but sent nothing.
+ * You poll the master yourself while you own it. Engine context only. */
+typedef enum { PLC_MBM_CLAIM_OK = 0, PLC_MBM_CLAIM_BUSY, PLC_MBM_CLAIM_UNUSABLE } plc_mbm_claim_t;
+
+plc_mbm_claim_t plc_mbm_port_claim(unsigned port_index, modbus_rtu_master_t **master, uint8_t *retries);
+void            plc_mbm_port_release(unsigned port_index, bool sent);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

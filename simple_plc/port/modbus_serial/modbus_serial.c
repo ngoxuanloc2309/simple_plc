@@ -291,6 +291,53 @@ bool modbus_rtu_master_write(modbus_rtu_master_t *m, uint8_t unit, uint16_t addr
     return send_frame(m, f, (uint16_t)(len + 2U), timeout_ms);
 }
 
+#if SPLC_MBW_ENABLE
+bool modbus_rtu_master_write_fc(modbus_rtu_master_t *m, uint8_t unit, uint8_t fc,
+                                uint16_t addr, const uint16_t *values, uint16_t qty,
+                                uint32_t timeout_ms)
+{
+    if (values == NULL || qty < 1U) {
+        return false;
+    }
+    if (fc == FC_WRITE_MULTIPLE) {
+        return modbus_rtu_master_write(m, unit, addr, values, qty, timeout_ms);
+    }
+    if (!can_start(m, unit)) {
+        return false;
+    }
+    uint8_t  f[MODBUS_MASTER_FRAME_MAX];
+    uint16_t len;
+    uint16_t echo = qty;                 /* what the slave must echo at bytes 4..5 */
+    if (fc == 0x05U || fc == 0x06U) {
+        if (qty != 1U) { return false; }
+        const uint16_t v = (fc == 0x05U) ? ((values[0] != 0U) ? 0xFF00U : 0x0000U) : values[0];
+        f[0] = unit; f[1] = fc;
+        put_u16(&f[2], addr);
+        put_u16(&f[4], v);
+        len  = 6U;
+        echo = v;                        /* FC05/FC06 echo address + value, not the quantity */
+    } else if (fc == 0x0FU) {
+        const uint16_t nbytes = (uint16_t)((qty + 7U) / 8U);
+        if (qty > 1968U || (uint32_t)(9U + nbytes) > MODBUS_MASTER_FRAME_MAX) { return false; }
+        f[0] = unit; f[1] = fc;
+        put_u16(&f[2], addr);
+        put_u16(&f[4], qty);
+        f[6] = (uint8_t)nbytes;
+        memset(&f[7], 0, nbytes);
+        for (uint16_t i = 0U; i < qty; i++) {
+            if (values[i] != 0U) { f[7U + (i >> 3)] |= (uint8_t)(1U << (i & 7U)); }   /* LSB first */
+        }
+        len = (uint16_t)(7U + nbytes);
+    } else {
+        return false;
+    }
+    put_crc(f, len);
+
+    m->unit = unit; m->func = fc; m->addr = addr; m->qty = echo;
+    return send_frame(m, f, (uint16_t)(len + 2U), timeout_ms);
+}
+#endif
+
 /* Length of the complete answer once the first 2 bytes are known. */
 static uint16_t expected_len(const modbus_rtu_master_t *m)
 {

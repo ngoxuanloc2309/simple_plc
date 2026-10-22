@@ -16,6 +16,9 @@
 #if SPLC_MBM_ENABLE
 #include "plc_mbm.h"
 #endif
+#if SPLC_MBW_ENABLE
+#include "plc_mbw.h"
+#endif
 #if SPLC_REAL_ENABLE
 #include "plc_tagtype.h"
 #endif
@@ -50,6 +53,9 @@ static uint8_t         s_mqtt_backup[PLC_MQTT_FLASH_SIZE];   /* holds the broker
 #if SPLC_MBM_ENABLE
 static uint8_t         s_mb_backup[PLC_MBM_FLASH_SIZE];
 #endif
+#if SPLC_MBW_ENABLE
+static uint8_t         s_mbw_backup[PLC_MBW_FLASH_SIZE];
+#endif
 #if SPLC_REAL_ENABLE
 static uint8_t         s_types_backup[PLC_TAGTYPE_FLASH_SIZE];
 #endif
@@ -68,6 +74,9 @@ bool plc_clear_rules(void)
 #endif
 #if SPLC_MBM_ENABLE
     plc_mbm_export(s_mb_backup);          /* and the MB_READ blocks */
+#endif
+#if SPLC_MBW_ENABLE
+    plc_mbw_export(s_mbw_backup);         /* and the MB_WRITE blocks */
 #endif
 #if SPLC_REAL_ENABLE
     plc_tagtype_export(s_types_backup);   /* and the tag-type table */
@@ -96,6 +105,9 @@ bool plc_clear_rules(void)
 #endif
 #if SPLC_MBM_ENABLE
     plc_mbm_clear_all();       /* every block disabled, draft dropped; BEFORE the save like the others */
+#endif
+#if SPLC_MBW_ENABLE
+    plc_mbw_clear_all();       /* every block disabled, draft dropped; BEFORE the save like the others */
 #endif
 #if SPLC_REAL_ENABLE
     plc_tagtype_clear_all();   /* every tag undeclared, draft dropped; BEFORE the save like the others */
@@ -126,6 +138,9 @@ bool plc_clear_rules(void)
 #endif
 #if SPLC_MBM_ENABLE
     (void)plc_mbm_import(s_mb_backup);          /* valid before, tag layout unchanged */
+#endif
+#if SPLC_MBW_ENABLE
+    (void)plc_mbw_import(s_mbw_backup);         /* valid before, tag layout unchanged */
 #endif
 #if SPLC_REAL_ENABLE
     (void)plc_tagtype_import(s_types_backup);   /* valid before, tag layout unchanged */

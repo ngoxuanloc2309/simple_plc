@@ -11,6 +11,7 @@
 #include "plc_mqtt.h"
 #include "plc_tagtype.h"
 #include "plc_mbm.h"
+#include "plc_mbw.h"
 #if SPLC_MQTT_SUB_ENABLE
 #include "plc_mqtt_sub.h"
 #endif
@@ -63,6 +64,9 @@ void plc_engine_init(void)
 #endif
 #if SPLC_MBM_ENABLE
     plc_mbm_init();    /* before plc_rule_flash_load(): the Flash record will fill it (decision 41) */
+#endif
+#if SPLC_MBW_ENABLE
+    plc_mbw_init();    /* before plc_rule_flash_load(): the Flash record will fill it (decision 48) */
 #endif
 #if SPLC_MQTT_SUB_ENABLE
     plc_mqtt_sub_init();   /* before plc_rule_flash_load(): the Flash record will fill it (decision 47) */
@@ -166,6 +170,9 @@ static void scan_cycle(uint32_t now_ms)
 #if SPLC_MBM_ENABLE
     /* Same reason as MQTT: not while a diag session forces the tags. */
     if (!suspended) {
+#if SPLC_MBW_ENABLE
+        plc_mbw_scan(now_ms);    /* BEFORE plc_mbm_scan(): a write waiting for a port goes before its reads */
+#endif
         plc_mbm_scan(now_ms);
     }
 #endif

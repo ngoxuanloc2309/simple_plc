@@ -13,6 +13,7 @@
 #include "plc_mqtt.h"       /* MQTT blocks 0x0C00..0x0D7F / 0x0E00..0x0E5F (SPLC_MQTT_ENABLE=1 only) */
 #include "plc_tagtype.h"    /* Tag DataType Registry 0x0080..0x00BF (SPLC_REAL_ENABLE=1 only) */
 #include "plc_mbm.h"        /* MB_READ blocks 0x1000..0x10FF (SPLC_MBM_ENABLE=1 only) */
+#include "plc_mbw.h"        /* MB_WRITE blocks 0x1100..0x11FF (SPLC_MBW_ENABLE=1 only) */
 #if SPLC_MQTT_SUB_ENABLE
 #include "plc_mqtt_sub.h"    /* MQTT Subscribe blocks 0x0D80..0x0DFF (SPLC_MQTT_SUB_ENABLE=1 only) */
 #endif
@@ -1072,6 +1073,9 @@ static void write_commit_command(uint16_t value)
 #endif
 #if SPLC_MBM_ENABLE
         plc_mbm_discard_draft();
+#if SPLC_MBW_ENABLE
+        plc_mbw_discard_draft();
+#endif
 #endif
 #if SPLC_MQTT_SUB_ENABLE
         plc_mqtt_sub_discard_draft();
@@ -1096,6 +1100,9 @@ static void write_commit_command(uint16_t value)
 #endif
 #if SPLC_MBM_ENABLE
         plc_mbm_discard_draft();
+#if SPLC_MBW_ENABLE
+        plc_mbw_discard_draft();
+#endif
 #endif
 #if SPLC_MQTT_SUB_ENABLE
         plc_mqtt_sub_discard_draft();
@@ -1121,6 +1128,9 @@ static void write_commit_command(uint16_t value)
         plc_tagtype_discard_draft();
 #if SPLC_MBM_ENABLE
         plc_mbm_discard_draft();
+#if SPLC_MBW_ENABLE
+        plc_mbw_discard_draft();
+#endif
 #endif
 #if SPLC_MQTT_SUB_ENABLE
         plc_mqtt_sub_discard_draft();
@@ -1144,6 +1154,32 @@ static void write_commit_command(uint16_t value)
         plc_tagtype_discard_draft();
 #endif
         plc_mbm_discard_draft();
+#if SPLC_MBW_ENABLE
+        plc_mbw_discard_draft();
+#endif
+#if SPLC_MQTT_SUB_ENABLE
+        plc_mqtt_sub_discard_draft();
+#endif
+        return;
+    }
+#endif
+
+#if SPLC_MBW_ENABLE
+    /* MB_WRITE draft: checked as a whole BEFORE anything is applied, like the others
+     * (plc_mbw.h). */
+    if (!plc_mbw_validate_draft()) {
+        log_warn(TAG, "commit rejected: MB_WRITE draft failed validation");
+        s_config_status     = CONFIG_STATUS_ERROR;
+        s_config_error_code = SPLC_ERROR_INVALID_PARAMETER;
+        plc_fb_discard_draft();
+#if SPLC_MQTT_ENABLE
+        plc_mqtt_discard_draft();
+#endif
+#if SPLC_REAL_ENABLE
+        plc_tagtype_discard_draft();
+#endif
+        plc_mbm_discard_draft();
+        plc_mbw_discard_draft();
 #if SPLC_MQTT_SUB_ENABLE
         plc_mqtt_sub_discard_draft();
 #endif
@@ -1165,6 +1201,9 @@ static void write_commit_command(uint16_t value)
 #endif
 #if SPLC_MBM_ENABLE
         plc_mbm_discard_draft();
+#if SPLC_MBW_ENABLE
+        plc_mbw_discard_draft();
+#endif
 #endif
         plc_mqtt_sub_discard_draft();
         return;
@@ -1187,6 +1226,9 @@ static void write_commit_command(uint16_t value)
 #endif
 #if SPLC_MBM_ENABLE
         plc_mbm_discard_draft();
+#if SPLC_MBW_ENABLE
+        plc_mbw_discard_draft();
+#endif
 #endif
 #if SPLC_MQTT_SUB_ENABLE
         plc_mqtt_sub_discard_draft();
@@ -1216,6 +1258,11 @@ static void write_commit_command(uint16_t value)
     /* Like MQTT: blocks the Host wrote take their draft, the others keep running.
      * Before the Flash save so one record carries it all. */
     plc_mbm_commit_draft();
+#endif
+#if SPLC_MBW_ENABLE
+    /* Like MB_READ: blocks the Host wrote take their draft, the others keep running.
+     * Before the Flash save so one record carries it all. */
+    plc_mbw_commit_draft();
 #endif
 #if SPLC_MQTT_SUB_ENABLE
     /* Like MQTT: blocks the Host wrote take their draft, the others keep running.
@@ -1341,6 +1388,9 @@ static const modbus_block_t s_blocks[] = {
 #endif
 #if SPLC_MBM_ENABLE
         { 0x1000, 0x10FF, true,  plc_mbm_read,                NULL },   /* FC16 writes handled in cb_write_multiple_registers (go to the draft) */
+#if SPLC_MBW_ENABLE
+    { 0x1100, 0x11FF, true,  plc_mbw_read,                NULL },   /* MB_WRITE; FC16 writes handled in cb_write_multiple_registers (go to the draft) */
+#endif
     { 0x1400, 0x143F, true,  plc_mbm_ports_read,          NULL },   /* RS-485 port table (MBM-003); FC16 writes handled in cb_write_multiple_registers */
 #endif
 
@@ -1487,6 +1537,14 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
         return (plc_mbm_write((uint16_t)(address - PLC_MBM_BASE), quantity, registers)
                                 == PLC_MBM_WRITE_OK) ? NMBS_ERROR_NONE : NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
     }
+#if SPLC_MBW_ENABLE
+    /* MB_WRITE blocks (plc_mbw.h): same draft / COMMIT path; only a request that runs
+     * past 0x11FF is rejected (0x02). */
+    if (address >= PLC_MBW_BASE && address < PLC_MBW_BASE + PLC_MBW_REGS) {
+        return (plc_mbw_write((uint16_t)(address - PLC_MBW_BASE), quantity, registers)
+                == PLC_MBW_WRITE_OK) ? NMBS_ERROR_NONE : NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+    }
+#endif
     /* RS-485 port table 0x1400..0x143F: same draft / COMMIT path as the blocks. */
     if (address >= PLC_MBM_PORT_BASE && address < PLC_MBM_PORT_BASE + PLC_MBM_PORT_TABLE_REGS) {
         return (plc_mbm_ports_write((uint16_t)(address - PLC_MBM_PORT_BASE), quantity, registers)

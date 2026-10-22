@@ -91,9 +91,21 @@ typedef struct {
     uint8_t              retries;
     bool                 dirty;          /* serial settings not applied to the UART yet */
     uint32_t             configure_next_ms;
-    int8_t               active;         /* block whose request is in flight, -1 none */
+    int8_t               active;         /* block whose request is in flight, -1 none; PLC_MBM_OWNER_WRITER = MB_WRITE holds the port */
     bool                 active_stale;   /* its block was re-committed: drop the answer */
+#if SPLC_MBW_ENABLE
+    bool                 write_wanted;   /* an MB_WRITE block could not get the port this scan: reads keep off it */
+#endif
 } port_rt_t;
+
+#if SPLC_MBW_ENABLE
+/* "active" value while MB_WRITE (plc_mbw) owns the port's master; it never equals a read block index. */
+#define PLC_MBM_OWNER_WRITER  100
+/* A port that sends with a blocking write() is started at most once per scan overall
+ * (reads and writes together). plc_mbw_scan() runs BEFORE plc_mbm_scan() each scan, so the
+ * flag lives in the file and is cleared at the end of plc_mbm_scan(). */
+static bool s_blocking_started;
+#endif
 
 static uint16_t   s_run[PLC_MBM_BLOCKS][PLC_MBM_BLOCK_REGS];    /* RUNNING */
 static uint16_t   s_draft[PLC_MBM_BLOCKS][PLC_MBM_BLOCK_REGS];  /* valid only where the mask bit is set */
@@ -299,6 +311,9 @@ void plc_mbm_init(void)
         s_port[p].configure_next_ms = 0U;
     }
     s_boot_logged = false;
+#if SPLC_MBW_ENABLE
+    s_blocking_started = false;
+#endif
 }
 
 void plc_mbm_clear_all(void)
@@ -685,6 +700,9 @@ void plc_mbm_scan(uint32_t now_ms)
     for (unsigned p = 0U; p < PORTS; p++) {
         port_rt_t *pr = &s_port[p];
         if (pr->active < 0) { continue; }
+#if SPLC_MBW_ENABLE
+        if (pr->active >= PLC_MBM_OWNER_WRITER) { continue; }   /* MB_WRITE polls its own request */
+#endif
         const modbus_master_state_t st = modbus_rtu_master_poll(&pr->master);
         if (st != MODBUS_MASTER_BUSY) { port_result(pr, st); }
     }
@@ -692,7 +710,12 @@ void plc_mbm_scan(uint32_t now_ms)
     /* Start requests: at most one per port (one request in flight per bus). A port
      * whose write blocks (no non-blocking TX) is started at most once per scan
      * overall, so the scan is never held for more than one frame. */
+#if SPLC_MBW_ENABLE
+#define BLOCKING_STARTED  s_blocking_started
+#else
     bool blocking_started = false;
+#define BLOCKING_STARTED  blocking_started
+#endif
     for (unsigned n = 0U; n < PLC_MBM_BLOCKS; n++) {
         const unsigned i = (s_rr + n) % PLC_MBM_BLOCKS;
         if (!block_due(i, now_ms)) { continue; }
@@ -703,7 +726,10 @@ void plc_mbm_scan(uint32_t now_ms)
         if (!pr->enabled)    { fail_block_no_port(i, now_ms, "is disabled in the port table"); continue; }
         if (pr->dirty && pr->configure != NULL) { continue; }   /* do not poll with the wrong line settings */
         if (pr->active >= 0)                    { continue; }   /* this bus is busy */
-        if (!pr->async_tx && blocking_started)  { continue; }
+#if SPLC_MBW_ENABLE
+        if (pr->write_wanted)                   { continue; }   /* a write is waiting for this bus: it goes first */
+#endif
+        if (!pr->async_tx && BLOCKING_STARTED)  { continue; }
 
         if (modbus_rtu_master_read_fc(&pr->master, blk_slave(b), blk_fc(b), b[F_START], b[F_COUNT],
                                       get_u32(&b[F_TIMEOUT]))) {
@@ -717,10 +743,43 @@ void plc_mbm_scan(uint32_t now_ms)
             pr->active = (int8_t)i;
             pr->active_stale = false;
             s_rr = (uint8_t)((i + 1U) % PLC_MBM_BLOCKS);
-            if (!pr->async_tx) { blocking_started = true; }
+            if (!pr->async_tx) { BLOCKING_STARTED = true; }
         }
         /* false: the inter-frame gap has not elapsed (retry next scan) -- nothing consumed */
     }
+#if SPLC_MBW_ENABLE
+    s_blocking_started = false;
+    for (unsigned p = 0U; p < PORTS; p++) { s_port[p].write_wanted = false; }
+#endif
 }
+
+#if SPLC_MBW_ENABLE
+plc_mbm_claim_t plc_mbm_port_claim(unsigned idx, modbus_rtu_master_t **master, uint8_t *retries)
+{
+    if (idx >= PORTS) { return PLC_MBM_CLAIM_UNUSABLE; }
+    port_rt_t *p = &s_port[idx];
+    if (!p->registered || !p->enabled) { return PLC_MBM_CLAIM_UNUSABLE; }
+    if ((p->dirty && p->configure != NULL) || p->active >= 0 || (!p->async_tx && s_blocking_started)) {
+        p->write_wanted = true;
+        return PLC_MBM_CLAIM_BUSY;
+    }
+    p->active       = PLC_MBM_OWNER_WRITER;
+    p->active_stale = false;
+    if (!p->async_tx) { s_blocking_started = true; }
+    *master  = &p->master;
+    *retries = p->retries;
+    return PLC_MBM_CLAIM_OK;
+}
+
+void plc_mbm_port_release(unsigned idx, bool sent)
+{
+    if (idx >= PORTS) { return; }
+    port_rt_t *p = &s_port[idx];
+    if (p->active != PLC_MBM_OWNER_WRITER) { return; }
+    p->active        = -1;
+    p->active_stale  = false;
+    if (!sent && !p->async_tx) { s_blocking_started = false; }   /* nothing went out: give the slot back */
+}
+#endif
 
 #endif /* SPLC_MBM_ENABLE */

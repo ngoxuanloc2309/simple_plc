@@ -270,6 +270,14 @@
 #define SPLC_MBM_PORT_COUNT              1
 #endif
 
+/* 1 = build MB_WRITE (0x1100..0x11FF, plc_mbw.h): the device writes tags to Modbus
+ * slaves (FC05/06/15/16, Direct or Channel-Indexed) through the RS-485 ports of the
+ * Modbus master (needs SPLC_MBM_ENABLE = 1, shares its ports and port table). 0 =
+ * nothing changes: no code, no Flash flag, the exact baseline binary. */
+#ifndef SPLC_MBW_ENABLE
+#define SPLC_MBW_ENABLE                  0
+#endif
+
 /* Size of the payload buffer in bytes (including the NUL). */
 #ifndef SPLC_MQTT_PAYLOAD_MAX
 #define SPLC_MQTT_PAYLOAD_MAX            256
@@ -388,6 +396,12 @@
 #endif
 #if SPLC_MBM_ENABLE && (SPLC_MBM_PORT_COUNT != 1) && (SPLC_MBM_PORT_COUNT != 2) && (SPLC_MBM_PORT_COUNT != 4)
 #error "SPLC_MBM_PORT_COUNT must be 1, 2 or 4"
+#endif
+#if (SPLC_MBW_ENABLE != 0) && (SPLC_MBW_ENABLE != 1)
+#error "SPLC_MBW_ENABLE must be 0 or 1"
+#endif
+#if SPLC_MBW_ENABLE && !SPLC_MBM_ENABLE
+#error "SPLC_MBW_ENABLE = 1 needs SPLC_MBM_ENABLE = 1 (MB_WRITE shares the RS-485 ports of the Modbus master)"
 #endif
 #if (SPLC_REAL_ENABLE != 0) && (SPLC_REAL_ENABLE != 1)
 #error "SPLC_REAL_ENABLE must be 0 or 1"

@@ -189,6 +189,16 @@ bool modbus_rtu_master_read_fc(modbus_rtu_master_t *m, uint8_t unit, uint8_t fc,
 #endif
 bool modbus_rtu_master_write(modbus_rtu_master_t *m, uint8_t unit, uint16_t addr,
                              const uint16_t *values, uint16_t qty, uint32_t timeout_ms);
+#if SPLC_MBW_ENABLE
+/* MB_WRITE: write with function code FC05 (one coil: values[0] != 0 -> 0xFF00, qty
+ * must be 1), FC06 (one register: values[0], qty 1), FC15 (qty coils, values[i] != 0
+ * is ON) or FC16 (qty registers, same as modbus_rtu_master_write()). The answer is
+ * checked against the request (address and quantity / value echo). Same rules and
+ * return value as the other requests. */
+bool modbus_rtu_master_write_fc(modbus_rtu_master_t *m, uint8_t unit, uint8_t fc,
+                                uint16_t addr, const uint16_t *values, uint16_t qty,
+                                uint32_t timeout_ms);
+#endif
 
 /*
  * Call every scan cycle while a request is in flight. Collects received
