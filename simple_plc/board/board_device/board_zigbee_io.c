@@ -425,20 +425,28 @@ static void board_app_link_init(void)
 #if SPLC_MBM_ENABLE
 /*
  * MB_READ master bus: USART1 + the RS485 transceiver on PB13 (DE and /RE tied
- * together, high = transmit). The only RS485 of this board, so the App link
- * must be USB: sharing the port with the App (decision 39a) is not built.
- * Line settings are the App's choice and are applied through
- * sx_uart_reconfigure() by plc_mbm (callback below); until the wire carries
- * them the defaults are SPLC_MBM_SERIAL_* from splcopts.h.
+ * together, high = transmit). The only RS485 of this board (SPLC_MBM_PORT_COUNT 1),
+ * so the App link must be USB: sharing the port with the App (decision 39a) is not
+ * built. Line settings (baud, data bits, parity, stop bits) are the App's choice
+ * (0x1400, MBM-003), applied through sx_uart_reconfigure() by plc_mbm (callback
+ * below); until the App writes them the port runs 9600-8-N-1.
+ * Transmit is non-blocking: sx_uart_write_start() hands the frame to the UART
+ * interrupt and the scan carries on; the transmit-complete interrupt drops DE and
+ * turns the receiver back on, so the turnaround is exact however long the frame is.
  */
 #if !SPLC_PORT_USB_CDC
 #error "Zigbee-IO: MB_READ needs USART1, which is the App link when SPLC_PORT_USB_CDC = 0. Set SPLC_PORT_USB_CDC 1 (App over USB) or SPLC_MBM_ENABLE 0."
 #endif
+#if SPLC_MBM_PORT_COUNT != 1
+#error "Zigbee-IO has ONE RS-485 port: set SPLC_MBM_PORT_COUNT 1 (the default)."
+#endif
+
+#define MBM_DEFAULT_BAUD  9600U
 
 static sx_uart_t        s_mbm_uart;
 static sx_uart_config_t s_mbm_uart_cfg;
 static uint8_t          s_mbm_rx_buf[256];   /* one full 125-register answer = 255 bytes */
-static uint8_t          s_mbm_tx_buf[1];     /* sx_uart_write() is direct, no TX queue */
+static uint8_t          s_mbm_tx_buf[1];     /* unused: the frame lives in the master */
 
 static void mbm_de(bool transmit)
 {
@@ -452,28 +460,50 @@ static int mbm_read(void *ctx, uint8_t *buf, uint16_t max_len)
     return sx_uart_read(&s_mbm_uart, buf, (int)max_len);
 }
 
-/* Direction is handled here (set_tx = NULL in the port). HAL_UART_Transmit()
- * returns after the TC flag, i.e. when the last bit has left the shifter, so
- * DE can drop right away. The receiver is off while we drive the bus and is
- * flushed when it comes back on. Blocks for one request frame (8 bytes = ~9 ms
- * at 9600 baud): one scan may slip, nothing is lost. */
-static int mbm_write(void *ctx, const uint8_t *buf, uint16_t len, uint32_t timeout_ms)
+/* UART interrupt, last bit of the frame is out: hand the bus back. The receiver
+ * comes on flushed, so the echo of our own frame never reaches mbm_read(). */
+static void mbm_tx_done_isr(void *ctx)
+{
+    (void)ctx;
+    mbm_de(false);
+    sx_uart_set_rx_enabled(&s_mbm_uart, true);
+}
+
+static int mbm_write_start(void *ctx, const uint8_t *buf, uint16_t len)
 {
     (void)ctx;
     sx_uart_set_rx_enabled(&s_mbm_uart, false);
     mbm_de(true);
-    int rc = sx_uart_write(&s_mbm_uart, buf, (int)len, timeout_ms);
+    if (sx_uart_write_start(&s_mbm_uart, buf, (int)len) != 0) {
+        mbm_de(false);
+        sx_uart_set_rx_enabled(&s_mbm_uart, true);
+        return -1;
+    }
+    return 0;
+}
+
+static bool mbm_tx_done(void *ctx)
+{
+    (void)ctx;
+    return !sx_uart_tx_busy(&s_mbm_uart);
+}
+
+static void mbm_write_abort(void *ctx)
+{
+    (void)ctx;
+    sx_uart_write_abort(&s_mbm_uart);
     mbm_de(false);
     sx_uart_set_rx_enabled(&s_mbm_uart, true);
-    return rc;
 }
 
 static int mbm_configure(void *ctx, const plc_mbm_serial_t *cfg)
 {
     (void)ctx;
     s_mbm_uart_cfg.baudrate = cfg->baud;
-    s_mbm_uart_cfg.bits     = 8;
-    s_mbm_uart_cfg.parity   = cfg->parity;
+    s_mbm_uart_cfg.bits     = cfg->data_bits;
+    /* wire: 1 = even, 2 = odd (MBM-003); sx_uart: 1 = odd, 2 = even */
+    s_mbm_uart_cfg.parity   = (cfg->parity == PLC_MBM_PARITY_EVEN) ? 2U :
+                              (cfg->parity == PLC_MBM_PARITY_ODD)  ? 1U : 0U;
     s_mbm_uart_cfg.stopbits = cfg->stop_bits;
     return sx_uart_reconfigure(&s_mbm_uart);
 }
@@ -481,11 +511,10 @@ static int mbm_configure(void *ctx, const plc_mbm_serial_t *cfg)
 static void board_mbm_init(void)
 {
     s_mbm_uart_cfg.pDriver  = &UART_RS485;
-    s_mbm_uart_cfg.baudrate = SPLC_MBM_SERIAL_BAUD;
+    s_mbm_uart_cfg.baudrate = MBM_DEFAULT_BAUD;
     s_mbm_uart_cfg.bits     = 8;
-    s_mbm_uart_cfg.parity   = SPLC_MBM_SERIAL_PARITY;
-    s_mbm_uart_cfg.stopbits = SPLC_MBM_SERIAL_STOP_BITS;
-
+    s_mbm_uart_cfg.parity   = 0;
+    s_mbm_uart_cfg.stopbits = 1;
     s_mbm_uart.rxBuffer     = s_mbm_rx_buf;
     s_mbm_uart.rxBufferSize = (int)sizeof(s_mbm_rx_buf);
     s_mbm_uart.txBuffer     = s_mbm_tx_buf;
@@ -493,17 +522,21 @@ static void board_mbm_init(void)
 
     mbm_de(false);   /* listen */
     sx_uart_init(&s_mbm_uart, &s_mbm_uart_cfg);
+    sx_uart_set_tx_done_callback(&s_mbm_uart, mbm_tx_done_isr, NULL);
 
     static const modbus_serial_port_t port = {
-        .read     = mbm_read,
-        .write    = mbm_write,
-        .set_tx   = NULL,
-        .ctx      = NULL,
-        .baudrate = SPLC_MBM_SERIAL_BAUD,
+        .read        = mbm_read,
+        .write       = NULL,
+        .set_tx      = NULL,
+        .ctx         = NULL,
+        .baudrate    = MBM_DEFAULT_BAUD,
+        .write_start = mbm_write_start,
+        .tx_done     = mbm_tx_done,
+        .write_abort = mbm_write_abort,
     };
-    splc_mbm_set_rs485_port(&port, mbm_configure);
-    log_info(TAG, "MB_READ master on USART1 (DE PB13), %lu baud default",
-             (unsigned long)SPLC_MBM_SERIAL_BAUD);
+    splc_mbm_set_rs485_port(0U, &port, mbm_configure);
+    log_info(TAG, "MB_READ master port 1 on USART1 (DE PB13), non-blocking TX, %lu baud until the App sets it",
+             (unsigned long)MBM_DEFAULT_BAUD);
 }
 #endif /* SPLC_MBM_ENABLE */
 

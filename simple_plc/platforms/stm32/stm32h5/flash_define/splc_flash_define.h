@@ -337,7 +337,7 @@ _Static_assert(SPLC_FLASH_RETAIN_BASE_ADDR == SPLC_FLASH_DATA_BASE_ADDR,
  * mask (same downgrade rule as the other flags), so it stays byte-for-byte the
  * same size as before. */
 #define SPLC_RULE_FLASH_MB_FLAG           0x1000U /* bit 12 of the rule_count field: MB_READ section present */
-#define SPLC_RULE_FLASH_MB_SIZE           512U    /* 4 x 128 B; cross-checked against PLC_MBM_FLASH_SIZE in plc_rule_flash.c */
+#define SPLC_RULE_FLASH_MB_SIZE           640U    /* 4 x 128 B blocks + 128 B RS-485 port table (0x1400); cross-checked against PLC_MBM_FLASH_SIZE in plc_rule_flash.c */
 #define SPLC_RULE_FLASH_TYPES_FLAG        0x0800U /* bit 11 of the rule_count field: tag-type section present */
 #define SPLC_RULE_FLASH_TYPES_SIZE        128U    /* one byte per tag; cross-checked against PLC_TAGTYPE_FLASH_SIZE in plc_rule_flash.c */
 
@@ -367,7 +367,7 @@ _Static_assert(SPLC_FLASH_RETAIN_BASE_ADDR == SPLC_FLASH_DATA_BASE_ADDR,
 /* The real rule count: bits 0..13 minus the flags this build owns
  * (0x3FFF; minus bit 13 with MQTT, bit 12 with MBM, bit 11 with REAL). */
 #define SPLC_RULE_FLASH_COUNT_MASK        ((uint16_t)(0x3FFFU & ~(SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_MB_OWNED_FLAG | SPLC_RULE_FLASH_TYPES_OWNED_FLAG)))
-#define SPLC_RULE_FLASH_RECORD_MAX_SIZE   (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE + SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE + SPLC_RULE_FLASH_MB_RESERVE + SPLC_RULE_FLASH_TYPES_RESERVE) /* 3336 bytes at MAX_RULES = 100 (4296 with SPLC_MQTT_ENABLE=1, +512 with SPLC_MBM_ENABLE=1, +128 with SPLC_REAL_ENABLE=1) */
+#define SPLC_RULE_FLASH_RECORD_MAX_SIZE   (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE + SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE + SPLC_RULE_FLASH_MB_RESERVE + SPLC_RULE_FLASH_TYPES_RESERVE) /* 3336 bytes at MAX_RULES = 100 (4296 with SPLC_MQTT_ENABLE=1, +640 with SPLC_MBM_ENABLE=1, +128 with SPLC_REAL_ENABLE=1) */
 _Static_assert(SPLC_RULE_FLASH_RECORD_MAX_SIZE <= SPLC_FLASH_SECTOR_SIZE,
                "a rule record must fit in one Flash sector");
 

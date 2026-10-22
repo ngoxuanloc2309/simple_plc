@@ -8,6 +8,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include "splc_cqueue.h"
+#include "splc_opt.h"   /* SPLC_MBM_ENABLE: the non-blocking TX members exist only with it (all units must agree on sizeof(sx_uart_t)) */
 
 typedef struct sx_uart_config {
     void     *pDriver;   /* points to the real HAL handle, e.g. &huart1 */
@@ -33,6 +34,13 @@ typedef struct sx_uart {
      * queue -- it hands data directly to HAL_UART_Transmit_IT(). */
     uint8_t  *txBuffer;
     int       txBufferSize;
+#if SPLC_MBM_ENABLE
+    /* Non-blocking TX state (sx_uart_write_start()). txDoneCb runs in ISR
+     * context once the LAST BIT has left the shifter (TC), BEFORE txBusy drops. */
+    void    (*txDoneCb)(void *ctx);
+    void     *txDoneCtx;
+    volatile uint8_t txBusy;
+#endif
 } sx_uart_t;
 
 /*
@@ -76,13 +84,30 @@ int sx_uart_write(sx_uart_t *uart, const uint8_t *data, int len, uint32_t timeou
  */
 void sx_uart_set_rx_enabled(sx_uart_t *uart, bool enabled);
 
+#if SPLC_MBM_ENABLE
+/*
+ * Non-blocking transmit: starts sending len bytes (interrupt driven) and returns
+ * at once. 0 = started; negative = a transmit is already running, len is 0 or the
+ * HAL refused. `data` is NOT copied: it must stay valid until sx_uart_tx_busy()
+ * is false. Completion = last stop bit has left the UART (TC).
+ */
+int  sx_uart_write_start(sx_uart_t *uart, const uint8_t *data, int len);
+/* true while a sx_uart_write_start() transmit has not finished. */
+bool sx_uart_tx_busy(const sx_uart_t *uart);
+/* Hook called from the UART interrupt the moment the last bit has left (before
+ * sx_uart_tx_busy() turns false). Keep it to a few register writes. NULL removes. */
+void sx_uart_set_tx_done_callback(sx_uart_t *uart, void (*cb)(void *ctx), void *ctx);
+/* Aborts a running sx_uart_write_start() transmit; the callback is NOT called. */
+void sx_uart_write_abort(sx_uart_t *uart);
+#endif /* SPLC_MBM_ENABLE */
+
 /*
  * Re-applies uart->config (baudrate, bits, parity, stopbits) to the already
  * initialised UART: aborts the running receive, re-programs the peripheral,
  * then re-arms the single-byte receive. Used when the line settings are not
  * known at boot (MB_READ: the sensor bus speed is the App's choice). Bytes in
  * rxQueue are kept; a byte that was being shifted in is lost.
- *   bits     : 8 only
+  *   bits     : 7 or 8 (the parity bit is part of the word on the STM32)
  *   parity   : 0 none, 1 odd, 2 even
  *   stopbits : 1 or 2
  * Returns 0 on success, negative (nothing changed) for an unsupported value

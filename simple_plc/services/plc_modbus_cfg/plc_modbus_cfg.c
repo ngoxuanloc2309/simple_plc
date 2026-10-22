@@ -184,6 +184,21 @@ static void read_hw_capabilities(uint16_t offset, uint16_t quantity, uint16_t *r
 }
 #endif
 
+#if SPLC_MBM_ENABLE
+/* --- RS485_PORT_COUNT (0x0A0A, RO, uint16) -------------------------------------
+ * Physical RS-485 ports the Modbus-master blocks can use (SPLC_MBM_PORT_COUNT). The
+ * App (2.10.0) limits its port list to this and refuses to deploy a project that
+ * uses a port beyond it. A device without MBM does not map the address (exception
+ * 0x02): the App then assumes 0 ports unless 0x0A08 declares MODBUS_MASTER. */
+static void read_rs485_port_count(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
+{
+    (void)offset;
+    for (uint16_t i = 0; i < quantity; i++) {
+        registers_out[i] = plc_mbm_port_count();
+    }
+}
+#endif
+
 /* --- RULE_TABLE_INFO (0x0010, RO, 1 register) --------------------------- */
 
 static void read_rule_table_info(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
@@ -1266,6 +1281,9 @@ static const modbus_block_t s_blocks[] = {
 #if SPLC_MQTT_ENABLE || SPLC_MBM_ENABLE
     { 0x0A08, 0x0A09, true,  read_hw_capabilities,        NULL },   /* RO; App gates the MQTT deploy on bit 4 */
 #endif
+    #if SPLC_MBM_ENABLE
+    { 0x0A0A, 0x0A0A, true,  read_rs485_port_count,       NULL },   /* RO */
+#endif
     { 0x0A20, 0x0A24, true,  read_diag_block,             NULL },   /* 0x0A20 writes handled in cb_write_*, not here */
     { 0x0B00, 0x0B7F, true,  plc_fb_read,                 NULL },   /* FC16 writes handled in cb_write_multiple_registers (needs distinct exceptions) */
 #if SPLC_MQTT_ENABLE
@@ -1273,7 +1291,8 @@ static const modbus_block_t s_blocks[] = {
     { 0x0E00, 0x0E5F, true,  plc_mqtt_broker_read,        NULL },   /* 0x0E54..0x0E5F read-only status; FC16 writes handled in cb_write_multiple_registers */
 #endif
 #if SPLC_MBM_ENABLE
-    { 0x1000, 0x10FF, true,  plc_mbm_read,                NULL },   /* FC16 writes handled in cb_write_multiple_registers (go to the draft) */
+        { 0x1000, 0x10FF, true,  plc_mbm_read,                NULL },   /* FC16 writes handled in cb_write_multiple_registers (go to the draft) */
+    { 0x1400, 0x143F, true,  plc_mbm_ports_read,          NULL },   /* RS-485 port table (MBM-003); FC16 writes handled in cb_write_multiple_registers */
 #endif
 
     { 0x9000, 0x9000, true,  read_config_status,          NULL },
@@ -1417,6 +1436,11 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
      */
     if (address >= PLC_MBM_BASE && address < PLC_MBM_BASE + PLC_MBM_REGS) {
         return (plc_mbm_write((uint16_t)(address - PLC_MBM_BASE), quantity, registers)
+                                == PLC_MBM_WRITE_OK) ? NMBS_ERROR_NONE : NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+    }
+    /* RS-485 port table 0x1400..0x143F: same draft / COMMIT path as the blocks. */
+    if (address >= PLC_MBM_PORT_BASE && address < PLC_MBM_PORT_BASE + PLC_MBM_PORT_TABLE_REGS) {
+        return (plc_mbm_ports_write((uint16_t)(address - PLC_MBM_PORT_BASE), quantity, registers)
                 == PLC_MBM_WRITE_OK) ? NMBS_ERROR_NONE : NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
     }
 #endif

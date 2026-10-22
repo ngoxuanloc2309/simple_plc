@@ -39,6 +39,9 @@ static void arm_rx_byte(sx_uart_binding_t *binding)
 void sx_uart_init(sx_uart_t *uart, sx_uart_config_t *config)
 {
     uart->config = config;
+#if SPLC_MBM_ENABLE
+    uart->txBusy = 0U;
+#endif
 
     /* rxBuffer/rxBufferSize must already be set by the caller -- this is
      * caller-owned static storage, not allocated here (no malloc). */
@@ -114,6 +117,34 @@ int sx_uart_write(sx_uart_t *uart, const uint8_t *data, int len, uint32_t timeou
     return 0;
 }
 
+#if SPLC_MBM_ENABLE
+int sx_uart_write_start(sx_uart_t *uart, const uint8_t *data, int len)
+{
+    UART_HandleTypeDef *huart = (UART_HandleTypeDef *)uart->config->pDriver;
+    if (len <= 0 || len > 0xFFFF || uart->txBusy) { return -1; }
+    uart->txBusy = 1U;
+    if (HAL_UART_Transmit_IT(huart, data, (uint16_t)len) != HAL_OK) { uart->txBusy = 0U; return -1; }
+    return 0;
+}
+
+bool sx_uart_tx_busy(const sx_uart_t *uart) { return uart->txBusy != 0U; }
+
+void sx_uart_set_tx_done_callback(sx_uart_t *uart, void (*cb)(void *ctx), void *ctx)
+{
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    uart->txDoneCtx = ctx;
+    uart->txDoneCb  = cb;
+    __set_PRIMASK(primask);
+}
+
+void sx_uart_write_abort(sx_uart_t *uart)
+{
+    UART_HandleTypeDef *huart = (UART_HandleTypeDef *)uart->config->pDriver;
+    if (uart->txBusy) { (void)HAL_UART_AbortTransmit(huart); uart->txBusy = 0U; }
+}
+#endif /* SPLC_MBM_ENABLE */
+
 void sx_uart_set_rx_enabled(sx_uart_t *uart, bool enabled)
 {
     UART_HandleTypeDef *huart = (UART_HandleTypeDef *)uart->config->pDriver;
@@ -138,16 +169,16 @@ int sx_uart_reconfigure(sx_uart_t *uart)
     sx_uart_binding_t  *binding = find_binding(huart);
     const sx_uart_config_t *c = uart->config;
 
-    if (binding == NULL || binding->uart != uart || c->baudrate == 0U || c->bits != 8U) {
+    if (binding == NULL || binding->uart != uart || c->baudrate == 0U || (c->bits != 7U && c->bits != 8U)) {
         return -1;
     }
 
     /* A parity bit is part of the word on the STM32: 8 data bits + parity = 9-bit word. */
     uint32_t word, parity, stop;
     switch (c->parity) {
-    case 0:  parity = UART_PARITY_NONE; word = UART_WORDLENGTH_8B; break;
-    case 1:  parity = UART_PARITY_ODD;  word = UART_WORDLENGTH_9B; break;
-    case 2:  parity = UART_PARITY_EVEN; word = UART_WORDLENGTH_9B; break;
+    case 0:  parity = UART_PARITY_NONE; word = (c->bits == 8U) ? UART_WORDLENGTH_8B : UART_WORDLENGTH_7B; break;
+    case 1:  parity = UART_PARITY_ODD;  word = (c->bits == 8U) ? UART_WORDLENGTH_9B : UART_WORDLENGTH_8B; break;
+    case 2:  parity = UART_PARITY_EVEN; word = (c->bits == 8U) ? UART_WORDLENGTH_9B : UART_WORDLENGTH_8B; break;
     default: return -1;
     }
     switch (c->stopbits) {
@@ -192,6 +223,19 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
     arm_rx_byte(binding);
 }
+
+#if SPLC_MBM_ENABLE
+/* TC interrupt: last byte of HAL_UART_Transmit_IT() has left the shifter. The hook
+ * (half-duplex DE release) runs first, then busy drops. */
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+    sx_uart_binding_t *binding = find_binding(huart);
+    if (binding == NULL) { return; }
+    sx_uart_t *uart = binding->uart;
+    if (uart->txDoneCb != NULL) { uart->txDoneCb(uart->txDoneCtx); }
+    uart->txBusy = 0U;
+}
+#endif /* SPLC_MBM_ENABLE */
 
 /*
  * HAL aborts the interrupt receive on an overrun (UART_EndRxTransfer(): RXNE

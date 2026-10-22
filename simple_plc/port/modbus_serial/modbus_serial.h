@@ -62,6 +62,24 @@ typedef struct {
     void (*set_tx)(void *ctx, bool tx);
     void     *ctx;        /* passed back to every callback */
     uint32_t  baudrate;   /* real line speed, for the inter-frame gap */
+#if SPLC_MBM_ENABLE
+    /*
+     * OPTIONAL non-blocking transmit (placed last so existing initialisers keep
+     * working). When write_start AND tx_done are both set the master uses them
+     * INSTEAD of write() (which may then be NULL): a request costs the scan only the
+     * time to start the transfer, however long the frame is on the wire.
+     *   write_start(ctx, buf, len): start sending, return 0 at once (negative =
+     *       refused). `buf` stays valid until tx_done() returns true.
+     *   tx_done(ctx): true once the LAST BIT has left the UART; polled once per scan.
+     *   write_abort(ctx): optional; stops a transfer that never completes.
+     * The port does the half-duplex turnaround itself FROM THE TX-COMPLETE INTERRUPT
+     * and keeps the transceiver's echo out of read(). The master does NOT drain RX
+     * after an asynchronous transmit (a fast slave may already be answering).
+     */
+    int  (*write_start)(void *ctx, const uint8_t *buf, uint16_t len);
+    bool (*tx_done)(void *ctx);
+    void (*write_abort)(void *ctx);
+#endif
 } modbus_serial_port_t;
 
 /* Per-request limits. 125 values is the Modbus maximum for a read (frame =
@@ -108,6 +126,9 @@ typedef enum {
     MODBUS_MASTER_BUSY,        /* request sent, waiting for the answer      */
     MODBUS_MASTER_DONE_OK,     /* answer received and valid (returned once) */
     MODBUS_MASTER_DONE_ERR     /* failed, see modbus_rtu_master_error()     */
+#if SPLC_MBM_ENABLE
+    , MODBUS_MASTER_SENDING    /* internal: frame going out (non-blocking TX); poll() reports BUSY */
+#endif
 } modbus_master_state_t;
 
 typedef enum {
@@ -132,6 +153,12 @@ typedef struct {
     uint16_t  qty;
     uint32_t  deadline_ms;
     uint32_t  quiet_until_ms;         /* earliest next request (inter-frame gap) */
+#if SPLC_MBM_ENABLE
+    uint32_t  resp_timeout_ms;        /* answer timeout, counted from the end of the transmit */
+    uint32_t  tx_deadline_ms;         /* give up on a transmit that never completes */
+    uint16_t  min_gap_ms;             /* configured inter-frame delay (3.5 chars always kept) */
+#endif
+    /* While a frame goes out asynchronously rx[] holds that frame; receiving starts after. */
     uint8_t   rx[MODBUS_MASTER_FRAME_MAX];
     uint16_t  rx_len;
     uint16_t  regs[MODBUS_MASTER_MAX_REGS];   /* read answer, valid after DONE_OK */
@@ -170,6 +197,14 @@ bool modbus_rtu_master_write(modbus_rtu_master_t *m, uint8_t unit, uint16_t addr
  * afterwards.
  */
 modbus_master_state_t modbus_rtu_master_poll(modbus_rtu_master_t *m);
+
+#if SPLC_MBM_ENABLE
+/* Minimum pause between two requests (the port's "inter-frame delay"). The 3.5
+ * character gap is always kept; this can only lengthen it. 0 = just 3.5 chars. */
+void modbus_rtu_master_set_min_gap_ms(modbus_rtu_master_t *m, uint16_t gap_ms);
+/* true while a request is in flight (frame going out or answer awaited). */
+bool modbus_rtu_master_is_busy(const modbus_rtu_master_t *m);
+#endif
 
 /* Valid after the poll() that returned DONE_OK for a read: qty values (registers,
  * or one bit each, 0/1, for FC01/FC02). */

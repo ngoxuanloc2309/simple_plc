@@ -80,15 +80,20 @@ static void drain_rx(modbus_rtu_master_t *m)
     }
 }
 
-/* 3.5 character times (11 bits each), rounded up, at least 1 ms. */
+/* 3.5 character times (11 bits each), rounded up, at least 1 ms; with MBM never
+ * shorter than the configured inter-frame delay of the port. */
 static uint32_t frame_gap_ms(const modbus_rtu_master_t *m)
 {
     uint32_t baud = m->port.baudrate;
-    if (baud == 0U) {
-        return 3U;
+    uint32_t gap = 3U;
+    if (baud != 0U) {
+        gap = (38500U + baud - 1U) / baud;   /* 3.5 * 11 bits * 1000 / baud */
+        gap = (gap < 1U) ? 1U : gap + 1U;
     }
-    uint32_t gap = (38500U + baud - 1U) / baud;   /* 3.5 * 11 bits * 1000 / baud */
-    return (gap < 1U) ? 1U : gap + 1U;
+#if SPLC_MBM_ENABLE
+    if (m->min_gap_ms > gap) { gap = m->min_gap_ms; }
+#endif
+    return gap;
 }
 
 static void finish(modbus_rtu_master_t *m, modbus_master_state_t st, modbus_master_error_t err)
@@ -106,9 +111,50 @@ static modbus_master_state_t take_result(modbus_rtu_master_t *m)
     return r;
 }
 
+#if SPLC_MBM_ENABLE
+/* True when the port can send at all: blocking write(), or the non-blocking pair. */
+static bool port_can_tx(const modbus_serial_port_t *p)
+{
+    return p->write != NULL || (p->write_start != NULL && p->tx_done != NULL);
+}
+
+/* Non-blocking transmit: the frame is copied into m->rx (idle until the answer
+ * starts), the transfer is started and the call returns at once. poll() watches
+ * tx_done() and only then starts the answer timeout. */
+static bool send_frame_async(modbus_rtu_master_t *m, const uint8_t *frame, uint16_t len,
+                             uint32_t timeout_ms)
+{
+    drain_rx(m);                       /* stale bytes from before this request */
+    memcpy(m->rx, frame, len);
+    m->rx_len = 0U;
+
+    if (m->port.set_tx != NULL) { m->port.set_tx(m->port.ctx, true); }
+    if (m->port.write_start(m->port.ctx, m->rx, len) != 0) {
+        if (m->port.set_tx != NULL) { m->port.set_tx(m->port.ctx, false); }
+        finish(m, MODBUS_MASTER_DONE_ERR, MODBUS_MASTER_ERR_TX);
+        return true;                   /* consumed; poll() reports the failure */
+    }
+    /* 11 bits per byte, doubled plus a margin: only a UART that never completes hits this. */
+    uint32_t tx_ms = 50U;
+    if (m->port.baudrate != 0U) {
+        tx_ms = 2U * (((uint32_t)len * 11000U) / m->port.baudrate) + 50U;
+    }
+    m->tx_deadline_ms  = sx_get_tick_ms() + tx_ms;
+    m->resp_timeout_ms = timeout_ms;
+    m->error           = MODBUS_MASTER_ERR_NONE;
+    m->state           = MODBUS_MASTER_SENDING;
+    return true;
+}
+#endif
+
 static bool send_frame(modbus_rtu_master_t *m, const uint8_t *frame, uint16_t len,
                        uint32_t timeout_ms)
 {
+#if SPLC_MBM_ENABLE
+    if (m->port.write_start != NULL && m->port.tx_done != NULL) {
+        return send_frame_async(m, frame, len, timeout_ms);
+    }
+#endif
     drain_rx(m);
     m->rx_len = 0U;
 
@@ -146,7 +192,11 @@ static bool send_frame(modbus_rtu_master_t *m, const uint8_t *frame, uint16_t le
 
 static bool can_start(const modbus_rtu_master_t *m, uint8_t unit)
 {
+    #if SPLC_MBM_ENABLE
+    if (m->port.read == NULL || !port_can_tx(&m->port) ||
+#else
     if (m->port.read == NULL || m->port.write == NULL ||
+#endif
         m->state != MODBUS_MASTER_IDLE || unit < 1U || unit > 247U) {
         return false;
     }
@@ -162,7 +212,11 @@ bool modbus_rtu_master_init(modbus_rtu_master_t *m, const modbus_serial_port_t *
     }
     memset(m, 0, sizeof(*m));
     m->state = MODBUS_MASTER_IDLE;
+    #if SPLC_MBM_ENABLE
+    if (port == NULL || port->read == NULL || !port_can_tx(port)) {
+#else
     if (port == NULL || port->read == NULL || port->write == NULL) {
+#endif
         return false;   /* port stays zeroed: every request is refused */
     }
     m->port = *port;
@@ -254,6 +308,24 @@ modbus_master_state_t modbus_rtu_master_poll(modbus_rtu_master_t *m)
     if (m->state == MODBUS_MASTER_DONE_OK || m->state == MODBUS_MASTER_DONE_ERR) {
         return take_result(m);   /* e.g. a TX failure found at send time */
     }
+    #if SPLC_MBM_ENABLE
+    if (m->state == MODBUS_MASTER_SENDING) {
+        if (m->port.tx_done(m->port.ctx)) {
+            if (m->port.set_tx != NULL) { m->port.set_tx(m->port.ctx, false); }
+            /* Answer timeout starts now. rx_len is 0 and the frame in rx[] is dead:
+             * whatever the port delivers from here is the answer (may be queued already). */
+            m->deadline_ms = sx_get_tick_ms() + m->resp_timeout_ms;
+            m->state       = MODBUS_MASTER_BUSY;
+        } else if ((int32_t)(sx_get_tick_ms() - m->tx_deadline_ms) >= 0) {
+            if (m->port.write_abort != NULL) { m->port.write_abort(m->port.ctx); }
+            if (m->port.set_tx != NULL) { m->port.set_tx(m->port.ctx, false); }
+            finish(m, MODBUS_MASTER_DONE_ERR, MODBUS_MASTER_ERR_TX);
+            return take_result(m);
+        } else {
+            return MODBUS_MASTER_BUSY;     /* still going out */
+        }
+    }
+#endif
     if (m->state != MODBUS_MASTER_BUSY) {
         return m->state;
     }
@@ -325,3 +397,15 @@ uint8_t modbus_rtu_master_exception(const modbus_rtu_master_t *m)
 {
     return m->exception_code;
 }
+
+#if SPLC_MBM_ENABLE
+void modbus_rtu_master_set_min_gap_ms(modbus_rtu_master_t *m, uint16_t gap_ms)
+{
+    m->min_gap_ms = gap_ms;
+}
+
+bool modbus_rtu_master_is_busy(const modbus_rtu_master_t *m)
+{
+    return m->state == MODBUS_MASTER_BUSY || m->state == MODBUS_MASTER_SENDING;
+}
+#endif

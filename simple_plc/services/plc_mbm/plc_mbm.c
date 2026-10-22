@@ -1,7 +1,6 @@
 /*
  * plc_mbm.c - Layer 3. See plc_mbm.h.
  */
-
 #include "plc_mbm.h"
 
 #if SPLC_MBM_ENABLE
@@ -15,6 +14,11 @@
 #endif
 
 static const char *TAG = "PLC_MBM";
+
+#define PORTS    ((unsigned)SPLC_MBM_PORT_COUNT)
+/* RAM keeps the records of the ports the device HAS; the wire and the Flash image
+ * always carry 4 (the rest reads as zero and is dropped on write). */
+#define PT_REGS  (PORTS * PLC_MBM_PORT_REGS)
 
 /* --- block field offsets (register index inside a block) ----------------- */
 #define F_FLAGS        0U
@@ -37,15 +41,30 @@ static const char *TAG = "PLC_MBM";
 #define P_ENDIAN       3U
 #define P_MULT         4U   /* 2 regs */
 
+/* F_FLAGS: bit 0 enabled, bits 4..7 RS-485 port index (0..3) */
+#define FLAG_ENABLED     0x0001U
+#define FLAG_PORT_SHIFT  4U
+#define FLAG_PORT_MASK   0x0FU
+
+/* --- port record field offsets (register index inside one 16-register port) */
+#define PF_CONTROL     0U   /* bit 8 enabled, bits 0..7 port number (1..4) */
+#define PF_BAUD        1U   /* 2 regs */
+#define PF_PARITY      3U
+#define PF_FRAMING     4U   /* (data bits << 8) | stop bits */
+#define PF_TIMEOUT     5U
+#define PF_GAP         6U
+#define PF_RETRY       7U
+/* +8..+13 name, +14..+15 reserved: not used by the firmware */
+
 #define TAG_NONE_IDX   0xFFFFU
 
 enum { DT_BOOL = 1, DT_INT16, DT_UINT16, DT_INT32, DT_UINT32, DT_REAL };
 enum { EN_ABCD = 0, EN_CDAB, EN_BADC, EN_DCBA };
 enum { ERR_NONE = 0, ERR_TIMEOUT = 1, ERR_CRC = 2, ERR_EXCEPTION = 3, ERR_MALFORMED = 4 };
 
-#define MIN_INTERVAL_MS   PLC_SCAN_INTERVAL_MS
-#define MIN_TIMEOUT_MS    10U
-#define MAX_TIMEOUT_MS    60000U
+#define MIN_INTERVAL_MS    PLC_SCAN_INTERVAL_MS
+#define MIN_TIMEOUT_MS     10U
+#define MAX_TIMEOUT_MS     60000U
 #define CONFIGURE_RETRY_MS 1000U
 
 typedef struct {
@@ -53,31 +72,48 @@ typedef struct {
     bool     pending;        /* on-trigger: rising edge seen, poll not sent yet */
     bool     prev_trig;
     bool     valid_clear;    /* write valid tag back to 0 at the next scan */
+    bool     retry_pending;  /* the last attempt failed and a retry is still owed */
+    bool     warned;         /* the "port not usable" warning was logged */
+    uint8_t  retries_left;
     uint32_t last_start_ms;
 } block_rt_t;
+
+/* One RS-485 port: the host's UART binding, the App's line settings (decoded from
+ * the running port table) and the request in flight. */
+typedef struct {
+    modbus_rtu_master_t  master;
+    bool                 registered;     /* the host gave us a usable port */
+    plc_mbm_configure_fn configure;
+    bool                 async_tx;       /* the port sends without blocking */
+    bool                 enabled;        /* from the port table */
+    plc_mbm_serial_t     serial;
+    uint16_t             gap_ms;
+    uint8_t              retries;
+    bool                 dirty;          /* serial settings not applied to the UART yet */
+    uint32_t             configure_next_ms;
+    int8_t               active;         /* block whose request is in flight, -1 none */
+    bool                 active_stale;   /* its block was re-committed: drop the answer */
+} port_rt_t;
 
 static uint16_t   s_run[PLC_MBM_BLOCKS][PLC_MBM_BLOCK_REGS];    /* RUNNING */
 static uint16_t   s_draft[PLC_MBM_BLOCKS][PLC_MBM_BLOCK_REGS];  /* valid only where the mask bit is set */
 static uint8_t    s_draft_mask;
+static uint16_t   s_prun[PT_REGS];                              /* RUNNING port table (0x1400) */
+static uint16_t   s_pdraft[PT_REGS];
+static bool       s_pdraft_on;
 static block_rt_t s_rt[PLC_MBM_BLOCKS];
-
-static modbus_rtu_master_t   s_master;
-static bool                  s_have_port;
-static plc_mbm_configure_fn  s_configure;
-static plc_mbm_serial_t      s_serial;
-static bool                  s_serial_dirty;
-static uint32_t              s_configure_next_ms;
-static int8_t                s_active = -1;     /* block whose request is in flight */
-static bool                  s_active_stale;    /* its block was re-committed: drop the answer */
-static uint8_t               s_rr;              /* round-robin start */
+static port_rt_t  s_port[PORTS];
+static uint8_t    s_rr;                                         /* round-robin start */
+static bool       s_boot_logged;
 
 /* ------------------------------------------------------------------------ */
 
 static uint32_t get_u32(const uint16_t *r) { return ((uint32_t)r[0] << 16) | r[1]; }
 
-static bool blk_enabled(const uint16_t *b) { return (b[F_FLAGS] & 0x0001U) != 0U; }
+static bool blk_enabled(const uint16_t *b) { return (b[F_FLAGS] & FLAG_ENABLED) != 0U; }
 static uint8_t blk_fc(const uint16_t *b)    { return (uint8_t)(b[F_FC_SLAVE] >> 8); }
 static uint8_t blk_slave(const uint16_t *b) { return (uint8_t)(b[F_FC_SLAVE] & 0xFFU); }
+static unsigned blk_port(const uint16_t *b) { return (unsigned)((b[F_FLAGS] >> FLAG_PORT_SHIFT) & FLAG_PORT_MASK); }
 static bool fc_is_bit(uint8_t fc)           { return fc == 1U || fc == 2U; }
 
 static float bits_to_float(uint32_t u) { float f; memcpy(&f, &u, sizeof(f)); return f; }
@@ -119,6 +155,7 @@ static bool block_valid(const uint16_t *b, unsigned idx)
     const uint32_t interval = get_u32(&b[F_INTERVAL]);
     const uint32_t timeout  = get_u32(&b[F_TIMEOUT]);
 
+    if (blk_port(b) >= PORTS)                        { log_warn(TAG, "block %u: port %u, the device has %u", idx, blk_port(b) + 1U, PORTS); return false; }
     if (sl < 1U || sl > 247U)                        { log_warn(TAG, "block %u: slave %u", idx, sl); return false; }
     if (fc < 1U || fc > 4U)                          { log_warn(TAG, "block %u: function code %u", idx, fc); return false; }
     if (count < 1U || count > MODBUS_MASTER_MAX_REGS) { log_warn(TAG, "block %u: count %u", idx, count); return false; }
@@ -147,11 +184,99 @@ static bool block_valid(const uint16_t *b, unsigned idx)
     return true;
 }
 
+/* ------------------------------------------------------------------------ */
+/* Port table (0x1400..0x143F, SPLC-SPEC-MBM-003)                           */
+
+/* What the firmware uses of one 16-register port record. Name and reserved are
+ * ignored. The answer timeout of a request is the one of its MB_READ block; the
+ * port's timeout field is only range-checked. */
+typedef struct {
+    bool             enabled;
+    plc_mbm_serial_t serial;
+    uint16_t         gap_ms;
+    uint8_t          retries;
+} port_cfg_t;
+
+static void parse_port(const uint16_t *r, port_cfg_t *c)
+{
+    const uint16_t framing = r[PF_FRAMING];
+    c->enabled          = (r[PF_CONTROL] & 0x0100U) != 0U;
+    c->serial.baud      = get_u32(&r[PF_BAUD]);
+    c->serial.parity    = (uint8_t)r[PF_PARITY];
+    c->serial.data_bits = (uint8_t)((framing >> 8) == 0U ? 8U : (framing >> 8));          /* 0 = default 8 */
+    c->serial.stop_bits = (uint8_t)((framing & 0xFFU) == 0U ? 1U : (framing & 0xFFU));    /* 0 = default 1 */
+    c->gap_ms           = r[PF_GAP];
+    c->retries          = (uint8_t)r[PF_RETRY];
+}
+
+/* Ports the device lacks (index >= SPLC_MBM_PORT_COUNT) are not stored or checked;
+ * a disabled port is not checked either. */
+static bool port_table_valid(const uint16_t *t)
+{
+    for (unsigned i = 0U; i < PORTS; i++) {
+        const uint16_t *r = &t[i * PLC_MBM_PORT_REGS];
+        if ((r[PF_CONTROL] & 0x0100U) == 0U) { continue; }
+        port_cfg_t c;
+        parse_port(r, &c);
+        if ((r[PF_CONTROL] & 0xFFU) != i + 1U) { log_warn(TAG, "port %u: port number %u", i + 1U, (unsigned)(r[PF_CONTROL] & 0xFFU)); return false; }
+        if (c.serial.baud < 1200U || c.serial.baud > 921600U) { log_warn(TAG, "port %u: baud %lu", i + 1U, (unsigned long)c.serial.baud); return false; }
+        if (c.serial.parity > PLC_MBM_PARITY_ODD) { log_warn(TAG, "port %u: parity %u", i + 1U, c.serial.parity); return false; }
+        if (c.serial.data_bits != 7U && c.serial.data_bits != 8U) { log_warn(TAG, "port %u: data bits %u", i + 1U, c.serial.data_bits); return false; }
+        if (c.serial.stop_bits != 1U && c.serial.stop_bits != 2U) { log_warn(TAG, "port %u: stop bits %u", i + 1U, c.serial.stop_bits); return false; }
+        if (r[PF_TIMEOUT] != 0U && (r[PF_TIMEOUT] < 50U || r[PF_TIMEOUT] > 5000U)) { log_warn(TAG, "port %u: timeout %u", i + 1U, r[PF_TIMEOUT]); return false; }
+        if (c.gap_ms != 0U && (c.gap_ms < 10U || c.gap_ms > 500U)) { log_warn(TAG, "port %u: inter-frame delay %u", i + 1U, c.gap_ms); return false; }
+        if (c.retries > 5U) { log_warn(TAG, "port %u: retries %u", i + 1U, r[PF_RETRY]); return false; }
+    }
+    return true;
+}
+
+/* What a port is until the App writes 0x1400: the App's own default (9600-8-N-1,
+ * 200 ms, 20 ms gap, 1 retry), enabled on every port the device has. */
+static void default_port_table(uint16_t *t)
+{
+    memset(t, 0, PT_REGS * sizeof(uint16_t));
+    for (unsigned i = 0U; i < PORTS; i++) {
+        uint16_t *r = &t[i * PLC_MBM_PORT_REGS];
+        r[PF_CONTROL]   = (uint16_t)(0x0100U | (i + 1U));
+        r[PF_BAUD + 1U] = 9600U;
+        r[PF_PARITY]    = PLC_MBM_PARITY_NONE;
+        r[PF_FRAMING]   = (uint16_t)((8U << 8) | 1U);
+        r[PF_TIMEOUT]   = 200U;
+        r[PF_GAP]       = 20U;
+        r[PF_RETRY]     = 1U;
+    }
+}
+
+/* Make the (valid) running port table take effect: decode every port and mark the
+ * UART of a port whose line settings changed as needing re-configuration. */
+static void apply_port_table(void)
+{
+    for (unsigned i = 0U; i < PORTS; i++) {
+        port_cfg_t c;
+        parse_port(&s_prun[i * PLC_MBM_PORT_REGS], &c);
+        port_rt_t *p = &s_port[i];
+        const bool changed = c.serial.baud != p->serial.baud || c.serial.parity != p->serial.parity ||
+                             c.serial.data_bits != p->serial.data_bits || c.serial.stop_bits != p->serial.stop_bits;
+        p->enabled = c.enabled;
+        p->serial  = c.serial;
+        p->gap_ms  = c.gap_ms;
+        p->retries = c.retries;
+        modbus_rtu_master_set_min_gap_ms(&p->master, c.gap_ms);
+        if (changed) {
+            p->dirty = true;
+            p->configure_next_ms = 0U;
+            if (p->active >= 0) { p->active_stale = true; }   /* the answer on the wire is for the old settings */
+        }
+    }
+}
+
 static void rt_reset(unsigned i)
 {
     memset(&s_rt[i], 0, sizeof(s_rt[i]));
-    if (s_active == (int8_t)i) {
-        s_active_stale = true;       /* the answer on the wire belongs to the old config */
+    for (unsigned p = 0U; p < PORTS; p++) {
+        if (s_port[p].active == (int8_t)i) {
+            s_port[p].active_stale = true;       /* the answer on the wire belongs to the old config */
+        }
     }
 }
 
@@ -164,12 +289,16 @@ static void write_status(uint16_t tag, int32_t v)
 
 void plc_mbm_init(void)
 {
+    for (unsigned p = 0U; p < PORTS; p++) {
+        s_port[p].active = -1;                   /* registration done by the host is kept */
+        s_port[p].active_stale = false;
+    }
     plc_mbm_clear_all();
-    s_serial.baud      = SPLC_MBM_SERIAL_BAUD;
-    s_serial.parity    = (uint8_t)SPLC_MBM_SERIAL_PARITY;
-    s_serial.stop_bits = (uint8_t)SPLC_MBM_SERIAL_STOP_BITS;
-    s_serial_dirty     = true;
-    s_configure_next_ms = 0U;
+    for (unsigned p = 0U; p < PORTS; p++) {      /* first apply: whatever the table says */
+        s_port[p].dirty = true;
+        s_port[p].configure_next_ms = 0U;
+    }
+    s_boot_logged = false;
 }
 
 void plc_mbm_clear_all(void)
@@ -177,35 +306,35 @@ void plc_mbm_clear_all(void)
     memset(s_run, 0, sizeof(s_run));
     memset(s_draft, 0, sizeof(s_draft));
     s_draft_mask = 0U;
+    s_pdraft_on  = false;
+    default_port_table(s_prun);
     for (unsigned i = 0U; i < PLC_MBM_BLOCKS; i++) { rt_reset(i); }
+    apply_port_table();
 }
 
-void splc_mbm_set_rs485_port(const modbus_serial_port_t *port, plc_mbm_configure_fn configure)
+uint16_t plc_mbm_port_count(void) { return (uint16_t)PORTS; }
+
+void splc_mbm_set_rs485_port(uint8_t port_index, const modbus_serial_port_t *port, plc_mbm_configure_fn configure)
 {
-    s_have_port = (port != NULL) && modbus_rtu_master_init(&s_master, port);
-    s_configure = configure;
-    s_serial_dirty = true;
-    s_configure_next_ms = 0U;
-    s_active = -1;
-    log_info(TAG, "RS485 port %s, configure callback %s", s_have_port ? "registered" : "NOT usable",
+    if (port_index >= PORTS) {
+        log_warn(TAG, "RS485 port %u ignored: the device is built for %u port(s) (SPLC_MBM_PORT_COUNT)",
+                 (unsigned)port_index + 1U, PORTS);
+        return;
+    }
+    port_rt_t *p = &s_port[port_index];
+    p->registered = (port != NULL) && modbus_rtu_master_init(&p->master, port);
+    p->configure  = configure;
+    p->async_tx   = p->registered && port->write_start != NULL && port->tx_done != NULL;
+    p->dirty      = true;
+    p->configure_next_ms = 0U;
+    p->active     = -1;
+    p->active_stale = false;
+    if (p->registered) { modbus_rtu_master_set_min_gap_ms(&p->master, p->gap_ms); }
+    log_info(TAG, "RS485 port %u %s, %s TX, configure callback %s",
+             (unsigned)port_index + 1U, p->registered ? "registered" : "NOT usable",
+             p->async_tx ? "non-blocking" : "blocking",
              (configure != NULL) ? "present" : "absent (line speed = port baudrate)");
 }
-
-bool plc_mbm_set_serial(const plc_mbm_serial_t *cfg)
-{
-    if (cfg == NULL || cfg->baud < 1200U || cfg->baud > 921600U || cfg->parity > 2U ||
-        (cfg->stop_bits != 1U && cfg->stop_bits != 2U)) {
-        return false;
-    }
-    if (cfg->baud != s_serial.baud || cfg->parity != s_serial.parity || cfg->stop_bits != s_serial.stop_bits) {
-        s_serial = *cfg;
-        s_serial_dirty = true;
-        s_configure_next_ms = 0U;
-    }
-    return true;
-}
-
-void plc_mbm_get_serial(plc_mbm_serial_t *out) { if (out != NULL) { *out = s_serial; } }
 
 void plc_mbm_read(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
 {
@@ -217,9 +346,7 @@ void plc_mbm_read(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
 
 plc_mbm_write_result_t plc_mbm_write(uint16_t offset, uint16_t quantity, const uint16_t *registers)
 {
-    if ((uint32_t)offset + quantity > PLC_MBM_REGS) {
-        return PLC_MBM_WRITE_BAD_ADDRESS;
-    }
+    if ((uint32_t)offset + quantity > PLC_MBM_REGS) { return PLC_MBM_WRITE_BAD_ADDRESS; }
     for (uint16_t i = 0U; i < quantity; i++) {
         const uint16_t o = (uint16_t)(offset + i);
         const unsigned blk = o / PLC_MBM_BLOCK_REGS;
@@ -232,19 +359,43 @@ plc_mbm_write_result_t plc_mbm_write(uint16_t offset, uint16_t quantity, const u
     return PLC_MBM_WRITE_OK;
 }
 
+void plc_mbm_ports_read(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
+{
+    for (uint16_t i = 0U; i < quantity; i++) {
+        const uint16_t o = (uint16_t)(offset + i);
+        registers_out[i] = (o < PT_REGS) ? s_prun[o] : 0U;
+    }
+}
+
+plc_mbm_write_result_t plc_mbm_ports_write(uint16_t offset, uint16_t quantity, const uint16_t *registers)
+{
+    if ((uint32_t)offset + quantity > PLC_MBM_PORT_TABLE_REGS) { return PLC_MBM_WRITE_BAD_ADDRESS; }
+    if (!s_pdraft_on) {
+        memcpy(s_pdraft, s_prun, sizeof(s_pdraft));    /* a partial write keeps the rest */
+        s_pdraft_on = true;
+    }
+    for (uint16_t i = 0U; i < quantity; i++) {
+        if ((unsigned)offset + i < PT_REGS) { s_pdraft[offset + i] = registers[i]; }   /* ports the device lacks are dropped */
+    }
+    return PLC_MBM_WRITE_OK;
+}
+
 bool plc_mbm_validate_draft(void)
 {
     for (unsigned i = 0U; i < PLC_MBM_BLOCKS; i++) {
-        if ((s_draft_mask & (1U << i)) != 0U && !block_valid(s_draft[i], i)) {
-            return false;
-        }
+        if ((s_draft_mask & (1U << i)) != 0U && !block_valid(s_draft[i], i)) { return false; }
     }
-    return true;
+    return !s_pdraft_on || port_table_valid(s_pdraft);
 }
 
 void plc_mbm_commit_draft(void)
 {
     unsigned enabled = 0U;
+    if (s_pdraft_on) {
+        memcpy(s_prun, s_pdraft, sizeof(s_prun));
+        apply_port_table();
+        log_info(TAG, "COMMIT: port table");
+    }
     for (unsigned i = 0U; i < PLC_MBM_BLOCKS; i++) {
         if ((s_draft_mask & (1U << i)) != 0U) {
             memcpy(s_run[i], s_draft[i], sizeof(s_run[i]));
@@ -256,41 +407,53 @@ void plc_mbm_commit_draft(void)
         log_info(TAG, "COMMIT: draft_mask=0x%02X, %u block(s) enabled", (unsigned)s_draft_mask, enabled);
     }
     s_draft_mask = 0U;
+    s_pdraft_on  = false;
 }
 
-void plc_mbm_discard_draft(void) { s_draft_mask = 0U; }
+void plc_mbm_discard_draft(void) { s_draft_mask = 0U; s_pdraft_on = false; }
+
+static void put_regs(uint8_t *out, const uint16_t *regs, unsigned n)
+{
+    for (unsigned i = 0U; i < n; i++) {
+        out[2U * i]      = (uint8_t)(regs[i] >> 8);
+        out[2U * i + 1U] = (uint8_t)(regs[i] & 0xFFU);
+    }
+}
+
+static void get_regs(const uint8_t *in, uint16_t *regs, unsigned n)
+{
+    for (unsigned i = 0U; i < n; i++) {
+        regs[i] = (uint16_t)(((uint16_t)in[2U * i] << 8) | in[2U * i + 1U]);
+    }
+}
 
 void plc_mbm_export(uint8_t *out)
 {
-    for (unsigned i = 0U; i < PLC_MBM_REGS; i++) {
-        const uint16_t v = s_run[i / PLC_MBM_BLOCK_REGS][i % PLC_MBM_BLOCK_REGS];
-        out[2U * i]      = (uint8_t)(v >> 8);
-        out[2U * i + 1U] = (uint8_t)(v & 0xFFU);
+    for (unsigned b = 0U; b < PLC_MBM_BLOCKS; b++) {
+        put_regs(&out[b * PLC_MBM_BLOCK_REGS * 2U], s_run[b], PLC_MBM_BLOCK_REGS);
     }
-}
-
-static void unpack_block(const uint8_t *in, unsigned blk, uint16_t out[PLC_MBM_BLOCK_REGS])
-{
-    for (unsigned i = 0U; i < PLC_MBM_BLOCK_REGS; i++) {
-        const unsigned o = blk * PLC_MBM_BLOCK_REGS + i;
-        out[i] = (uint16_t)(((uint16_t)in[2U * o] << 8) | in[2U * o + 1U]);
-    }
+    put_regs(&out[PLC_MBM_REGS * 2U], s_prun, PT_REGS);
+    memset(&out[(PLC_MBM_REGS + PT_REGS) * 2U], 0, (PLC_MBM_PORT_TABLE_REGS - PT_REGS) * 2U);
 }
 
 bool plc_mbm_import(const uint8_t *in)
 {
-    uint16_t blk[PLC_MBM_BLOCK_REGS];   /* 128 B on the stack: no 512 B static copy of the image */
+    uint16_t blk[PLC_MBM_BLOCK_REGS];   /* 128 B on the stack: no 640 B static copy of the image */
     for (unsigned i = 0U; i < PLC_MBM_BLOCKS; i++) {
-        unpack_block(in, i, blk);
-        if (!block_valid(blk, i)) {
-            return false;               /* nothing applied yet */
-        }
+        get_regs(&in[i * PLC_MBM_BLOCK_REGS * 2U], blk, PLC_MBM_BLOCK_REGS);
+        if (!block_valid(blk, i)) { return false; }              /* nothing applied yet */
     }
+    uint16_t ports[PT_REGS];
+    get_regs(&in[PLC_MBM_REGS * 2U], ports, PT_REGS);
+    if (!port_table_valid(ports)) { return false; }
     for (unsigned i = 0U; i < PLC_MBM_BLOCKS; i++) {
-        unpack_block(in, i, s_run[i]);
+        get_regs(&in[i * PLC_MBM_BLOCK_REGS * 2U], s_run[i], PLC_MBM_BLOCK_REGS);
         rt_reset(i);
     }
+    memcpy(s_prun, ports, sizeof(s_prun));
+    apply_port_table();
     s_draft_mask = 0U;
+    s_pdraft_on  = false;
     return true;
 }
 
@@ -370,10 +533,10 @@ static bool decode_pin(const uint16_t *pin, const uint16_t *r, uint16_t count, i
     }
 }
 
-static void finish_ok(unsigned blk)
+static void finish_ok(unsigned blk, const modbus_rtu_master_t *m)
 {
     const uint16_t *b = s_run[blk];
-    const uint16_t *r = modbus_rtu_master_regs(&s_master);
+    const uint16_t *r = modbus_rtu_master_regs(m);
     for (uint16_t i = 0U; i < b[F_PIN_COUNT]; i++) {
         const uint16_t *pin = &b[F_PINS + i * PIN_REGS];
         int32_t v;
@@ -387,11 +550,11 @@ static void finish_ok(unsigned blk)
     s_rt[blk].valid_clear = (b[F_VALID_TAG] != TAG_NONE_IDX);
 }
 
-static void finish_err(unsigned blk)
+static void finish_err(unsigned blk, const modbus_rtu_master_t *m)
 {
     const uint16_t *b = s_run[blk];
     int32_t code;
-    switch (modbus_rtu_master_error(&s_master)) {
+    switch (modbus_rtu_master_error(m)) {
     case MODBUS_MASTER_ERR_CRC:       code = ERR_CRC;       break;
     case MODBUS_MASTER_ERR_EXCEPTION: code = ERR_EXCEPTION; break;
     case MODBUS_MASTER_ERR_FRAME:     code = ERR_MALFORMED; break;
@@ -405,26 +568,30 @@ static void finish_err(unsigned blk)
 
 /* ------------------------------------------------------------------------ */
 
-static void apply_serial(uint32_t now_ms)
+/* Apply the App's line settings to the UART of one port. Only while the port is
+ * idle: re-programming the UART under a frame that is going out would destroy it. */
+static void apply_serial(port_rt_t *p, unsigned idx, uint32_t now_ms)
 {
-    if (!s_serial_dirty || (int32_t)(now_ms - s_configure_next_ms) < 0) {
+    if (!p->dirty || (int32_t)(now_ms - p->configure_next_ms) < 0 || modbus_rtu_master_is_busy(&p->master)) {
         return;
     }
-    if (s_configure == NULL) {
-        s_serial_dirty = false;       /* nothing to apply: the port keeps its own line speed */
-        log_info(TAG, "no configure callback: line settings stay as the host set them (baud %lu)",
-                 (unsigned long)s_master.port.baudrate);
+    if (p->configure == NULL) {
+        p->dirty = false;             /* nothing to apply: the port keeps its own line speed */
+        log_info(TAG, "port %u: no configure callback, line settings stay as the host set them (baud %lu)",
+                 idx + 1U, (unsigned long)p->master.port.baudrate);
         return;
     }
-    if (s_configure(s_master.port.ctx, &s_serial) == 0) {
-        s_master.port.baudrate = s_serial.baud;   /* only feeds the inter-frame gap */
-        s_serial_dirty = false;
-        log_info(TAG, "serial applied: %lu baud, parity %u, stop %u",
-                 (unsigned long)s_serial.baud, (unsigned)s_serial.parity, (unsigned)s_serial.stop_bits);
+    if (p->configure(p->master.port.ctx, &p->serial) == 0) {
+        p->master.port.baudrate = p->serial.baud;   /* only feeds the inter-frame gap / TX timeout */
+        p->dirty = false;
+        log_info(TAG, "port %u: %lu baud, %u data bits, parity %u, stop %u", idx + 1U,
+                 (unsigned long)p->serial.baud, (unsigned)p->serial.data_bits,
+                 (unsigned)p->serial.parity, (unsigned)p->serial.stop_bits);
     } else {
-        s_configure_next_ms = now_ms + CONFIGURE_RETRY_MS;
-        log_warn(TAG, "host could not apply %lu baud / parity %u / stop %u, retrying",
-                 (unsigned long)s_serial.baud, (unsigned)s_serial.parity, (unsigned)s_serial.stop_bits);
+        p->configure_next_ms = now_ms + CONFIGURE_RETRY_MS;
+        log_warn(TAG, "port %u: host could not apply %lu baud / %u bits / parity %u / stop %u, retrying", idx + 1U,
+                 (unsigned long)p->serial.baud, (unsigned)p->serial.data_bits,
+                 (unsigned)p->serial.parity, (unsigned)p->serial.stop_bits);
     }
 }
 
@@ -432,19 +599,68 @@ static bool block_due(unsigned i, uint32_t now_ms)
 {
     const uint16_t *b = s_run[i];
     if (!blk_enabled(b)) { return false; }
+    if (s_rt[i].retry_pending) { return true; }
     if (b[F_READ_MODE] == 1U) { return s_rt[i].pending; }
     return !s_rt[i].started ||
            (uint32_t)(now_ms - s_rt[i].last_start_ms) >= get_u32(&b[F_INTERVAL]);
 }
 
-void plc_mbm_scan(uint32_t now_ms)
+/* A due block whose port cannot be used (not registered, or disabled by the App):
+ * the poll is not sent and counts as a timeout, once per interval. */
+static void fail_block_no_port(unsigned i, uint32_t now_ms, const char *why)
 {
-    if (!s_have_port) {
+    const uint16_t *b = s_run[i];
+    if (!s_rt[i].warned) {
+        s_rt[i].warned = true;
+        log_warn(TAG, "block %u: port %u %s, the block reports err_code 1", i, blk_port(b) + 1U, why);
+    }
+    write_status(b[F_VALID_TAG], 0);
+    write_status(b[F_ERROR_TAG], 1);
+    write_status(b[F_ERRCODE_TAG], ERR_TIMEOUT);
+    s_rt[i].valid_clear   = false;
+    s_rt[i].started       = true;
+    s_rt[i].pending       = false;
+    s_rt[i].retry_pending = false;
+    s_rt[i].last_start_ms = now_ms;
+}
+
+/* The request of port `p` finished: hand the answer to its block. */
+static void port_result(port_rt_t *p, modbus_master_state_t st)
+{
+    const unsigned blk   = (unsigned)p->active;
+    const bool     stale = p->active_stale;
+    p->active = -1;
+    p->active_stale = false;
+    if (stale) { return; }
+
+    if (st == MODBUS_MASTER_DONE_OK) {
+        s_rt[blk].retry_pending = false;
+        finish_ok(blk, &p->master);
         return;
     }
-    apply_serial(now_ms);
-    if (s_serial_dirty && s_configure != NULL) {
-        return;                       /* do not poll with the wrong line settings */
+    /* A slave exception is an answer: do not repeat it. Timeouts, CRC errors and
+     * broken frames are retried as often as the port was configured to. */
+    if (modbus_rtu_master_error(&p->master) != MODBUS_MASTER_ERR_EXCEPTION && s_rt[blk].retries_left > 0U) {
+        s_rt[blk].retries_left--;
+        s_rt[blk].retry_pending = true;
+        return;
+    }
+    s_rt[blk].retry_pending = false;
+    finish_err(blk, &p->master);
+}
+
+void plc_mbm_scan(uint32_t now_ms)
+{
+    if (!s_boot_logged) {
+        s_boot_logged = true;
+        for (unsigned p = 0U; p < PORTS; p++) {
+            if (!s_port[p].registered) {
+                log_warn(TAG, "port %u of %u has no RS485 port registered: blocks on it report err_code 1", p + 1U, PORTS);
+            }
+        }
+    }
+    for (unsigned p = 0U; p < PORTS; p++) {
+        if (s_port[p].registered) { apply_serial(&s_port[p], p, now_ms); }
     }
 
     /* The valid tag is a one-scan pulse. */
@@ -455,7 +671,7 @@ void plc_mbm_scan(uint32_t now_ms)
         }
     }
 
-    /* Rising edge of every on-trigger block's tag, even while the bus is busy. */
+    /* Rising edge of every on-trigger block's tag, even while a bus is busy. */
     for (unsigned i = 0U; i < PLC_MBM_BLOCKS; i++) {
         const uint16_t *b = s_run[i];
         if (blk_enabled(b) && b[F_READ_MODE] == 1U) {
@@ -465,35 +681,45 @@ void plc_mbm_scan(uint32_t now_ms)
         }
     }
 
-    if (s_active >= 0) {
-        const modbus_master_state_t st = modbus_rtu_master_poll(&s_master);
-        if (st == MODBUS_MASTER_BUSY) {
-            return;
-        }
-        const unsigned blk = (unsigned)s_active;
-        s_active = -1;
-        if (!s_active_stale) {
-            if (st == MODBUS_MASTER_DONE_OK)       { finish_ok(blk); }
-            else if (st == MODBUS_MASTER_DONE_ERR) { finish_err(blk); }
-        }
-        s_active_stale = false;
+    /* Collect the answer of the request in flight on every port. */
+    for (unsigned p = 0U; p < PORTS; p++) {
+        port_rt_t *pr = &s_port[p];
+        if (pr->active < 0) { continue; }
+        const modbus_master_state_t st = modbus_rtu_master_poll(&pr->master);
+        if (st != MODBUS_MASTER_BUSY) { port_result(pr, st); }
     }
 
+    /* Start requests: at most one per port (one request in flight per bus). A port
+     * whose write blocks (no non-blocking TX) is started at most once per scan
+     * overall, so the scan is never held for more than one frame. */
+    bool blocking_started = false;
     for (unsigned n = 0U; n < PLC_MBM_BLOCKS; n++) {
         const unsigned i = (s_rr + n) % PLC_MBM_BLOCKS;
         if (!block_due(i, now_ms)) { continue; }
         const uint16_t *b = s_run[i];
-        if (modbus_rtu_master_read_fc(&s_master, blk_slave(b), blk_fc(b), b[F_START], b[F_COUNT],
+        port_rt_t *pr = &s_port[blk_port(b)];     /* validated: < PORTS */
+
+        if (!pr->registered) { fail_block_no_port(i, now_ms, "has no RS485 port registered"); continue; }
+        if (!pr->enabled)    { fail_block_no_port(i, now_ms, "is disabled in the port table"); continue; }
+        if (pr->dirty && pr->configure != NULL) { continue; }   /* do not poll with the wrong line settings */
+        if (pr->active >= 0)                    { continue; }   /* this bus is busy */
+        if (!pr->async_tx && blocking_started)  { continue; }
+
+        if (modbus_rtu_master_read_fc(&pr->master, blk_slave(b), blk_fc(b), b[F_START], b[F_COUNT],
                                       get_u32(&b[F_TIMEOUT]))) {
-            s_active = (int8_t)i;
-            s_active_stale = false;
+            if (!s_rt[i].retry_pending) {
+                s_rt[i].retries_left  = pr->retries;
+                s_rt[i].last_start_ms = now_ms;
+            }
+            s_rt[i].retry_pending = false;
             s_rt[i].started = true;
             s_rt[i].pending = false;
-            s_rt[i].last_start_ms = now_ms;
+            pr->active = (int8_t)i;
+            pr->active_stale = false;
             s_rr = (uint8_t)((i + 1U) % PLC_MBM_BLOCKS);
+            if (!pr->async_tx) { blocking_started = true; }
         }
         /* false: the inter-frame gap has not elapsed (retry next scan) -- nothing consumed */
-        break;
     }
 }
 

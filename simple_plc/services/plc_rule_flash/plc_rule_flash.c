@@ -127,7 +127,7 @@ typedef struct {
     uint32_t fb_size;     /* 0 (none), 112 (legacy) or 128 (V2) */
     uint32_t mqtt_size;   /* 0 (none) or 960; always 0 when SPLC_MQTT_ENABLE = 0 */
 #if SPLC_MBM_ENABLE
-    uint32_t mb_size;     /* 0 (none) or 512; the member does not exist when SPLC_MBM_ENABLE = 0 */
+    uint32_t mb_size;     /* 0 (none) or 640; the member does not exist when SPLC_MBM_ENABLE = 0 */
 #endif
 #if SPLC_REAL_ENABLE
     uint32_t types_size;  /* 0 (none) or 128; the member does not exist when SPLC_REAL_ENABLE = 0 (keeps that build byte-identical) */
@@ -240,7 +240,7 @@ static uint32_t rule_flash_build_record(uint32_t seq_num)
         .fb_size    = SPLC_RULE_FLASH_FB_SIZE,
         .mqtt_size  = SPLC_RULE_FLASH_MQTT_RESERVE,   /* 960 with MQTT, else 0 */
 #if SPLC_MBM_ENABLE
-        .mb_size    = SPLC_RULE_FLASH_MB_RESERVE,     /* 512 with MBM */
+        .mb_size    = SPLC_RULE_FLASH_MB_RESERVE,     /* 640 with MBM */
 #endif
 #if SPLC_REAL_ENABLE
         .types_size = SPLC_RULE_FLASH_TYPES_RESERVE,  /* 128 with REAL */

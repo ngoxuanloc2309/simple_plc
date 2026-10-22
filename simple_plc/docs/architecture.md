@@ -268,7 +268,7 @@ timeout bằng tick thật, CRC bằng `nmbs_crc_calc()` (byte-swapped, ghi big-
 - **`plc_fb`**: khối Timer/Counter `0x0B00..0x0B7F` (nháp + COMMIT; Timer báo cáo qua
   `rule_ref`; Counter đọc CV từ tag do Host chọn).
 - **`plc_tagtype`** (chỉ khi `SPLC_REAL_ENABLE=1`): bảng kiểu tag `0x0080..0x00BF` (nháp + COMMIT, `plc_tagtype_get()` cho MB_READ/Publish/SUB; Rule Engine không tra bảng). Lưu trong bản ghi Rule Table (bit 11); xem handoff quyết định 41–42.
-- **`plc_mbm`** (chỉ khi `SPLC_MBM_ENABLE=1`): MB_READ, master Modbus RTU đọc cảm biến theo 4 khối `0x1000..0x10FF` (nháp + COMMIT, lưu bit 12 của bản ghi Rule Table, mỗi scan một request qua `modbus_rtu_master_read_fc`, ghi vào tag). Cổng RS485 + cấu hình baud do host đăng ký (`splc_mbm_set_rs485_port`); xem `plc_mbm.h`, handoff quyết định 38–39, 43–44.
+- **`plc_mbm`** (chỉ khi `SPLC_MBM_ENABLE=1`): MB_READ, master Modbus RTU đọc cảm biến theo 4 khối `0x1000..0x10FF` (nháp + COMMIT, lưu bit 12 của bản ghi Rule Table, mỗi scan một request qua `modbus_rtu_master_read_fc`, ghi vào tag). `SPLC_MBM_PORT_COUNT` (1/2/4) cổng RS485, mỗi cổng một master; host đăng ký từng cổng (`splc_mbm_set_rs485_port(index, port, configure)`), baud/parity/data/stop/gap/retry do App ghi ở `0x1400..0x143F` (MBM-003, lưu cùng đoạn bit 12 = 640 B); xem `plc_mbm.h`, handoff quyết định 38–39, 43–44, 46.
 - **`plc_rtc`**: khối `0x0810` (epoch UTC, tz, `status_flags` RO), `plc_rtc_get_local_hhmm()`.
 
 ### Layer 4 — Engine
@@ -310,7 +310,9 @@ ghi, high byte trước; CRC khung RTU little-endian.
 | `0x0A01..0x0A02` | R | Command Status, Error Code |
 | `0x0A20..0x0A24` | R/W | Diag Control (Command, State, Flags, LeaseMs, ErrorCode) |
 | `0x0B00..0x0B3F` / `0x0B40..0x0B7F` | R/W | 8 Timer / 8 Counter, 8 reg mỗi khối |
+| `0x0A0A` | R | Số cổng RS-485 vật lý (uint16 = `SPLC_MBM_PORT_COUNT`; chỉ khi `SPLC_MBM_ENABLE=1`) |
 | `0x1000..0x10FF` | R/W | MB_READ, 4 khối × 64 reg (chỉ khi `SPLC_MBM_ENABLE=1`; ghi vào nháp, COMMIT áp dụng) |
+| `0x1400..0x143F` | R/W | Bảng cổng RS-485 (4 × 16 reg, MBM-003; chỉ khi `SPLC_MBM_ENABLE=1`; nháp + COMMIT) |
 | `0x9000..0x9005` | R/W | Staging handshake (status, error, staged count, expected CRC, active count, active CRC) |
 | `0x9010..0x964F` | W | Staging Rule Buffer |
 | `0xA000` | W | Commit (`0xA5A5`) |

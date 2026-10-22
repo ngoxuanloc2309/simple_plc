@@ -50,15 +50,28 @@
  * VREG_RETAIN, MB_COIL or MB_HOLDING (a DI/DO/AI/COUNTER target is refused at
  * COMMIT). This is the firmware's reading of the ICD; the ICD is silent on it.
  *
- * Serial line settings (baud / parity / stop bits) are NOT in the wire yet:
- * only the App knows what the sensors speak, so they must come from the App.
- * Until the App team defines where, they come from splcopts.h
- * (SPLC_MBM_SERIAL_*) and plc_mbm_set_serial() is the one place a future wire
- * field plugs into. The host applies them with the configure() callback given
- * to splc_mbm_set_rs485_port().
+ * RS-485 ports (SPLC-SPEC-MBM-003, 0x1400..0x143F): the device has
+ * SPLC_MBM_PORT_COUNT (1, 2 or 4) ports, reported at 0x0A0A. The App writes one
+ * 16-register record per port (+0 enabled | port number 1..4, +1..+2 baud,
+ * +3 parity 0 none / 1 even / 2 odd, +4 (data bits << 8) | stop bits, +5 timeout,
+ * +6 inter-frame delay, +7 retries, +8..+13 name). The table goes through the same
+ * draft / COMMIT / Flash path as the blocks (saved right after them in the bit-12
+ * section). A block names its port in bits 4..7 of its flags register. The firmware
+ * applies the line settings of a port with the host's configure() callback (never
+ * while a request is in flight), keeps the inter-frame delay, and repeats a request
+ * that timed out / failed its CRC / came back broken up to `retries` times before
+ * reporting the error. The answer timeout of a request is the one in its block (the
+ * port's timeout field is only checked). Until the App writes the table every port
+ * is enabled at 9600-8-N-1.
  *
- * Scheduling: ONE request at a time, never blocking longer than the TX of one
- * short frame; round-robin over the due blocks. Not run while a diag session
+ * Which UART serves which port is the host's business: it calls
+ * splc_mbm_set_rs485_port() once per port index. A block on a port the host did not
+ * register (or that the App disabled) is never sent: it reports err_code 1.
+ *
+ * Scheduling: ONE request in flight per port, ports run side by side. A port that
+ * can send without blocking (write_start/tx_done in modbus_serial_port_t) costs the
+ * scan nothing; a port whose write() blocks is started at most once per scan
+ * overall. Blocks of one port are served round-robin. Not run while a diag session
  * suspends the engine (the tags are forced by the Host then).
  *
  * Threading: single-threaded, engine context only. Compiled only with
@@ -82,7 +95,14 @@ extern "C" {
 #define PLC_MBM_BLOCKS        4U
 #define PLC_MBM_BLOCK_REGS    64U
 #define PLC_MBM_REGS          (PLC_MBM_BLOCKS * PLC_MBM_BLOCK_REGS)   /* 256 */
-#define PLC_MBM_FLASH_SIZE    (PLC_MBM_REGS * 2U)                     /* 512 */
+/* RS-485 port table (SPLC-SPEC-MBM-003). */
+#define PLC_MBM_PORT_BASE         0x1400U
+#define PLC_MBM_PORT_MAX          4U                                   /* wire capacity, not the device's port count */
+#define PLC_MBM_PORT_REGS         16U
+#define PLC_MBM_PORT_TABLE_REGS   (PLC_MBM_PORT_MAX * PLC_MBM_PORT_REGS)   /* 64 */
+
+/* Flash image: the 256 block registers, then the 64 port-table registers. */
+#define PLC_MBM_FLASH_SIZE    ((PLC_MBM_REGS + PLC_MBM_PORT_TABLE_REGS) * 2U)   /* 640 */
 #define PLC_MBM_MAX_PINS      4U
 
 /* Capability bit MODBUS_MASTER of 0x0A08 (App header SPLC_CAP_MODBUS_MASTER). */
@@ -93,27 +113,36 @@ typedef enum {
     PLC_MBM_WRITE_BAD_ADDRESS      /* -> Modbus 0x02 */
 } plc_mbm_write_result_t;
 
-/* Line settings of the sensor bus. parity: 0 none, 1 odd, 2 even; stop_bits: 1 or 2. */
+/* Parity as it is on the wire (MBM-003 +3). NOTE: sx_uart uses 1 = odd, 2 = even;
+ * a configure() callback maps between the two. */
+typedef enum { PLC_MBM_PARITY_NONE = 0, PLC_MBM_PARITY_EVEN = 1, PLC_MBM_PARITY_ODD = 2 } plc_mbm_parity_t;
+
+/* Line settings of one port, as the App set them: baud 1200..921600, parity
+ * plc_mbm_parity_t, data_bits 7 or 8, stop_bits 1 or 2. */
 typedef struct {
     uint32_t baud;
     uint8_t  parity;
+    uint8_t  data_bits;
     uint8_t  stop_bits;
 } plc_mbm_serial_t;
 
-/* Host callback that re-configures its UART for the given line settings.
- * Returns 0 when the port now runs with them, negative when it cannot (the
- * firmware logs it and tries again about once a second). */
+/* Host callback that re-configures the UART of one port for the given line
+ * settings. Returns 0 when the port now runs with them, negative when it cannot
+ * (the firmware logs it, retries about once a second and does not poll that port
+ * meanwhile). */
 typedef int (*plc_mbm_configure_fn)(void *ctx, const plc_mbm_serial_t *cfg);
 
 /* ---- host side -------------------------------------------------------- */
 
-/* Register the RS485 port MB_READ talks through (copied; port->ctx is
- * borrowed). `configure` may be NULL when the host cannot change its UART: the
- * baudrate field of `port` is then taken as the real line speed and the
- * serial settings below are only informative. Call before plc_engine_init()
- * or any time before the first scan; not from another task. Without a port,
- * every block stays idle. */
-void splc_mbm_set_rs485_port(const modbus_serial_port_t *port, plc_mbm_configure_fn configure);
+/* Register RS485 port number `port_index` (0..SPLC_MBM_PORT_COUNT-1; the App's
+ * "port + 1") that MB_READ talks through (copied; port->ctx is borrowed).
+ * `configure` may be NULL when the host cannot change its UART: the baudrate field
+ * of `port` is then the real line speed and the App's line settings are ignored.
+ * Give the port write_start / tx_done (modbus_serial.h) to keep the scan free of the
+ * frame's transmit time. Call once per port, before the first scan; not from another
+ * task. A port never registered leaves its blocks reporting err_code 1. */
+void splc_mbm_set_rs485_port(uint8_t port_index, const modbus_serial_port_t *port,
+                             plc_mbm_configure_fn configure);
 
 /* ---- engine side ------------------------------------------------------ */
 
@@ -121,12 +150,8 @@ void splc_mbm_set_rs485_port(const modbus_serial_port_t *port, plc_mbm_configure
  * splcopts.h. Call once, before plc_rule_flash_load(). */
 void plc_mbm_init(void);
 
-/* Line settings. set_serial() returns false (nothing changed) for baud outside
- * 1200..921600, parity > 2 or stop_bits not 1/2; otherwise they are applied
- * through configure() on a later scan. The wire has no field for them yet
- * (see above), so nothing calls this except a future wire decoder. */
-bool plc_mbm_set_serial(const plc_mbm_serial_t *cfg);
-void plc_mbm_get_serial(plc_mbm_serial_t *out);
+/* Number of RS-485 ports of this device: the value of register 0x0A0A. */
+uint16_t plc_mbm_port_count(void);
 
 /* FC03 of `quantity` registers at `offset` (0..255): the RUNNING blocks. */
 void plc_mbm_read(uint16_t offset, uint16_t quantity, uint16_t *registers_out);
@@ -136,11 +161,19 @@ void plc_mbm_read(uint16_t offset, uint16_t quantity, uint16_t *registers_out);
  * at COMMIT, not here. */
 plc_mbm_write_result_t plc_mbm_write(uint16_t offset, uint16_t quantity, const uint16_t *registers);
 
+/* The port table 0x1400..0x143F (64 registers): FC03 returns the RUNNING table,
+ * FC16 / FC06 go to a DRAFT (copied from the running table on the first write)
+ * checked at COMMIT together with the blocks. A request running past the end of the
+ * area is BAD_ADDRESS and changes nothing. */
+void plc_mbm_ports_read(uint16_t offset, uint16_t quantity, uint16_t *registers_out);
+plc_mbm_write_result_t plc_mbm_ports_write(uint16_t offset, uint16_t quantity, const uint16_t *registers);
+
 bool plc_mbm_validate_draft(void);   /* true also when nothing was written */
 void plc_mbm_commit_draft(void);     /* call only after validate returned true */
 void plc_mbm_discard_draft(void);
 
-/* Flash image: PLC_MBM_FLASH_SIZE bytes = the 256 RUNNING registers, big-endian. */
+/* Flash image: PLC_MBM_FLASH_SIZE bytes = the 256 RUNNING block registers then the
+ * 64 RUNNING port-table registers, big-endian. */
 void plc_mbm_export(uint8_t *out);
 
 /* Load an image written by plc_mbm_export(). The whole image is checked with
@@ -148,7 +181,8 @@ void plc_mbm_export(uint8_t *out);
  * at boot and to roll back a failed CLEAR_RULES. Drops any draft. */
 bool plc_mbm_import(const uint8_t *in);
 
-/* CLEAR_RULES / FACTORY_RESET: every block disabled, draft dropped. */
+/* CLEAR_RULES / FACTORY_RESET: every block disabled, port table back to its
+ * defaults, draft dropped. */
 void plc_mbm_clear_all(void);
 
 /* One scan step (after output_scan): collect the answer of the request in
