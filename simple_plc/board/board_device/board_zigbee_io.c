@@ -442,10 +442,24 @@ static void board_app_link_init(void)
 #endif
 
 #define MBM_DEFAULT_BAUD  9600U
+
+/* TEMPORARY A/B switch to isolate the TX path:
+ *   0 = non-blocking interrupt transmit (HAL_UART_Transmit_IT + TC ISR)
+ *   1 = old blocking transmit through write() (sync path of the master, as in ed68fa5)
+ *   3 = master's ASYNC state machine (write_start/tx_done) but the bytes go out through the
+ *       blocking HAL_UART_Transmit inside write_start: tests the master half without the IT UART.
+ *   4 = like 0 (interrupt transmit) but the TC ISR only drops DE; the receiver is switched back on
+ *       (flush + RE) from the main context, inside tx_done(). Tests "RX enable inside the ISR". */
+#ifndef MBM_TX_BLOCKING
+#define MBM_TX_BLOCKING 0
+#endif
 #define MBM_DBG_FIRST     8U     /* TEMPORARY diagnostics: log the first N frame starts */
 
 static volatile uint32_t s_dbg_start, s_dbg_tc, s_dbg_abort;   /* TEMPORARY diagnostics */
 static volatile uint32_t s_dbg_t0, s_dbg_dt;                    /* TEMPORARY: start tick, last TX duration (ms) */
+static volatile uint32_t s_dbg_c0, s_dbg_cdt;                   /* TEMPORARY: DWT cycles at start, last TX duration */
+static volatile uint32_t s_dbg_cdt_max;
+static volatile bool     s_rx_pending;                          /* TEMPORARY (variant 4): RX still to be switched on */
 
 static sx_uart_t        s_mbm_uart;
 static sx_uart_config_t s_mbm_uart_cfg;
@@ -470,9 +484,13 @@ static void mbm_tx_done_isr(void *ctx)
 {
     (void)ctx;
     s_dbg_dt = HAL_GetTick() - s_dbg_t0;
+    s_dbg_cdt = DWT->CYCCNT - s_dbg_c0;
+    if (s_dbg_cdt > s_dbg_cdt_max) { s_dbg_cdt_max = s_dbg_cdt; }
     s_dbg_tc++;
     mbm_de(false);
+#if MBM_TX_BLOCKING != 4
     sx_uart_set_rx_enabled(&s_mbm_uart, true);
+#endif
 }
 
 static int mbm_write_start(void *ctx, const uint8_t *buf, uint16_t len)
@@ -480,13 +498,30 @@ static int mbm_write_start(void *ctx, const uint8_t *buf, uint16_t len)
     (void)ctx;
     s_dbg_start++;
     if (s_dbg_start <= MBM_DBG_FIRST) {   /* tc of the PREVIOUS frame shows here */
-        log_info(TAG, "MBM TX start #%lu len=%u [%02X %02X] tc_so_far=%lu prev_tx_ms=%lu (8 B @9600 = ~9)",
+        log_info(TAG, "MBM TX start #%lu len=%u [%02X %02X] tc_so_far=%lu prev_tx_ms=%lu prev_tx_us=%lu max_us=%lu (ideal 8 B @9600 = 8333 us)",
                  (unsigned long)s_dbg_start, (unsigned)len, buf[0], (len > 1U) ? buf[1] : 0U,
-                 (unsigned long)s_dbg_tc, (unsigned long)s_dbg_dt);
+                 (unsigned long)s_dbg_tc, (unsigned long)s_dbg_dt,
+                 (unsigned long)(s_dbg_cdt / (SystemCoreClock / 1000000UL)),
+                 (unsigned long)(s_dbg_cdt_max / (SystemCoreClock / 1000000UL)));
     }
     s_dbg_t0 = HAL_GetTick();
+    s_dbg_c0 = DWT->CYCCNT;
+#if MBM_TX_BLOCKING == 3
     sx_uart_set_rx_enabled(&s_mbm_uart, false);
     mbm_de(true);
+    int rc3 = sx_uart_write(&s_mbm_uart, buf, (int)len, 100U);   /* returns after TC, txBusy never set */
+    mbm_de(false);
+    sx_uart_set_rx_enabled(&s_mbm_uart, true);
+    s_dbg_dt = HAL_GetTick() - s_dbg_t0;
+    s_dbg_cdt = DWT->CYCCNT - s_dbg_c0;
+    s_dbg_tc++;
+    return rc3;
+#endif
+    sx_uart_set_rx_enabled(&s_mbm_uart, false);
+    mbm_de(true);
+#if MBM_TX_BLOCKING == 4
+    s_rx_pending = true;
+#endif
     if (sx_uart_write_start(&s_mbm_uart, buf, (int)len) != 0) {
         mbm_de(false);
         sx_uart_set_rx_enabled(&s_mbm_uart, true);
@@ -500,7 +535,11 @@ static int mbm_write_start(void *ctx, const uint8_t *buf, uint16_t len)
 static bool mbm_tx_done(void *ctx)
 {
     (void)ctx;
-    return !sx_uart_tx_busy(&s_mbm_uart);
+    if (sx_uart_tx_busy(&s_mbm_uart)) { return false; }
+#if MBM_TX_BLOCKING == 4
+    if (s_rx_pending) { s_rx_pending = false; sx_uart_set_rx_enabled(&s_mbm_uart, true); }
+#endif
+    return true;
 }
 
 static void mbm_write_abort(void *ctx)
@@ -516,6 +555,20 @@ static void mbm_write_abort(void *ctx)
     mbm_de(false);
     sx_uart_set_rx_enabled(&s_mbm_uart, true);
 }
+
+#if MBM_TX_BLOCKING == 1
+/* Same pin sequence as before: receiver off, DE up, blocking send (returns after TC), DE down, receiver on. */
+static int mbm_write_blocking(void *ctx, const uint8_t *buf, uint16_t len, uint32_t timeout_ms)
+{
+    (void)ctx;
+    sx_uart_set_rx_enabled(&s_mbm_uart, false);
+    mbm_de(true);
+    int rc = sx_uart_write(&s_mbm_uart, buf, (int)len, timeout_ms);
+    mbm_de(false);
+    sx_uart_set_rx_enabled(&s_mbm_uart, true);
+    return rc;
+}
+#endif
 
 static int mbm_configure(void *ctx, const plc_mbm_serial_t *cfg)
 {
@@ -541,23 +594,32 @@ static void board_mbm_init(void)
     s_mbm_uart.txBuffer     = s_mbm_tx_buf;
     s_mbm_uart.txBufferSize = (int)sizeof(s_mbm_tx_buf);
 
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;   /* TEMPORARY: cycle counter for TX timing */
+    DWT->CYCCNT = 0U;
+    DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
     mbm_de(false);   /* listen */
     sx_uart_init(&s_mbm_uart, &s_mbm_uart_cfg);
     sx_uart_set_tx_done_callback(&s_mbm_uart, mbm_tx_done_isr, NULL);
 
     static const modbus_serial_port_t port = {
         .read        = mbm_read,
+#if MBM_TX_BLOCKING == 1
+        .write       = mbm_write_blocking,
+#else
         .write       = NULL,
+#endif
         .set_tx      = NULL,
         .ctx         = NULL,
         .baudrate    = MBM_DEFAULT_BAUD,
+#if MBM_TX_BLOCKING != 1
         .write_start = mbm_write_start,
         .tx_done     = mbm_tx_done,
         .write_abort = mbm_write_abort,
+#endif
     };
     splc_mbm_set_rs485_port(0U, &port, mbm_configure);
-    log_info(TAG, "MB_READ master port 1 on USART1 (DE PB13), non-blocking TX, %lu baud until the App sets it",
-             (unsigned long)MBM_DEFAULT_BAUD);
+    log_info(TAG, "MB_READ master port 1 on USART1 (DE PB13), %s TX, %lu baud until the App sets it",
+             (MBM_TX_BLOCKING == 1) ? "BLOCKING (A/B test)" : (MBM_TX_BLOCKING == 3) ? "async-state-machine + blocking HAL (A/B test)" : (MBM_TX_BLOCKING == 4) ? "IT TX, RX enabled from main (A/B test)" : "non-blocking", (unsigned long)MBM_DEFAULT_BAUD);
 }
 #endif /* SPLC_MBM_ENABLE */
 

@@ -145,6 +145,18 @@ class Slave:
         return self._exception(fc, 1)
 
 
+STALE_S = 0.3   # an incomplete request older than this is dropped
+
+
+def request_len(buf):
+    """Length of the request starting at buf[0], or None while it cannot be told yet."""
+    if len(buf) < 2:
+        return None
+    if buf[1] in (15, 16):                    # unit fc addr(2) qty(2) bytes data crc(2)
+        return None if len(buf) < 7 else 9 + buf[6]
+    return 8                                  # FC01..06 (and unknown): fixed size
+
+
 def hexs(b: bytes) -> str:
     return " ".join(f"{x:02X}" for x in b)
 
@@ -158,6 +170,10 @@ def main() -> int:
     ap.add_argument("--stop", type=int, choices=[1, 2], default=1)
     ap.add_argument("--fault", choices=["none", "timeout", "crc", "exception", "short"], default="none")
     ap.add_argument("--delay-ms", type=float, default=0.0, help="wait this long before every answer")
+    ap.add_argument("--trace", action="store_true",
+                    help="print every chunk the port returns, with a timestamp, before any framing")
+    ap.add_argument("--read-timeout-ms", type=float, default=5.0,
+                    help="pyserial read timeout (raw_listen.py uses 1)")
     args = ap.parse_args()
 
     try:
@@ -168,27 +184,50 @@ def main() -> int:
 
     parity = {"N": serial.PARITY_NONE, "O": serial.PARITY_ODD, "E": serial.PARITY_EVEN}[args.parity]
     stop = serial.STOPBITS_ONE if args.stop == 1 else serial.STOPBITS_TWO
-    # inter_byte_timeout ends a frame: USB dongles add a few ms of latency, so it is far
-    # above the 3.5 character times of the Modbus spec.
+    # A USB-serial dongle hands bytes to the PC in batches (FTDI latency timer, ~16 ms), so
+    # one request can arrive in two pieces. Ending a frame on a silence gap would split
+    # such a request and lose it. Instead bytes are collected until a complete, CRC-valid
+    # request is there (length from the function code).
     ser = serial.Serial(args.port, args.baud, bytesize=8, parity=parity, stopbits=stop,
-                        timeout=0.5, inter_byte_timeout=0.02)
+                        timeout=args.read_timeout_ms / 1000.0)
     slave = Slave(args.unit, args.fault)
     print(f"slave {args.unit} on {args.port} at {args.baud} 8{args.parity}{args.stop}, "
           f"fault={args.fault}. Ctrl+C to stop.")
+    buf = bytearray()
+    last_rx = 0.0
+    t0 = time.monotonic()
     try:
         while True:
-            frame = ser.read(300)
-            if not frame:
+            data = ser.read(256)
+            now = time.monotonic()
+            if data:
+                if args.trace:
+                    print(f"  [{now - t0:9.3f}s] chunk n={len(data)}: {hexs(data)}")
+                buf += data
+                last_rx = now
+            elif buf and now - last_rx > STALE_S:
+                print(f"  ! {len(buf)} stale byte(s) dropped: {hexs(bytes(buf))}")
+                buf.clear()
                 continue
-            print(f"RX {hexs(frame)}")
-            rsp = slave.handle(frame)
-            if rsp is None:
-                continue
-            if args.delay_ms > 0:
-                time.sleep(args.delay_ms / 1000.0)
-            ser.write(rsp)
-            ser.flush()
-            print(f"TX {hexs(rsp)}")
+            while buf:
+                n = request_len(buf)
+                if n is None or len(buf) < n:
+                    break                      # wait for the rest of the frame
+                if crc16(bytes(buf[:n - 2])) != struct.unpack("<H", bytes(buf[n - 2:n]))[0]:
+                    print(f"  ! bad CRC, dropped byte {buf[0]:02X} to resynchronise")
+                    del buf[0]
+                    continue
+                frame = bytes(buf[:n])
+                del buf[:n]
+                print(f"RX {hexs(frame)}")
+                rsp = slave.handle(frame)
+                if rsp is None:
+                    continue
+                if args.delay_ms > 0:
+                    time.sleep(args.delay_ms / 1000.0)
+                ser.write(rsp)
+                ser.flush()
+                print(f"TX {hexs(rsp)}")
     except KeyboardInterrupt:
         print(f"\nstopped after {slave.requests} request(s) for unit {args.unit}")
     finally:
