@@ -16,6 +16,8 @@
 static const char *TAG = "PLC_MBM";
 
 #define PORTS    ((unsigned)SPLC_MBM_PORT_COUNT)
+_Static_assert(SPLC_MBM_PORT_COUNT >= 1 && SPLC_MBM_PORT_COUNT <= (int)PLC_MBM_PORT_MAX,
+               "SPLC_MBM_PORT_COUNT must be 1..PLC_MBM_PORT_MAX");
 /* RAM keeps the records of the ports the device HAS; the wire and the Flash image
  * always carry 4 (the rest reads as zero and is dropped on write). */
 #define PT_REGS  (PORTS * PLC_MBM_PORT_REGS)

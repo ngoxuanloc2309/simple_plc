@@ -51,7 +51,7 @@
  * COMMIT). This is the firmware's reading of the ICD; the ICD is silent on it.
  *
  * RS-485 ports (SPLC-SPEC-MBM-003, 0x1400..0x143F): the device has
- * SPLC_MBM_PORT_COUNT (1, 2 or 4) ports, reported at 0x0A0A. The App writes one
+ * SPLC_MBM_PORT_COUNT (1..4) ports, reported at 0x0A0A. The App writes one
  * 16-register record per port (+0 enabled | port number 1..4, +1..+2 baud,
  * +3 parity 0 none / 1 even / 2 odd, +4 (data bits << 8) | stop bits, +5 timeout,
  * +6 inter-frame delay, +7 retries, +8..+13 name). The table goes through the same

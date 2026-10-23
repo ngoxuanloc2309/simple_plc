@@ -52,7 +52,7 @@
 /* #define SPLC_MODBUS_MAX_TRANSPORTS    1 */      /* 1..3 App-link transports served at once (USB + RS-485 + TCP); 1 = no change at all */
 /* #define SPLC_WIFI_ENABLE              0 */      /* 1 = Wi-Fi block 0x1300..0x13FF through host callbacks (splc_wifi_register()); 0 = no change at all */
 /* #define SPLC_MBW_ENABLE               0 */      /* 1 = MB_WRITE blocks 0x1100..0x11FF (needs SPLC_MBM_ENABLE 1); 0 = no change at all */
-/* #define SPLC_MBM_PORT_COUNT           1 */      /* 1, 2 or 4 RS-485 ports for MB_READ/MB_WRITE (reported at 0x0A0A); the host registers one UART per port with splc_mbm_set_rs485_port(); line settings come from the App (0x1400) */
+/* #define SPLC_MBM_PORT_COUNT           1 */      /* 1..4 RS-485 ports for MB_READ/MB_WRITE (reported at 0x0A0A); the host registers one UART per port with splc_mbm_set_rs485_port(); line settings come from the App (0x1400) */
 
 /* --- MQTT Subscribe ----------------------------------------------------- */
 /* #define SPLC_MQTT_SUB_ENABLE          0 */      /* 1 = remote commands/setpoints from MQTT into tags (needs SPLC_MQTT_ENABLE 1); 0 = no change at all */

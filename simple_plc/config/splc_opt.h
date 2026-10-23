@@ -260,7 +260,7 @@
 #endif
 
 /* Number of physical RS-485 ports the device offers to the Modbus-master blocks
- * (MB_READ / MB_WRITE): 1, 2 or 4. It is what register 0x0A0A reports and what the
+ * (MB_READ / MB_WRITE): 1..4. It is what register 0x0A0A reports and what the
  * App limits its port list to; the firmware allocates one master (about 600 bytes
  * RAM) per port. Which UART serves which port is the host's business: it registers
  * one RS485 port per index with splc_mbm_set_rs485_port() (plc_mbm.h). Baud rate,
@@ -412,8 +412,8 @@
 #if (SPLC_MBM_ENABLE != 0) && (SPLC_MBM_ENABLE != 1)
 #error "SPLC_MBM_ENABLE must be 0 or 1"
 #endif
-#if SPLC_MBM_ENABLE && (SPLC_MBM_PORT_COUNT != 1) && (SPLC_MBM_PORT_COUNT != 2) && (SPLC_MBM_PORT_COUNT != 4)
-#error "SPLC_MBM_PORT_COUNT must be 1, 2 or 4"
+#if SPLC_MBM_ENABLE && ((SPLC_MBM_PORT_COUNT < 1) || (SPLC_MBM_PORT_COUNT > 4))
+#error "SPLC_MBM_PORT_COUNT must be 1..4 (the wire and the Flash image carry 4 port records)"
 #endif
 #if (SPLC_MODBUS_MAX_TRANSPORTS < 1) || (SPLC_MODBUS_MAX_TRANSPORTS > 3)
 #error "SPLC_MODBUS_MAX_TRANSPORTS must be 1..3"
