@@ -77,6 +77,16 @@ static uint32_t            s_boot_tick_ms;
  */
 static bool                s_initialized = false;
 
+#if SPLC_MODBUS_MAX_TRANSPORTS > 1
+/* Extra transports (slot 0 above stays the board's own). Same lifetime rules as
+ * s_transport: the struct is copied, ctx is the caller's. */
+#define EXTRA_TRANSPORTS  (SPLC_MODBUS_MAX_TRANSPORTS - 1)
+static nmbs_t              s_x_nmbs[EXTRA_TRANSPORTS];
+static modbus_transport_t  s_x_transport[EXTRA_TRANSPORTS];
+static uint8_t             s_x_count = 0U;       /* slots in use, all created OK */
+static bool                s_x_tcp   = false;    /* a TCP transport is registered */
+#endif
+
 /*
  * --- Rule Transfer staging state (register map section 9, 0x9000-0xA001) -
  *
@@ -156,7 +166,7 @@ static void read_device_resource_info(uint16_t offset, uint16_t quantity, uint16
     }
 }
 
-#if SPLC_MQTT_ENABLE || SPLC_MBM_ENABLE
+#if SPLC_MQTT_ENABLE || SPLC_MBM_ENABLE || (SPLC_MODBUS_MAX_TRANSPORTS > 1)
 /* --- HARDWARE_CAPABILITIES (0x0A08-0x0A09, RO, uint32, High Word first) -------------------------
  * App contract: docs/platform/SimplePLC_App_MCU_Structs_v2.0 (paa) and simpleplc_protocol_v2_0.h,
  * SPLC_HardwareCapabilities_t. The App reads this before it writes the MQTT blocks and SKIPS the
@@ -167,6 +177,7 @@ static void read_device_resource_info(uint16_t offset, uint16_t quantity, uint16
 #define SPLC_CAP_BASE_LOGIC   0x00000001UL
 #define SPLC_CAP_RETENTIVE    0x00000002UL
 #define SPLC_CAP_MQTT_PUB     0x00000010UL
+#define SPLC_CAP_MODBUS_TCP   0x00000400UL   /* App header SPLC_CAP_MODBUS_TCP; declared only while a TCP transport is registered */
 
 static void read_hw_capabilities(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
 {
@@ -179,6 +190,9 @@ static void read_hw_capabilities(uint16_t offset, uint16_t quantity, uint16_t *r
 #endif
 #if SPLC_MQTT_SUB_ENABLE
     caps |= PLC_MQTT_SUB_CAP_MQTT_SUB;
+#endif
+#if SPLC_MODBUS_MAX_TRANSPORTS > 1
+    if (s_x_tcp) { caps |= SPLC_CAP_MODBUS_TCP; }
 #endif
     if (g_device_resource_info.max_rules > 0U)        { caps |= SPLC_CAP_BASE_LOGIC; }
     if (g_device_resource_info.vreg_retain_count > 0U) { caps |= SPLC_CAP_RETENTIVE; }
@@ -1371,7 +1385,7 @@ static const modbus_block_t s_blocks[] = {
     { 0x0810, 0x0813, true,  plc_rtc_read,                NULL },   /* FC16 writes handled in cb_write_multiple_registers (needs distinct exceptions) */
     { 0x0900, 0x09FF, false, read_runtime_tag_values,     NULL },
     { 0x0A01, 0x0A02, true,  read_system_command_result,  NULL },
-#if SPLC_MQTT_ENABLE || SPLC_MBM_ENABLE
+#if SPLC_MQTT_ENABLE || SPLC_MBM_ENABLE || (SPLC_MODBUS_MAX_TRANSPORTS > 1)
     { 0x0A08, 0x0A09, true,  read_hw_capabilities,        NULL },   /* RO; App gates the MQTT deploy on bit 4 */
 #endif
     #if SPLC_MBM_ENABLE
@@ -1762,6 +1776,58 @@ void plc_modbus_cfg_init(const modbus_transport_t *transport)
              (int)s_transport.kind, (unsigned)s_transport.unit_id);
 }
 
+#if SPLC_MODBUS_MAX_TRANSPORTS > 1
+bool plc_modbus_cfg_add_transport(const modbus_transport_t *transport)
+{
+    if (transport == NULL || transport->read == NULL || transport->write == NULL) {
+        log_error(TAG, "add_transport: NULL transport or read/write");
+        return false;
+    }
+    if (s_x_count >= EXTRA_TRANSPORTS) {
+        log_error(TAG, "add_transport: all %u extra slots used", (unsigned)EXTRA_TRANSPORTS);
+        return false;
+    }
+
+    const uint8_t i = s_x_count;
+    s_x_transport[i] = *transport;
+
+    nmbs_platform_conf platform_conf;
+    nmbs_platform_conf_create(&platform_conf);
+    platform_conf.transport = (nmbs_transport)s_x_transport[i].kind;
+    platform_conf.read      = s_x_transport[i].read;
+    platform_conf.write     = s_x_transport[i].write;
+    platform_conf.arg       = s_x_transport[i].ctx;
+
+    nmbs_callbacks callbacks;
+    nmbs_callbacks_create(&callbacks);
+    callbacks.read_holding_registers   = cb_read_holding_registers;
+    callbacks.write_multiple_registers = cb_write_multiple_registers;
+    callbacks.write_single_register    = cb_write_single_register;
+
+    nmbs_error err = nmbs_server_create(&s_x_nmbs[i], s_x_transport[i].unit_id,
+                                        &platform_conf, &callbacks);
+    if (err != NMBS_ERROR_NONE) {
+        log_error(TAG, "add_transport: nmbs_server_create failed: err=%d (%s) kind=%d unit_id=%u",
+                  (int)err, nmbs_strerror(err), (int)s_x_transport[i].kind,
+                  (unsigned)s_x_transport[i].unit_id);
+        return false;
+    }
+
+    /* Same timeout split as slot 0 (see plc_modbus_cfg_init()): never wait for a
+     * request that might not come, but finish one that has started. */
+    nmbs_set_read_timeout(&s_x_nmbs[i], 0);
+    nmbs_set_byte_timeout(&s_x_nmbs[i], MODBUS_BYTE_TIMEOUT_MS);
+
+    if (s_x_transport[i].kind == MODBUS_TRANSPORT_KIND_TCP) {
+        s_x_tcp = true;
+    }
+    s_x_count++;
+    log_info(TAG, "add_transport OK: slot %u kind=%d", (unsigned)(i + 1U),
+             (int)s_x_transport[i].kind);
+    return true;
+}
+#endif
+
 void modbus_config_service(void)
 {
     /* Still pump the transport (e.g. tud_task() for USB-CDC) even if the
@@ -1771,11 +1837,22 @@ void modbus_config_service(void)
         s_transport.process(s_transport.ctx);
     }
 
-    if (!s_initialized) {
-        return;   /* s_nmbs is all-zero; polling it would jump to NULL. */
+    if (s_initialized) {
+        nmbs_server_poll(&s_nmbs);   /* else s_nmbs is all-zero; polling it would jump to NULL. */
     }
 
-    nmbs_server_poll(&s_nmbs);
+#if SPLC_MODBUS_MAX_TRANSPORTS > 1
+    /* Extra transports: only fully created slots are ever counted in s_x_count.
+     * One complete request per transport per scan at most; they run one after the
+     * other on the engine context, so the shared draft/COMMIT state never sees
+     * two requests at once. */
+    for (uint8_t i = 0U; i < s_x_count; i++) {
+        if (s_x_transport[i].process != NULL) {
+            s_x_transport[i].process(s_x_transport[i].ctx);
+        }
+        nmbs_server_poll(&s_x_nmbs[i]);
+    }
+#endif
 }
 
 void plc_modbus_cfg_record_scan_time(uint32_t scan_time_ms)

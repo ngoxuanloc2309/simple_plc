@@ -47,6 +47,7 @@
 #include "plc_error.h"
 #include "plc_diag.h"
 #include "modbus_transport.h"
+#include "splc_opt.h"   /* SPLC_MODBUS_MAX_TRANSPORTS */
 #include "plc_rule.h" /* SPLC_RuleRecord, for the wire-format helpers below */
 
 #ifdef __cplusplus
@@ -101,6 +102,33 @@ extern SPLC_DeviceHealth        g_device_health;
  * docs/architecture.md section 4's plc_engine_init() ordering.
  */
 void plc_modbus_cfg_init(const modbus_transport_t *transport);
+
+#if SPLC_MODBUS_MAX_TRANSPORTS > 1
+/*
+ * Adds one more App-link transport (e.g. Modbus TCP, kind =
+ * MODBUS_TRANSPORT_KIND_TCP) next to the one given to plc_modbus_cfg_init().
+ * Every transport gets its own nanoMODBUS server; modbus_config_service()
+ * polls them one after the other (each poll serves at most one complete
+ * request), so two requests never interleave. They share ALL state (draft,
+ * COMMIT, Flash, diag lease): the device is configured by ONE App at a time.
+ *
+ * Call from the engine context (same task that calls plc_engine_poll()),
+ * after plc_engine_init(); the library is single-threaded and takes no lock.
+ * The transport struct is copied; ctx must outlive every later service call.
+ * read() must NOT block when timeout_ms == 0 and must return 0 while no
+ * client is connected (a TCP host returns 0 until a socket is accepted).
+ *
+ * Returns false (and changes nothing) when all SPLC_MODBUS_MAX_TRANSPORTS - 1
+ * extra slots are used, the transport has no read/write, or the nanoMODBUS
+ * server could not be created (RTU unit_id 0).
+ *
+ * Declares the 0x0400 (MODBUS_TCP) bit of HARDWARE_CAPABILITIES 0x0A08 when
+ * kind == MODBUS_TRANSPORT_KIND_TCP. Security note: Modbus TCP has no
+ * authentication -- anyone on the LAN can deploy rules or FACTORY_RESET; the
+ * host decides whether (and for which IPs) it accepts connections.
+ */
+bool plc_modbus_cfg_add_transport(const modbus_transport_t *transport);
+#endif
 
 /*
  * Services one iteration of the Modbus server: pumps the transport

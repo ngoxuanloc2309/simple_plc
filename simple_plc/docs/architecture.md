@@ -90,7 +90,7 @@ splc_config/splcopts.h   (gốc repo) — file cấu hình của sản phẩm hi
   (`PLC_SCAN_INTERVAL_MS`, `MAX_RULES` ≤ 100, `PLC_REBOOT_DELAY_MS`), Flash
   (`SPLC_FLASH_SIZE_KB`), retain (`RETAIN_SNAPSHOT_PERIOD_MS`,
   `PLC_PVD_EMERGENCY_SAVE_ENABLE`, `RETAIN_EMERGENCY_MIN_INTERVAL_MS`), link App
-  (`SPLC_PORT_USB_CDC`, `SPLC_MODBUS_UNIT_ID`, `SPLC_LINK_RX_BUF_SIZE`: lũy thừa của 2,
+  (`SPLC_PORT_USB_CDC`, `SPLC_MODBUS_UNIT_ID`, `SPLC_MODBUS_MAX_TRANSPORTS`, `SPLC_LINK_RX_BUF_SIZE`: lũy thừa của 2,
   ≥ 256, mặc định 512), REAL (`SPLC_REAL_ENABLE`), MQTT Subscribe (`SPLC_MQTT_SUB_ENABLE`, `SPLC_MQTT_SUB_FIFO_DEPTH`), MB_WRITE (`SPLC_MBW_ENABLE`), Remote I/O (`SPLC_REMOTE_MAX_NODES`,
   `_TIMEOUT_MS`, `_POLL_MS`, `_OFFLINE_AFTER`, `_RETRY_MS`), log (`SPLC_LOG_LEVEL`,
   `SPLC_LOG_BUFFER_SIZE`, `SPLC_LOGGER_BUILTIN`, macro `SPLC_LOG_OUTPUT`).
@@ -256,7 +256,7 @@ timeout bằng tick thật, CRC bằng `nmbs_crc_calc()` (byte-swapped, ghi big-
 - **`plc_io`**: đăng ký kênh (`plc_io_register_di/do/ai(tag_idx, hw)`); `input_scan()` (DI
   0/1, AI mã ADC thô) và `output_scan()` (DO từ tag). Cuối mỗi hàm gọi hook của
   **`plc_io_remote`** (DI/DO ảo của Gateway, mục 5.1; không làm gì khi chưa có node).
-- **`plc_modbus_cfg`**: nanoMODBUS server + register map (mục 5), State Machine #2 nạp
+- **`plc_modbus_cfg`**: nanoMODBUS server + register map (mục 5); `SPLC_MODBUS_MAX_TRANSPORTS > 1` cho phép host thêm transport (vd. Modbus TCP) bằng `plc_modbus_cfg_add_transport()` — mỗi transport một server, poll lần lượt, dùng chung nháp/COMMIT/Flash (một App mỗi lúc), State Machine #2 nạp
   rule (staging → verify CRC16 → commit nguyên tử), Diag Control (ENTER/HEARTBEAT/EXIT,
   lease, ghi tag trong diag, retain draft), RTC, FB, System Command.
 - **`plc_rule_flash`**: lưu Rule Table A/B (xem handoff mục 1 về thứ tự và recovery); bản

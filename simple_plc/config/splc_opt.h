@@ -278,6 +278,16 @@
 #define SPLC_MBW_ENABLE                  0
 #endif
 
+/* Number of App-link transports the Modbus config server can serve at once (1..3).
+ * 1 = exactly the single transport board_get_modbus_transport() returns: no extra
+ * code, no extra RAM, the exact baseline binary. >1 = plc_modbus_cfg_add_transport()
+ * accepts that many additional transports (e.g. Modbus TCP next to USB/RS-485), each
+ * with its own nanoMODBUS server instance (RAM cost: sizeof(nmbs_t) + a transport
+ * struct per extra slot). They share the draft/COMMIT/Flash state: one App at a time. */
+#ifndef SPLC_MODBUS_MAX_TRANSPORTS
+#define SPLC_MODBUS_MAX_TRANSPORTS       1
+#endif
+
 /* Size of the payload buffer in bytes (including the NUL). */
 #ifndef SPLC_MQTT_PAYLOAD_MAX
 #define SPLC_MQTT_PAYLOAD_MAX            256
@@ -396,6 +406,9 @@
 #endif
 #if SPLC_MBM_ENABLE && (SPLC_MBM_PORT_COUNT != 1) && (SPLC_MBM_PORT_COUNT != 2) && (SPLC_MBM_PORT_COUNT != 4)
 #error "SPLC_MBM_PORT_COUNT must be 1, 2 or 4"
+#endif
+#if (SPLC_MODBUS_MAX_TRANSPORTS < 1) || (SPLC_MODBUS_MAX_TRANSPORTS > 3)
+#error "SPLC_MODBUS_MAX_TRANSPORTS must be 1..3"
 #endif
 #if (SPLC_MBW_ENABLE != 0) && (SPLC_MBW_ENABLE != 1)
 #error "SPLC_MBW_ENABLE must be 0 or 1"
