@@ -137,23 +137,36 @@ _Static_assert(sizeof(SPLC_RuleRecord) == 32u, "SPLC_RuleRecord must stay 32 byt
 
 /*
  * SPLC_RuleRecord.flags (wire reg 13, high byte; Structs v2.0 / header
- * SPLC_RuleFlags_t). Only bit 0 is defined; other bits are stored and echoed
- * back verbatim (so the CRC over the wire image equals the App's) but not
- * interpreted.
+ * SPLC_RuleFlags_t). Bits 0 and 1 are orthogonal (App/firmware agreement,
+ * handoff decision 55); bits 2..7 are stored and echoed back verbatim (so the
+ * CRC over the wire image equals the App's) but not interpreted.
  *
- *   SPLC_RULE_FLAG_FLOAT_DATA (bit 0, REAL / R2, docs/handoff.md decision 40a/45):
- *     the Rule Engine treats threshold_lo, threshold_hi, action_param and the
- *     current value of trigger_tag as IEEE-754 float32 bit patterns held in the
- *     int32 slots:
- *       - compare_op    : float32 compare (EQ/NEQ with absolute tolerance
- *                         SPLC_RULE_FLOAT_EPSILON; GT/LT/GTE/LTE/BETWEEN exact)
- *       - ACT_SCALE_TAG : action_tag = x * action_param_f + threshold_hi_f
- *     The engine reads ONLY this flag; it never consults the Tag DataType table
- *     (plc_tagtype). Edge detection without compare, SET/TOGGLE/INC/ADD act on
- *     the raw 32-bit pattern exactly as for an integer rule. With
- *     SPLC_REAL_ENABLE=0 the flag is neither carried nor interpreted.
+ *   SPLC_RULE_FLAG_TRIGGER_FLOAT (bit 0, 0x01): the rule's TRIGGER side is
+ *     float32. threshold_lo, threshold_hi and the current value of trigger_tag
+ *     are IEEE-754 float32 bit patterns held in the int32 slots:
+ *       - compare_op : float32 compare (EQ/NEQ with absolute tolerance
+ *                      SPLC_RULE_FLOAT_EPSILON; GT/LT/GTE/LTE/BETWEEN exact)
+ *   SPLC_RULE_FLAG_ACTION_FLOAT  (bit 1, 0x02): action_param is a float32 bit
+ *     pattern. SET_TAG writes the raw action_param bits either way, so this bit
+ *     changes no engine behaviour on its own; it is what makes SCALE_TAG float.
+ *   SPLC_RULE_FLAG_FLOAT_DATA    (0x03): legacy alias = both bits.
+ *
+ *   - ACT_SCALE_TAG runs in float32 ONLY when both bits are set (0x03):
+ *       action_tag = x * action_param_f + threshold_hi_f.
+ *     With any other combination it runs the integer formula exactly as for an
+ *     integer rule (decision 55; the App only emits 0x03 for a float Scale).
+ *   - Mixed rule, e.g. "integer AI > 80 -> SET REAL = 2.5f" = flags 0x02: the
+ *     compare stays integer (80 is compared raw) and SET writes the 2.5f bits.
+ *   - Edge detection without compare, SET/TOGGLE/INC/ADD act on the raw 32-bit
+ *     pattern exactly as for an integer rule (ADD_TAG with a float operand is
+ *     NOT defined yet).
+ * The engine reads ONLY these flags; it never consults the Tag DataType table
+ * (plc_tagtype). With SPLC_REAL_ENABLE=0 the flags are neither carried nor
+ * interpreted.
  */
-#define SPLC_RULE_FLAG_FLOAT_DATA   0x01u
+#define SPLC_RULE_FLAG_TRIGGER_FLOAT 0x01u
+#define SPLC_RULE_FLAG_ACTION_FLOAT  0x02u
+#define SPLC_RULE_FLAG_FLOAT_DATA    (SPLC_RULE_FLAG_TRIGGER_FLOAT | SPLC_RULE_FLAG_ACTION_FLOAT)  /* 0x03, legacy alias */
 
 /* Absolute tolerance used by float EQ / NEQ (same as the App's McuReferenceSimulator). */
 #define SPLC_RULE_FLOAT_EPSILON     1e-5f

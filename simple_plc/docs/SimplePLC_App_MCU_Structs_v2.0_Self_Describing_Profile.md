@@ -247,8 +247,10 @@ Bản ghi logic nhị phân chuẩn hóa thực thi trên MCU Rule Engine, hỗ 
 ```c
 /* Cờ định dạng dữ liệu (Rule Flags) lưu tại Reg 13 High */
 typedef enum {
-    SPLC_RULE_FLAG_NONE       = 0x00, /* 0x00: Chế độ số nguyên Int32 (Mặc định) */
-    SPLC_RULE_FLAG_FLOAT_DATA = 0x01  /* 0x01: Chế độ số thực Float32 IEEE-754 */
+    SPLC_RULE_FLAG_NONE           = 0x00, /* 0x00: Chế độ số nguyên Int32 (Mặc định) */
+    SPLC_RULE_FLAG_TRIGGER_FLOAT  = 0x01, /* bit 0: threshold_lo/hi (và giá trị tag trigger) là Float32 */
+    SPLC_RULE_FLAG_ACTION_FLOAT   = 0x02, /* bit 1: action_param là Float32 */
+    SPLC_RULE_FLAG_FLOAT_DATA     = 0x03  /* alias cũ = cả hai bit (bắt buộc cho SCALE_TAG float) */
 } SPLC_RuleFlags_t;
 
 typedef struct SPLC_PACKED {
@@ -272,7 +274,7 @@ typedef struct SPLC_PACKED {
     uint8_t  trigger_type;        /* [11L]    SPLC_TriggerType_t */
     uint8_t  compare_op;          /* [12H]    SPLC_CompareOp_t */
     uint8_t  action_type;         /* [12L]    SPLC_ActionType_t */
-    uint8_t  flags;               /* [13H]    SPLC_RuleFlags_t (0x01 = FLOAT_DATA) */
+    uint8_t  flags;               /* [13H]    SPLC_RuleFlags_t (bit0 TRIGGER_FLOAT, bit1 ACTION_FLOAT; 0x03 = FLOAT_DATA) */
     uint8_t  reserved[5];         /* [13L..15] Luôn ghi 0x00; receiver bỏ qua */
 } SPLC_RuleRecord_t;
 ```

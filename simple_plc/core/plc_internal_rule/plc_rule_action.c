@@ -72,7 +72,7 @@ static void action_add_tag(const SPLC_RuleRecord *rule)
 
 #if SPLC_REAL_ENABLE
 /*
- * Float rule (SPLC_RULE_FLAG_FLOAT_DATA): action_tag = x * gain + offset with
+ * Float Scale (flags 0x03 = TRIGGER_FLOAT | ACTION_FLOAT, decision 55): action_tag = x * gain + offset with
  * x = float(tag_read(trigger_tag)), gain = float(action_param), offset =
  * float(threshold_hi); the result's float32 bits go into the tag (NaN/Inf
  * written as they are, same as the App's reference simulator).
@@ -95,7 +95,7 @@ static void action_scale_tag_f(const SPLC_RuleRecord *rule)
 static void action_scale_tag(const SPLC_RuleRecord *rule)
 {
 #if SPLC_REAL_ENABLE
-    if ((rule->flags & SPLC_RULE_FLAG_FLOAT_DATA) != 0u) {
+    if ((rule->flags & SPLC_RULE_FLAG_FLOAT_DATA) == SPLC_RULE_FLAG_FLOAT_DATA) {
         action_scale_tag_f(rule);
         return;
     }

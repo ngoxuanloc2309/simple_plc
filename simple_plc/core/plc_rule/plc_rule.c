@@ -98,14 +98,15 @@ bool rule_table_commit(const uint8_t *raw_data, uint16_t rule_count)
 
 /*
  * compare_op of one rule against the value read from trigger_tag. A rule that
- * carries SPLC_RULE_FLAG_FLOAT_DATA (only possible when SPLC_REAL_ENABLE=1;
- * docs/handoff.md decision 45) compares float32 bit patterns; every other rule
- * compares int32 exactly as before.
+ * carries SPLC_RULE_FLAG_TRIGGER_FLOAT (only possible when SPLC_REAL_ENABLE=1;
+ * docs/handoff.md decisions 45 and 55) compares float32 bit patterns; every
+ * other rule compares int32 exactly as before. Bit 1 (ACTION_FLOAT) does not
+ * affect the compare.
  */
 static bool rule_compare(const SPLC_RuleRecord *rule, int32_t current)
 {
 #if SPLC_REAL_ENABLE
-    if ((rule->flags & SPLC_RULE_FLAG_FLOAT_DATA) != 0u) {
+    if ((rule->flags & SPLC_RULE_FLAG_TRIGGER_FLOAT) != 0u) {
         return compare_ok_f((SPLC_CompareOp)rule->compare_op, current,
                             rule->threshold_lo, rule->threshold_hi);
     }

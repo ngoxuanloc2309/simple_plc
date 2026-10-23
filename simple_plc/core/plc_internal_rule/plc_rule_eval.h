@@ -104,7 +104,7 @@ bool compare_ok(SPLC_CompareOp op, int32_t current, int32_t lo, int32_t hi);
 #if SPLC_REAL_ENABLE
 /*
  * Float32 variant of compare_ok(), used when a rule carries
- * SPLC_RULE_FLAG_FLOAT_DATA. All value arguments are IEEE-754 float32 BIT
+ * SPLC_RULE_FLAG_TRIGGER_FLOAT. All value arguments are IEEE-754 float32 BIT
  * PATTERNS held in int32 slots.
  *   EQ   |current - lo| <= SPLC_RULE_FLOAT_EPSILON (absolute)
  *   NEQ  |current - lo| >  SPLC_RULE_FLOAT_EPSILON

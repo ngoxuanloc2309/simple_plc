@@ -224,7 +224,8 @@
  * staged with the Deploy, saved in the Flash Rule Table record as flag bit 11)
  * AND the float Rule Engine (step R2): the rule record's `flags` byte (wire
  * register 13, high byte) is carried over the wire / CRC / Flash / RAM, and a rule
- * with SPLC_RULE_FLAG_FLOAT_DATA compares float32 and scales in float32.
+ * with SPLC_RULE_FLAG_TRIGGER_FLOAT compares float32, and one with both float
+ * flags (0x03) scales in float32 (handoff decision 55).
  * 0 = nothing changes: no table, no Flash flag, no rule flags byte, the exact
  * baseline binary (byte-identical, checked with md5 of the .bin). */
 #ifndef SPLC_REAL_ENABLE

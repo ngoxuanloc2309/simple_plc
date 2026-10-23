@@ -11,16 +11,20 @@ turn imports test_mqtt.py): Dev, commit(), run_syscmd(), the register constants.
 WARNING: this test WRITES Flash (replaces the rule table) and runs CLEAR_RULES.
 It enters DIAG briefly to write tag values. Run it on a dev board only.
 
-What is checked (plc_rule.h SPLC_RULE_FLAG_FLOAT_DATA):
+What is checked (plc_rule.h SPLC_RULE_FLAG_TRIGGER_FLOAT 0x01 / ACTION_FLOAT 0x02,
+handoff decision 55):
   * Rule record byte `flags` = HIGH byte of wire register 13. It must go through
     staging, the CRC (computed over the wire image), the Active Rule Table read
     (0x0100..) and Flash, byte-exact.
-  * A rule with flags bit 0 compares float32 BIT PATTERNS: GT, BETWEEN, EQ with
-    an ABSOLUTE tolerance of 1e-5, and ACT_SCALE_TAG y = x*gain + offset in
-    float32 (bit-exact vs a float32 model).
+  * A rule with flags bit 0 (TRIGGER_FLOAT) compares float32 BIT PATTERNS: GT,
+    BETWEEN, EQ with an ABSOLUTE tolerance of 1e-5. ACT_SCALE_TAG runs
+    y = x*gain + offset in float32 only with BOTH bits (0x03), bit-exact vs a
+    float32 model; flags 0x01 or 0x02 alone run the integer formula.
   * SET_TAG writes action_param verbatim (a float param lands as the same bits).
   * An integer rule (flags = 0) next to float rules is unchanged.
-  * A flag bit other than bit 0 is stored and echoed but does NOT switch to float.
+  * Bit 1 alone (0x02) keeps the compare INTEGER (mixed rule: int trigger -> SET
+    REAL); bit 0 alone (0x01) makes the compare float; bits 2..7 are stored
+    and echoed but interpreted by nobody.
   * A COMMIT whose CRC was computed as if flags were 0 is rejected.
   * (--reboot) the table, flags included, survives a REBOOT and still runs.
 
@@ -50,7 +54,9 @@ from test_mqtt import check, info, LinkError
 TRG_ON_CHANGE = 0
 OP_NONE, OP_EQ, OP_NEQ, OP_GT, OP_LT, OP_GTE, OP_LTE, OP_BETWEEN = range(8)
 ACT_SET, ACT_SCALE = 0, 7
-FLAG_FLOAT = 0x01
+FLAG_TRIG = 0x01      # SPLC_RULE_FLAG_TRIGGER_FLOAT
+FLAG_ACT = 0x02       # SPLC_RULE_FLAG_ACTION_FLOAT
+FLAG_BOTH = 0x03      # legacy alias SPLC_RULE_FLAG_FLOAT_DATA
 GAIN, OFFSET = 0.5, 1.25
 THR_GT, THR_LO, THR_HI, THR_EQ, PARAM_F = 25.5, -1.5, 1.5, 30.0, 2.5
 SETTLE_S = 0.25          # engine scan is 10 ms; leave margin for RS485 + diag exit
@@ -100,11 +106,11 @@ def build_rules(tg):
     """The rule set described in the module docstring. `tg` = dict of tag indices."""
     X, A, B, E, F, H, Y, G = (tg[k] for k in "XABEFHYG")
     return [
-        encode_rule_f(X, A, OP_GT, ACT_SET, lo=bits(THR_GT), param=1, flags=FLAG_FLOAT),
-        encode_rule_f(X, B, OP_NONE, ACT_SCALE, hi=bits(OFFSET), param=bits(GAIN), flags=FLAG_FLOAT),
-        encode_rule_f(X, E, OP_BETWEEN, ACT_SET, lo=bits(THR_LO), hi=bits(THR_HI), param=7, flags=FLAG_FLOAT),
-        encode_rule_f(X, F, OP_EQ, ACT_SET, lo=bits(THR_EQ), param=3, flags=FLAG_FLOAT),
-        encode_rule_f(X, H, OP_NONE, ACT_SET, param=bits(PARAM_F), flags=FLAG_FLOAT),
+        encode_rule_f(X, A, OP_GT, ACT_SET, lo=bits(THR_GT), param=1, flags=FLAG_TRIG),
+        encode_rule_f(X, B, OP_NONE, ACT_SCALE, hi=bits(OFFSET), param=bits(GAIN), flags=FLAG_BOTH),
+        encode_rule_f(X, E, OP_BETWEEN, ACT_SET, lo=bits(THR_LO), hi=bits(THR_HI), param=7, flags=FLAG_TRIG),
+        encode_rule_f(X, F, OP_EQ, ACT_SET, lo=bits(THR_EQ), param=3, flags=FLAG_TRIG),
+        encode_rule_f(X, H, OP_NONE, ACT_SET, param=bits(PARAM_F), flags=FLAG_ACT),
         encode_rule_f(Y, G, OP_GT, ACT_SET, lo=100, param=5, flags=0),       # integer rule
     ]
 
@@ -229,10 +235,11 @@ def run(d, args):
         return
     active = read_active_chunked(d, n)
     want = [w for rule in rules for w in rule]
-    check(active == want, "Active Rule Table reads back byte-exact (reg 13 high byte = 0x01 on float rules)"
+    check(active == want, "Active Rule Table reads back byte-exact (reg 13 high byte = 0x01/0x03/0x01/0x01/0x02 on the float rules)"
           + ("" if active == want else f" {TT.diff(active, want)}"))
-    check(all(active[16 * i + 13] == 0x0100 for i in range(n - 1)) and active[16 * (n - 1) + 13] == 0,
-          "flags: 0x0100 on the five float rules, 0x0000 on the integer rule")
+    want_flags = [0x0100, 0x0300, 0x0100, 0x0100, 0x0200, 0x0000]
+    check([active[16 * i + 13] for i in range(n)] == want_flags,
+          "flags (reg 13 high byte): 0x01 GT, 0x03 SCALE, 0x01 BETWEEN, 0x01 EQ, 0x02 SET, 0x00 integer rule")
 
     ok_float = check_stimuli(d, tg, "3. Running")
     check_integer_rule(d, tg)
@@ -247,18 +254,51 @@ def run(d, args):
     check(d.read(T.REG_VERSION, 1)[0] == v0, "active version did not move")
     check(read_active_chunked(d, n) == want, "running table unchanged after the rejected COMMIT")
 
-    print("\n5. Unknown flag bits are stored and echoed; only bit 0 selects float")
+    print("\n5. Orthogonal flag bits (decision 55)")
+    X, Y, G, B, A = (tg[k] for k in "XYGBA")
+    NEG1, NEG2 = bits(-1.0), bits(-2.0)     # as int32: -1082130432 < -1073741824, as float: -1.0 > -2.0
+
+    # 5a. flags 0x02 = action float only: the compare stays INTEGER, SET writes the float bits
     mixed = list(rules)
-    mixed[0] = encode_rule_f(tg["X"], tg["A"], OP_GT, ACT_SET, lo=bits(THR_GT), param=1, flags=0x03)   # float + unknown bit
-    mixed[5] = encode_rule_f(tg["Y"], tg["G"], OP_GT, ACT_SET, lo=100, param=5, flags=0x02)            # unknown bit only
-    if deploy(d, mixed, "Deploy with flags 0x03 / 0x02"):
+    mixed[5] = encode_rule_f(Y, G, OP_GT, ACT_SET, lo=NEG2, param=bits(2.5), flags=FLAG_ACT)
+    if deploy(d, mixed, "5a Deploy flags=0x02 (int trigger, float action)"):
         act = read_active_chunked(d, n)
-        check(act[13] == 0x0300 and act[16 * 5 + 13] == 0x0200,
+        check(act[16 * 5 + 13] == 0x0200, f"flags echoed verbatim (0x{act[16 * 5 + 13]:04X})")
+        got = stimulate(d, tg, 0, y_val=NEG1)
+        check(got is not None and got["G"] == 0,
+              "flags=0x02 compares as INTEGER (bits of -1.0f are below bits of -2.0f as int32 -> no fire)")
+        got = stimulate(d, tg, 0, y_val=bits(1.0))
+        check(got is not None and got["G"] == bits(2.5),
+              f"integer compare true -> SET writes the 2.5f bits (got {None if got is None else hex(got['G'])})")
+
+    # 5b. flags 0x01 = trigger float only: the same stimulus now FIRES (float compare)
+    mixed[5] = encode_rule_f(Y, G, OP_GT, ACT_SET, lo=NEG2, param=5, flags=FLAG_TRIG)
+    if deploy(d, mixed, "5b Deploy flags=0x01 (float trigger, int action)"):
+        got = stimulate(d, tg, 0, y_val=NEG1)
+        check(got is not None and got["G"] == 5, "flags=0x01 compares as FLOAT (-1.0 > -2.0 -> G = 5)")
+
+    # 5c. SCALE_TAG is float ONLY with 0x03; 0x00 / 0x01 / 0x02 run the integer formula
+    #     B = x*param/1000 + hi with x = 3, param = 2000, hi = 5  ->  11
+    for fl in (0x00, FLAG_TRIG, FLAG_ACT):
+        sc = list(rules)
+        sc[1] = encode_rule_f(X, B, OP_NONE, ACT_SCALE, hi=5, param=2000, flags=fl)
+        if deploy(d, sc, f"5c Deploy SCALE with flags=0x{fl:02X}"):
+            got = stimulate(d, tg, 3)
+            check(got is not None and got["B"] == 11,
+                  f"flags=0x{fl:02X}: SCALE runs the integer formula (3*2000/1000+5 = 11, got {None if got is None else got['B']})")
+
+    # 5d. bits 2..7 are stored and echoed, interpreted by nobody
+    odd = list(rules)
+    odd[0] = encode_rule_f(X, A, OP_GT, ACT_SET, lo=bits(THR_GT), param=1, flags=0x07)    # TRIG + ACT + bit 2
+    odd[5] = encode_rule_f(Y, G, OP_GT, ACT_SET, lo=100, param=5, flags=0x80)             # unknown bit only
+    if deploy(d, odd, "5d Deploy flags=0x07 / 0x80"):
+        act = read_active_chunked(d, n)
+        check(act[13] == 0x0700 and act[16 * 5 + 13] == 0x8000,
               f"flags echoed verbatim (0x{act[13]:04X} / 0x{act[16 * 5 + 13]:04X})")
         got = stimulate(d, tg, bits(25.6))
-        check(got is not None and got["A"] == 1, "flags=0x03 still compares as float (25.6 > 25.5 -> A = 1)")
+        check(got is not None and got["A"] == 1, "flags=0x07 still compares as float (25.6 > 25.5 -> A = 1)")
         got = stimulate(d, tg, 0, y_val=150)
-        check(got is not None and got["G"] == 5, "flags=0x02 compares as INTEGER (Y=150 > 100 -> G = 5)")
+        check(got is not None and got["G"] == 5, "flags=0x80 compares as INTEGER (Y=150 > 100 -> G = 5)")
     deploy(d, rules, "Re-deploy the original set")
 
     if args.reboot:

@@ -167,7 +167,7 @@ static void read_device_resource_info(uint16_t offset, uint16_t quantity, uint16
     }
 }
 
-#define SPLC_HAS_HW_CAPS (SPLC_MQTT_ENABLE || SPLC_MBM_ENABLE || (SPLC_MODBUS_MAX_TRANSPORTS > 1) || SPLC_WIFI_ENABLE)
+#define SPLC_HAS_HW_CAPS (SPLC_MQTT_ENABLE || SPLC_MBM_ENABLE || (SPLC_MODBUS_MAX_TRANSPORTS > 1) || SPLC_WIFI_ENABLE || SPLC_REAL_ENABLE)
 #if SPLC_HAS_HW_CAPS
 /* --- HARDWARE_CAPABILITIES (0x0A08-0x0A09, RO, uint32, High Word first) -------------------------
  * App contract: docs/platform/SimplePLC_App_MCU_Structs_v2.0 (paa) and simpleplc_protocol_v2_0.h,
@@ -195,6 +195,9 @@ static void read_hw_capabilities(uint16_t offset, uint16_t quantity, uint16_t *r
 #endif
 #if SPLC_MODBUS_MAX_TRANSPORTS > 1
     if (s_x_tcp) { caps |= SPLC_CAP_MODBUS_TCP; }
+#endif
+#if SPLC_REAL_ENABLE
+    caps |= PLC_TAGTYPE_CAP_FLOAT32;   /* 0x0800, App header SPLC_CAP_FLOAT32 */
 #endif
 #if SPLC_WIFI_ENABLE
     caps |= plc_wifi_capabilities();   /* 0x0200, only once the host registered its Wi-Fi functions */

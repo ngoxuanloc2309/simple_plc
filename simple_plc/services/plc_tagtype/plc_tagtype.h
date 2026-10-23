@@ -43,10 +43,9 @@
  * by its own flags bit (App contract). MB_READ, MQTT Publish and MQTT Subscribe
  * (Layer 3) use plc_tagtype_get().
  *
- * Capability: the Host will need a hardware-capability bit to learn that this
- * firmware accepts the table. The App has not defined it yet, so NOTHING is
- * announced on the wire for now (PLC_TAGTYPE_CAP_PROVISIONAL is only a
- * placeholder, deliberately not read by anything).
+ * Capability: bit 11 (0x0800) of HARDWARE_CAPABILITIES 0x0A08, App header
+ * SPLC_CAP_FLOAT32 (confirmed by the App team, handoff decision 55). It is
+ * announced whenever SPLC_REAL_ENABLE=1 (see read_hw_capabilities()).
  *
  * Threading: single-threaded, engine context only. Compiled only with
  * SPLC_REAL_ENABLE = 1, so a build with it 0 keeps its exact baseline size.
@@ -67,7 +66,7 @@ extern "C" {
 #define PLC_TAGTYPE_COUNT       128U   /* tags covered: 2 per register */
 #define PLC_TAGTYPE_FLASH_SIZE  128U   /* one byte per tag, in tag order */
 
-#define PLC_TAGTYPE_CAP_PROVISIONAL  0x00000800UL   /* NOT announced yet -- see above */
+#define PLC_TAGTYPE_CAP_FLOAT32      0x00000800UL   /* App header SPLC_CAP_FLOAT32, bit 11 of 0x0A08 */
 
 typedef enum {
     PLC_TAGTYPE_UNDECLARED = 0,
