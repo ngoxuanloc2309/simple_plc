@@ -14,6 +14,7 @@
 #include "plc_tagtype.h"    /* Tag DataType Registry 0x0080..0x00BF (SPLC_REAL_ENABLE=1 only) */
 #include "plc_mbm.h"        /* MB_READ blocks 0x1000..0x10FF (SPLC_MBM_ENABLE=1 only) */
 #include "plc_mbw.h"        /* MB_WRITE blocks 0x1100..0x11FF (SPLC_MBW_ENABLE=1 only) */
+#include "plc_wifi.h"       /* Wi-Fi block 0x1300..0x13FF (SPLC_WIFI_ENABLE=1 only) */
 #if SPLC_MQTT_SUB_ENABLE
 #include "plc_mqtt_sub.h"    /* MQTT Subscribe blocks 0x0D80..0x0DFF (SPLC_MQTT_SUB_ENABLE=1 only) */
 #endif
@@ -166,7 +167,8 @@ static void read_device_resource_info(uint16_t offset, uint16_t quantity, uint16
     }
 }
 
-#if SPLC_MQTT_ENABLE || SPLC_MBM_ENABLE || (SPLC_MODBUS_MAX_TRANSPORTS > 1)
+#define SPLC_HAS_HW_CAPS (SPLC_MQTT_ENABLE || SPLC_MBM_ENABLE || (SPLC_MODBUS_MAX_TRANSPORTS > 1) || SPLC_WIFI_ENABLE)
+#if SPLC_HAS_HW_CAPS
 /* --- HARDWARE_CAPABILITIES (0x0A08-0x0A09, RO, uint32, High Word first) -------------------------
  * App contract: docs/platform/SimplePLC_App_MCU_Structs_v2.0 (paa) and simpleplc_protocol_v2_0.h,
  * SPLC_HardwareCapabilities_t. The App reads this before it writes the MQTT blocks and SKIPS the
@@ -193,6 +195,9 @@ static void read_hw_capabilities(uint16_t offset, uint16_t quantity, uint16_t *r
 #endif
 #if SPLC_MODBUS_MAX_TRANSPORTS > 1
     if (s_x_tcp) { caps |= SPLC_CAP_MODBUS_TCP; }
+#endif
+#if SPLC_WIFI_ENABLE
+    caps |= plc_wifi_capabilities();   /* 0x0200, only once the host registered its Wi-Fi functions */
 #endif
     if (g_device_resource_info.max_rules > 0U)        { caps |= SPLC_CAP_BASE_LOGIC; }
     if (g_device_resource_info.vreg_retain_count > 0U) { caps |= SPLC_CAP_RETENTIVE; }
@@ -1385,7 +1390,7 @@ static const modbus_block_t s_blocks[] = {
     { 0x0810, 0x0813, true,  plc_rtc_read,                NULL },   /* FC16 writes handled in cb_write_multiple_registers (needs distinct exceptions) */
     { 0x0900, 0x09FF, false, read_runtime_tag_values,     NULL },
     { 0x0A01, 0x0A02, true,  read_system_command_result,  NULL },
-#if SPLC_MQTT_ENABLE || SPLC_MBM_ENABLE || (SPLC_MODBUS_MAX_TRANSPORTS > 1)
+#if SPLC_HAS_HW_CAPS
     { 0x0A08, 0x0A09, true,  read_hw_capabilities,        NULL },   /* RO; App gates the MQTT deploy on bit 4 */
 #endif
     #if SPLC_MBM_ENABLE
@@ -1406,6 +1411,9 @@ static const modbus_block_t s_blocks[] = {
     { 0x1100, 0x11FF, true,  plc_mbw_read,                NULL },   /* MB_WRITE; FC16 writes handled in cb_write_multiple_registers (go to the draft) */
 #endif
     { 0x1400, 0x143F, true,  plc_mbm_ports_read,          NULL },   /* RS-485 port table (MBM-003); FC16 writes handled in cb_write_multiple_registers */
+#endif
+#if SPLC_WIFI_ENABLE
+    { 0x1300, 0x13FF, true,  plc_wifi_read,               NULL },   /* Wi-Fi (WIFI-004); FC16/FC06 writes handled in cb_write_multiple_registers */
 #endif
 
     { 0x9000, 0x9000, true,  read_config_status,          NULL },
@@ -1584,6 +1592,22 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
         address < PLC_MQTT_BROKER_BASE + PLC_MQTT_BROKER_REGS) {
         return (plc_mqtt_broker_write((uint16_t)(address - PLC_MQTT_BROKER_BASE), quantity, registers)
                 == PLC_MQTT_WRITE_OK) ? NMBS_ERROR_NONE : NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+    }
+#endif
+
+#if SPLC_WIFI_ENABLE
+    /*
+     * Wi-Fi block (plc_wifi.h): a COMMAND block, no draft. Config writes update RAM only,
+     * read-only fields inside the written range are ignored, 0x1340 carries the command.
+     * A request that touches the read-only scan table (0x1350+) or carries an unknown
+     * command changes nothing: 0x02 / 0x03.
+     */
+    if (address >= PLC_WIFI_BASE && address < PLC_WIFI_BASE + PLC_WIFI_REGS) {
+        switch (plc_wifi_write((uint16_t)(address - PLC_WIFI_BASE), quantity, registers)) {
+        case PLC_WIFI_WRITE_OK:    return NMBS_ERROR_NONE;
+        case PLC_WIFI_WRITE_VALUE: return NMBS_EXCEPTION_ILLEGAL_DATA_VALUE;
+        default:                   return NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+        }
     }
 #endif
 

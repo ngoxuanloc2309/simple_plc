@@ -12,6 +12,7 @@
 #include "plc_tagtype.h"
 #include "plc_mbm.h"
 #include "plc_mbw.h"
+#include "plc_wifi.h"
 #if SPLC_MQTT_SUB_ENABLE
 #include "plc_mqtt_sub.h"
 #endif
@@ -177,6 +178,7 @@ static void scan_cycle(uint32_t now_ms)
     }
 #endif
     modbus_config_service();
+    plc_wifi_service(now_ms);    /* no-op unless SPLC_WIFI_ENABLE: boot restore + save after GOT_IP */
     retain_service();
 
     plc_modbus_cfg_record_scan_time(sx_get_tick_ms() - now_ms);

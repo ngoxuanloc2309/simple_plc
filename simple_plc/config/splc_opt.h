@@ -278,6 +278,14 @@
 #define SPLC_MBW_ENABLE                  0
 #endif
 
+/* 1 = build the Wi-Fi block 0x1300..0x13FF (plc_wifi.h, ICD WIFI-004): the App scans,
+ * connects and configures the host's Wi-Fi through a small set of host callbacks
+ * (splc_wifi_register()). SimplePLC owns no radio and no Flash for it. 0 = nothing
+ * changes: no code, no RAM, the exact baseline binary. */
+#ifndef SPLC_WIFI_ENABLE
+#define SPLC_WIFI_ENABLE                 0
+#endif
+
 /* Number of App-link transports the Modbus config server can serve at once (1..3).
  * 1 = exactly the single transport board_get_modbus_transport() returns: no extra
  * code, no extra RAM, the exact baseline binary. >1 = plc_modbus_cfg_add_transport()
@@ -409,6 +417,9 @@
 #endif
 #if (SPLC_MODBUS_MAX_TRANSPORTS < 1) || (SPLC_MODBUS_MAX_TRANSPORTS > 3)
 #error "SPLC_MODBUS_MAX_TRANSPORTS must be 1..3"
+#endif
+#if (SPLC_WIFI_ENABLE != 0) && (SPLC_WIFI_ENABLE != 1)
+#error "SPLC_WIFI_ENABLE must be 0 or 1"
 #endif
 #if (SPLC_MBW_ENABLE != 0) && (SPLC_MBW_ENABLE != 1)
 #error "SPLC_MBW_ENABLE must be 0 or 1"

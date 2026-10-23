@@ -25,6 +25,7 @@
 #if SPLC_MQTT_SUB_ENABLE
 #include "plc_mqtt_sub.h"
 #endif
+#include "plc_wifi.h"
 #include "splc_log.h"
 
 /*
@@ -190,6 +191,7 @@ bool plc_factory_reset(void)
      * region does not prevent clearing the other. */
     const bool retain_ok = plc_clear_retain();
     const bool rules_ok  = plc_clear_rules();
+    plc_wifi_factory_reset();   /* stored Wi-Fi credentials only; CLEAR_RULES alone never touches them */
 
     if (retain_ok && rules_ok) {
         log_info(TAG, "FACTORY_RESET done: retain and rules cleared");
