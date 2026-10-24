@@ -1,0 +1,10 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io_remote.c:153:13:register_bit	32	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io_remote.c:116:6:plc_io_remote_reset	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io_remote.c:126:5:plc_io_remote_add_node	24	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io_remote.c:183:6:plc_io_remote_register_di	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io_remote.c:188:6:plc_io_remote_register_do	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io_remote.c:193:5:plc_io_remote_map_node	56	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io_remote.c:214:6:plc_io_remote_node_online	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io_remote.c:219:5:plc_io_remote_node_count	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io_remote.c:226:6:plc_io_remote_input_scan	24	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io_remote.c:367:6:plc_io_remote_output_scan	80	static

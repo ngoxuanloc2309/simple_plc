@@ -1,0 +1,6 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io.c:44:6:plc_io_reset	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io.c:63:6:plc_io_register_di	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io.c:76:6:plc_io_register_do	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io.c:89:6:plc_io_register_ai	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io.c:102:6:input_scan	24	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io/plc_io.c:128:6:output_scan	24	static

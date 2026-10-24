@@ -1,0 +1,15 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:24:27:find_binding	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:34:13:arm_rx_byte	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:39:6:sx_uart_init	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:75:5:sx_uart_available	8	static,ignoring_inline_asm
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:88:5:sx_uart_read	32	static,ignoring_inline_asm
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:109:5:sx_uart_write	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:121:5:sx_uart_write_start	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:130:6:sx_uart_tx_busy	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:132:6:sx_uart_set_tx_done_callback	0	static,ignoring_inline_asm
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:141:6:sx_uart_write_abort	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:148:6:sx_uart_set_rx_enabled	0	static,ignoring_inline_asm
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:166:5:sx_uart_reconfigure	32	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:212:6:HAL_UART_RxCpltCallback	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:230:6:HAL_UART_TxCpltCallback	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart/stm32h5_uart.c:249:6:HAL_UART_ErrorCallback	8	static

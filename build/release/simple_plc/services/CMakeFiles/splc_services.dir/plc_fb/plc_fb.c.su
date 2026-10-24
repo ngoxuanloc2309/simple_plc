@@ -1,0 +1,16 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:97:13:counters_set_disabled	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:106:13:timer_telemetry_clear	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:112:13:running_set_disabled	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:72:13:cv_tag_allowed	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:185:13:config_valid	32	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:119:6:plc_fb_init	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:172:6:plc_fb_read	40	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:222:23:plc_fb_write	240	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:282:6:plc_fb_discard_draft	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:359:13:import_image	208	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:289:6:plc_fb_commit_draft	24	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:311:6:plc_fb_clear_all	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:340:6:plc_fb_export	12	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:389:6:plc_fb_import	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:390:6:plc_fb_import_v1	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb/plc_fb.c:394:6:plc_fb_scan	32	static

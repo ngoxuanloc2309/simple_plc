@@ -42,6 +42,7 @@ Exit codes: 0 = ALL PASS, 1 = a check failed, 2 = cannot open port,
             3 = link error (inconclusive).
 """
 import argparse
+import test_report as R   # Excel evidence report (--report / --no-report)
 import struct
 import sys
 import time
@@ -325,7 +326,9 @@ def main():
     p.add_argument("--chunk", type=int, default=48, help="registers per FC16 (default 48)")
     p.add_argument("--reboot", action="store_true", help="also check persistence across REBOOT")
     p.add_argument("--port-after", default=None, help="COM port after a reboot if Windows renumbers it")
+    R.add_args(p)
     args = p.parse_args()
+    R.start(args)
     T.Dev.chunk = max(1, min(args.chunk, 120))
 
     client = T.make_client(args.port, args.baudrate)

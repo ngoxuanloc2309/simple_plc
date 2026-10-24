@@ -58,6 +58,7 @@ Requires: pip install pymodbus pyserial
 """
 
 import argparse
+import test_report as R   # Excel evidence report (--report / --no-report)
 import sys
 import time
 
@@ -599,7 +600,9 @@ def main():
     ap.add_argument("--baudrate", type=int, default=115200)
     ap.add_argument("--manual", action="store_true", help="also run tests that need you to drive DI pins")
     ap.add_argument("--only", default="", help="run only tests whose name contains this text")
+    R.add_args(ap)
     args = ap.parse_args()
+    R.start(args)
 
     client = T.ModbusSerialClient(port=args.port, baudrate=args.baudrate,
                                   bytesize=8, parity="N", stopbits=1, timeout=1)

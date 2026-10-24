@@ -1,0 +1,4 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rtc/plc_rtc.c:35:6:plc_rtc_read	32	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rtc/plc_rtc.c:54:24:plc_rtc_write	24	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rtc/plc_rtc.c:92:6:plc_rtc_get_local_hhmm	24	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rtc/plc_rtc.c:105:6:plc_rtc_get_epoch	16	static

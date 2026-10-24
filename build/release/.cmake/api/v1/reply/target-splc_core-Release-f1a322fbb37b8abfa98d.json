@@ -1,0 +1,193 @@
+{
+	"archive" : {},
+	"artifacts" : 
+	[
+		{
+			"path" : "simple_plc/core/libsplc_core.a"
+		}
+	],
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"include_directories",
+			"target_include_directories",
+			"target_compile_features"
+		],
+		"files" : 
+		[
+			"simple_plc/core/CMakeLists.txt",
+			"simple_plc/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 13,
+				"parent" : 0
+			},
+			{
+				"file" : 1
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 46,
+				"parent" : 2
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 43,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 56,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 71,
+				"parent" : 0
+			},
+			{
+				"command" : 3,
+				"file" : 0,
+				"line" : 75,
+				"parent" : 0
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : " -mcpu=cortex-m33 -mfpu=fpv5-sp-d16 -mfloat-abi=hard  -Wall -fdata-sections -ffunction-sections -fstack-usage -Os -g0 -std=gnu11"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 3,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/splc_config"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/config"
+				},
+				{
+					"backtrace" : 4,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/cmake_modules/../utils/logger"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/../board"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_rule"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_device"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_error"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_system_cmd"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_diag"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_internal_rule"
+				}
+			],
+			"language" : "C",
+			"languageStandard" : 
+			{
+				"backtraces" : 
+				[
+					7
+				],
+				"standard" : "11"
+			},
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3
+			]
+		}
+	],
+	"id" : "splc_core::@3a5748b182bab76082dd",
+	"name" : "splc_core",
+	"nameOnDisk" : "libsplc_core.a",
+	"paths" : 
+	{
+		"build" : "simple_plc/core",
+		"source" : "simple_plc/core"
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "simple_plc/core/plc_tag/plc_tag.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "simple_plc/core/plc_rule/plc_rule.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "simple_plc/core/plc_internal_rule/plc_rule_eval.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "simple_plc/core/plc_internal_rule/plc_rule_action.c",
+			"sourceGroupIndex" : 0
+		}
+	],
+	"type" : "STATIC_LIBRARY"
+}

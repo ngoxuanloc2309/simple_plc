@@ -56,6 +56,7 @@ Usage:
 """
 
 import argparse
+import test_report as R   # Excel evidence report (--report / --no-report)
 import datetime as dt
 import sys
 import time
@@ -279,7 +280,9 @@ def main():
                    help="also verify the time survives a REBOOT")
     p.add_argument("--port-after", default=None,
                    help="COM port to use after a reboot if Windows renumbers it")
+    R.add_args(p)
     args = p.parse_args()
+    R.start(args)
 
     client = ModbusSerialClient(port=args.port, baudrate=args.baudrate, parity="N",
                                 stopbits=1, bytesize=8, timeout=1.0)

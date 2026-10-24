@@ -1,0 +1,5 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/cqueue/splc_cqueue.c:5:16:splc_cqueue_init_static	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/cqueue/splc_cqueue.c:20:6:splc_cqueue_receive	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/cqueue/splc_cqueue.c:31:6:splc_cqueue_send	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/cqueue/splc_cqueue.c:42:6:splc_cqueue_is_empty	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/cqueue/splc_cqueue.c:47:6:splc_cqueue_is_full	0	static

@@ -1,0 +1,1318 @@
+{
+	"artifacts" : 
+	[
+		{
+			"path" : "RS485_IO_RF_V2.elf"
+		}
+	],
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_executable",
+			"target_link_options",
+			"target_link_libraries",
+			"target_sources"
+		],
+		"files" : 
+		[
+			"CMakeLists.txt",
+			"simple_plc/CMakeLists.txt",
+			"cmake/stm32cubemx/CMakeLists.txt",
+			"simple_plc/board/CMakeLists.txt",
+			"simple_plc/components/CMakeLists.txt",
+			"simple_plc/port/usb/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 35,
+				"parent" : 0
+			},
+			{
+				"file" : 1
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 192,
+				"parent" : 2
+			},
+			{
+				"file" : 2
+			},
+			{
+				"command" : 2,
+				"file" : 2,
+				"line" : 123,
+				"parent" : 4
+			},
+			{
+				"command" : 2,
+				"file" : 1,
+				"line" : 174,
+				"parent" : 2
+			},
+			{
+				"file" : 3
+			},
+			{
+				"command" : 2,
+				"file" : 3,
+				"line" : 69,
+				"parent" : 7
+			},
+			{
+				"file" : 4
+			},
+			{
+				"command" : 2,
+				"file" : 4,
+				"line" : 40,
+				"parent" : 9
+			},
+			{
+				"file" : 5
+			},
+			{
+				"command" : 2,
+				"file" : 5,
+				"line" : 29,
+				"parent" : 11
+			},
+			{
+				"command" : 3,
+				"file" : 2,
+				"line" : 117,
+				"parent" : 4
+			},
+			{
+				"command" : 3,
+				"file" : 1,
+				"line" : 180,
+				"parent" : 2
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : " -mcpu=cortex-m33 -mfpu=fpv5-sp-d16 -mfloat-abi=hard  -Wall -fdata-sections -ffunction-sections -fstack-usage -Os -g0 -std=gnu11"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 5,
+					"define" : "STM32H523xx"
+				},
+				{
+					"backtrace" : 5,
+					"define" : "USE_HAL_DRIVER"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Core/Inc"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Drivers/STM32H5xx_HAL_Driver/Inc"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Drivers/STM32H5xx_HAL_Driver/Inc/Legacy"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32H5xx/Include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Drivers/CMSIS/Include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Middlewares/Third_Party/FreeRTOS/Source/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM33_NTZ/non_secure"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Middlewares/Third_Party/CMSIS/RTOS2/Include"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/splc_config"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/config"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/../board"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_rule"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_device"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_error"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_system_cmd"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_diag"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/gpio"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/adc"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/flash"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/uart"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/time"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/os"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/system"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/rtc"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/pwd"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/cmake_modules/../utils/logger"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/../app"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/cqueue"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/epoch"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/mqtt_fmt"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/gpio"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/adc"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/flash"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/time"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/timer"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/flash_define"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/pwd"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/system"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/rtc"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/../../../app"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/splc_nanomodbus"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_link"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_transport"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_modbus_cfg"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rtc"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_mqtt"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_mqtt_sub"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_tagtype"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_mbm"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_mbw"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_wifi"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_mqtt_tls"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rule_flash"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board/board_device"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/usb"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/tinyusb/src"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/tinyusb/src/../lib/networking"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/../port/usb"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/tinyusb/src/common"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/tinyusb/src/device"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/tinyusb/src/portable/st/stm32_fsdev"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/app"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/app/plc_app"
+				}
+			],
+			"language" : "C",
+			"languageStandard" : 
+			{
+				"backtraces" : 
+				[
+					6
+				],
+				"standard" : "11"
+			},
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9,
+				10,
+				11,
+				12,
+				13,
+				14
+			]
+		},
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : " -mcpu=cortex-m33 -mfpu=fpv5-sp-d16 -mfloat-abi=hard  -x assembler-with-cpp -MMD -MP -O3 -DNDEBUG"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 5,
+					"define" : "STM32H523xx"
+				},
+				{
+					"backtrace" : 5,
+					"define" : "USE_HAL_DRIVER"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Core/Inc"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Drivers/STM32H5xx_HAL_Driver/Inc"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Drivers/STM32H5xx_HAL_Driver/Inc/Legacy"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32H5xx/Include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Drivers/CMSIS/Include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Middlewares/Third_Party/FreeRTOS/Source/include"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM33_NTZ/non_secure"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Middlewares/Third_Party/CMSIS/RTOS2/Include"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/splc_config"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/config"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/../board"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_rule"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_device"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_error"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_system_cmd"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_diag"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/gpio"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/adc"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/flash"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/uart"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/time"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/os"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/system"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/rtc"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/pwd"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/cmake_modules/../utils/logger"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/../app"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/cqueue"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/epoch"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/mqtt_fmt"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/gpio"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/adc"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/flash"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/uart"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/time"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/timer"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/flash_define"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/pwd"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/system"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/rtc"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/../../../app"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/splc_nanomodbus"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_link"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_transport"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_io"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_modbus_cfg"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rtc"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_fb"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_mqtt"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_mqtt_sub"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_tagtype"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_mbm"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_mbw"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_wifi"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_mqtt_tls"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rule_flash"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board/board_device"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/usb"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/tinyusb/src"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/tinyusb/src/../lib/networking"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/../port/usb"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/tinyusb/src/common"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/tinyusb/src/device"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/tinyusb/src/portable/st/stm32_fsdev"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/app"
+				},
+				{
+					"backtrace" : 6,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/app/plc_app"
+				}
+			],
+			"language" : "ASM",
+			"sourceIndexes" : 
+			[
+				15
+			]
+		}
+	],
+	"dependencies" : 
+	[
+		{
+			"backtrace" : 5,
+			"id" : "STM32_Drivers::@768a070a0fe75716b479"
+		},
+		{
+			"backtrace" : 5,
+			"id" : "RTOS2::@768a070a0fe75716b479"
+		},
+		{
+			"backtrace" : 6,
+			"id" : "splc_core::@3a5748b182bab76082dd"
+		},
+		{
+			"backtrace" : 6,
+			"id" : "splc_utils::@85ff8dd7008a65abef30"
+		},
+		{
+			"backtrace" : 6,
+			"id" : "splc_platform_stm32h5::@b4809856d84a591ddef8"
+		},
+		{
+			"id" : "splc_platform_freertos::@87ef8596fbbc557e0a48"
+		},
+		{
+			"backtrace" : 6,
+			"id" : "splc_nanomodbus::@3c31441cb1179b352226"
+		},
+		{
+			"backtrace" : 6,
+			"id" : "splc_app::@c569221d7e1dd4855a29"
+		},
+		{
+			"backtrace" : 6,
+			"id" : "splc_port::@d36f04cdbf312456b5fb"
+		},
+		{
+			"backtrace" : 6,
+			"id" : "tinyusb::@3c31441cb1179b352226"
+		},
+		{
+			"backtrace" : 6,
+			"id" : "splc_services::@c62eba38cbc606b77f28"
+		},
+		{
+			"backtrace" : 6,
+			"id" : "splc_board::@65543744a1cdb8a97ccc"
+		},
+		{
+			"backtrace" : 6,
+			"id" : "splc_port_usb_cdc::@612843fd03ddcfb526dc"
+		}
+	],
+	"id" : "RS485_IO_RF_V2::@6890427a1f51a3e7e1df",
+	"link" : 
+	{
+		"commandFragments" : 
+		[
+			{
+				"fragment" : "-mcpu=cortex-m33 -mfpu=fpv5-sp-d16 -mfloat-abi=hard  -Wall -fdata-sections -ffunction-sections -fstack-usage -Os -g0",
+				"role" : "flags"
+			},
+			{
+				"fragment" : "-mcpu=cortex-m33 -mfpu=fpv5-sp-d16 -mfloat-abi=hard  -T \"D:/Synaptix/SynaptiX/strategy/simple_plc/STM32H523xx_FLASH.ld\" --specs=nano.specs -Wl,-Map=RS485_IO_RF_V2.map -Wl,--gc-sections -Wl,--print-memory-usage",
+				"role" : "flags"
+			},
+			{
+				"backtrace" : 3,
+				"fragment" : "-Wl,--wrap=HAL_RTC_SetTime",
+				"role" : "flags"
+			},
+			{
+				"backtrace" : 3,
+				"fragment" : "-Wl,--wrap=HAL_RTC_SetDate",
+				"role" : "flags"
+			},
+			{
+				"backtrace" : 5,
+				"fragment" : "-lm",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "simple_plc\\core\\libsplc_core.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "simple_plc\\platforms\\stm32\\stm32h5\\libsplc_platform_stm32h5.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "simple_plc\\libs\\libsplc_nanomodbus.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "simple_plc\\port\\libsplc_port.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "simple_plc\\services\\libsplc_services.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "simple_plc\\board\\libsplc_board.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "simple_plc\\app\\libsplc_app.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "simple_plc\\board\\libsplc_board.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "simple_plc\\services\\libsplc_services.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "simple_plc\\core\\libsplc_core.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "simple_plc\\platforms\\stm32\\stm32h5\\libsplc_platform_stm32h5.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 8,
+				"fragment" : "simple_plc\\port\\usb\\libsplc_port_usb_cdc.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "simple_plc\\port\\libsplc_port.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 10,
+				"fragment" : "simple_plc\\utils\\libsplc_utils.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 6,
+				"fragment" : "simple_plc\\libs\\libsplc_nanomodbus.a",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 12,
+				"fragment" : "simple_plc\\libs\\libtinyusb.a",
+				"role" : "libraries"
+			}
+		],
+		"language" : "C"
+	},
+	"name" : "RS485_IO_RF_V2",
+	"nameOnDisk" : "RS485_IO_RF_V2.elf",
+	"paths" : 
+	{
+		"build" : ".",
+		"source" : "."
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9,
+				10,
+				11,
+				12,
+				13,
+				14
+			]
+		},
+		{
+			"name" : "",
+			"sourceIndexes" : 
+			[
+				15
+			]
+		},
+		{
+			"name" : "Object Libraries",
+			"sourceIndexes" : 
+			[
+				16,
+				17,
+				18,
+				19,
+				20,
+				21,
+				22,
+				23,
+				24,
+				25,
+				26,
+				27,
+				28,
+				29,
+				30,
+				31,
+				32,
+				33,
+				34,
+				35,
+				36,
+				37,
+				38,
+				39,
+				40,
+				41,
+				42,
+				43,
+				44,
+				45,
+				46,
+				47,
+				48,
+				49,
+				50,
+				51,
+				52
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/main.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/gpio.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/app_freertos.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/adc.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/gpdma.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/icache.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/usart.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/rtc.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/tim.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/usb.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/stm32h5xx_it.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/stm32h5xx_hal_msp.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/stm32h5xx_hal_timebase_tim.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/sysmem.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/syscalls.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 13,
+			"compileGroupIndex" : 1,
+			"path" : "startup_stm32h523xx.s",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 14,
+			"isGenerated" : true,
+			"path" : "build/release/simple_plc/platforms/freertos/CMakeFiles/splc_platform_freertos.dir/sx_os_freertos.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Core/Src/system_stm32h5xx.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_tim.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_tim_ex.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_adc.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_adc_ex.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_dma.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_dma_ex.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_rcc.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_rcc_ex.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_flash.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_flash_ex.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_gpio.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_pwr.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_pwr_ex.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_cortex.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_exti.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_icache.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_uart.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_uart_ex.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_rtc.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_rtc_ex.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_pcd.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_pcd_ex.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_ll_usb.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/croutine.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/event_groups.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/list.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/queue.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/stream_buffer.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/tasks.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/timers.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM33_NTZ/non_secure/port.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM33_NTZ/non_secure/portasm.c.obj",
+			"sourceGroupIndex" : 2
+		},
+		{
+			"backtrace" : 5,
+			"isGenerated" : true,
+			"path" : "build/release/cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.c.obj",
+			"sourceGroupIndex" : 2
+		}
+	],
+	"type" : "EXECUTABLE"
+}

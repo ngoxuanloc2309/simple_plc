@@ -1,0 +1,5 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/usart.c:35:6:MX_LPUART1_UART_Init	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/usart.c:78:6:MX_USART1_UART_Init	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/usart.c:122:6:MX_USART2_UART_Init	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/usart.c:165:6:HAL_UART_MspInit	272	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/usart.c:338:6:HAL_UART_MspDeInit	8	static

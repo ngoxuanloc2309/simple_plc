@@ -1,0 +1,10 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/usb/splc_usb_cdc.c:75:16:usb_output	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/usb/splc_usb_cdc.c:34:6:splc_usb_cdc_process	72	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/usb/splc_usb_cdc.c:89:13:usb_process	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/usb/splc_usb_cdc.c:97:17:splc_usb_cdc_init	40	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/usb/splc_usb_cdc.c:133:6:splc_usb_cdc_connected	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/usb/splc_usb_cdc.c:138:6:splc_usb_irq	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/usb/splc_usb_cdc.c:145:6:tud_mount_cb	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/usb/splc_usb_cdc.c:146:6:tud_umount_cb	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/usb/splc_usb_cdc.c:147:6:tud_suspend_cb	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/usb/splc_usb_cdc.c:152:6:tud_resume_cb	0	static

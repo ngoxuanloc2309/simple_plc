@@ -1,0 +1,13 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain/plc_retain.c:252:13:retain_slot_is_blank	32	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain/plc_retain.c:109:13:retain_tag_indices_init	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain/plc_retain.c:298:13:retain_values_changed	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain/plc_retain.c:323:13:retain_prepare_write_position	24	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain/plc_retain.c:215:13:retain_record_is_valid	232	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain/plc_retain.c:291:13:retain_rotate_and_erase	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain/plc_retain.c:448:13:retain_write_record	384	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain/plc_retain.c:234:6:retain_flash_op_begin	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain/plc_retain.c:239:6:retain_flash_op_end	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain/plc_retain.c:339:6:retain_store_restore	248	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain/plc_retain.c:536:6:retain_snapshot_write	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain/plc_retain.c:544:6:retain_emergency_snapshot	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_retain/plc_retain.c:586:6:retain_service	16	static

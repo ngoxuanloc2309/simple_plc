@@ -1,0 +1,7 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/logger/logger.c:51:13:serial_write_func	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/logger/logger.c:18:20:logger_lock	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/logger/logger.c:25:20:logger_unlock	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/logger/logger.c:94:6:log_func	40	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/logger/logger.c:133:6:logger_set_level	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/logger/logger.c:137:6:log_print_hex	32	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/logger/logger.c:170:6:logger_init	16	static

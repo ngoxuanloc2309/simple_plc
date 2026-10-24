@@ -47,6 +47,7 @@ Exit codes: 0 = ALL PASS, 1 = a check failed, 2 = cannot open port,
 3 = link error (inconclusive).
 """
 import argparse
+import test_report as R   # Excel evidence report (--report / --no-report)
 import struct
 import sys
 import time
@@ -378,7 +379,9 @@ def main():
                    help="also poll this slave id with block 0 and check the status tags")
     p.add_argument("--live-addr", type=int, default=0)
     p.add_argument("--live-count", type=int, default=2)
+    R.add_args(p)
     args = p.parse_args()
+    R.start(args)
     T.Dev.chunk = max(1, min(args.chunk, 120))
 
     client = T.make_client(args.port, args.baudrate)

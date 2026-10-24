@@ -1,0 +1,10 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_link/modbus_link.c:84:13:link_pump	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_link/modbus_link.c:91:13:link_process	0	static,ignoring_inline_asm
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_link/modbus_link.c:158:16:link_write	32	static,ignoring_inline_asm
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_link/modbus_link.c:114:16:link_read	32	static,ignoring_inline_asm
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_link/modbus_link.c:53:10:splc_link_input	24	static,ignoring_inline_asm
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_link/modbus_link.c:77:10:splc_link_rx_dropped	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_link/modbus_link.c:198:17:splc_link_register	32	static,ignoring_inline_asm
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_link/modbus_link.c:230:6:splc_link_unregister	0	static,ignoring_inline_asm
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_link/modbus_link.c:238:6:splc_link_is_registered	0	static,ignoring_inline_asm
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_link/modbus_link.c:243:6:splc_link_get_transport	0	static,ignoring_inline_asm

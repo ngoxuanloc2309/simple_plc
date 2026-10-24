@@ -1,0 +1,5 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/rtc/stm32h5_rtc.c:65:6:sx_rtc_is_synced	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/rtc/stm32h5_rtc.c:49:19:__wrap_HAL_RTC_SetTime	24	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/rtc/stm32h5_rtc.c:57:19:__wrap_HAL_RTC_SetDate	24	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/rtc/stm32h5_rtc.c:70:6:sx_rtc_set_epoch	48	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/rtc/stm32h5_rtc.c:113:6:sx_rtc_get_epoch	48	static

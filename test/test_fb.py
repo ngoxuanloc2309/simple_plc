@@ -71,6 +71,7 @@ Usage:
   python test_fb.py COM14 --reboot --probe-64
 """
 import argparse
+import test_report as R   # Excel evidence report (--report / --no-report)
 import sys
 import time
 
@@ -536,7 +537,9 @@ def main():
                    help="COM port to use after a reboot if Windows renumbers it")
     p.add_argument("--probe-64", action="store_true",
                    help="also send a 4-block FC16 and report whether it is answered")
+    R.add_args(p)
     args = p.parse_args()
+    R.start(args)
 
     client = ModbusSerialClient(port=args.port, baudrate=args.baudrate, parity="N",
                                 stopbits=1, bytesize=8, timeout=1.0)

@@ -78,6 +78,7 @@ Usage:
   (PowerShell: write --broker host:1883 WITHOUT quotes around the host part only)
 """
 import argparse
+import test_report as R   # Excel evidence report (--report / --no-report)
 import inspect
 import json
 import math
@@ -1159,7 +1160,9 @@ def main():
                    help="with --stress: repeat the loop with 4 PERIODIC blocks publishing")
     p.add_argument("--mqtt-user", default=None)
     p.add_argument("--mqtt-pass", default=None)
+    R.add_args(p)
     args = p.parse_args()
+    R.start(args)
     Dev.chunk = max(1, min(args.chunk, 120))
     if args.stress_mqtt and not args.stress:
         args.stress = 300

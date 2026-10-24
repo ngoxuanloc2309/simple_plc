@@ -1,0 +1,3 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/gpio/stm32h5_gpio.c:5:6:sx_gpio_init	40	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/gpio/stm32h5_gpio.c:42:17:sx_gpio_read	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/gpio/stm32h5_gpio.c:48:6:sx_gpio_write	0	static

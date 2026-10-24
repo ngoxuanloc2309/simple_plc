@@ -1,0 +1,8 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/app_freertos.c:168:6:StartDefaultTask	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/app_freertos.c:61:6:vApplicationMallocFailedHook	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/app_freertos.c:77:6:vApplicationTickHook	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/app_freertos.c:88:6:vApplicationIdleHook	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/app_freertos.c:103:6:vApplicationStackOverflowHook	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/app_freertos.c:113:13:configureTimerForRunTimeStats	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/app_freertos.c:118:22:getRunTimeCounterValue	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/app_freertos.c:129:6:MX_FREERTOS_Init	8	static

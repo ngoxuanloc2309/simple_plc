@@ -1,0 +1,228 @@
+{
+	"artifacts" : 
+	[
+		{
+			"path" : "simple_plc/platforms/freertos/CMakeFiles/splc_platform_freertos.dir/./sx_os_freertos.c.obj"
+		}
+	],
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"target_link_libraries",
+			"include_directories"
+		],
+		"files" : 
+		[
+			"simple_plc/platforms/freertos/CMakeLists.txt",
+			"simple_plc/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 19,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 25,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 34,
+				"parent" : 0
+			},
+			{
+				"file" : 1
+			},
+			{
+				"command" : 2,
+				"file" : 1,
+				"line" : 46,
+				"parent" : 4
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : " -mcpu=cortex-m33 -mfpu=fpv5-sp-d16 -mfloat-abi=hard  -Wall -fdata-sections -ffunction-sections -fstack-usage -Os -g0 -std=gnu11"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 3,
+					"define" : "STM32H523xx"
+				},
+				{
+					"backtrace" : 3,
+					"define" : "USE_HAL_DRIVER"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/splc_config"
+				},
+				{
+					"backtrace" : 5,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/config"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/gpio"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/adc"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/flash"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/uart"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/time"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/os"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/system"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/rtc"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/pwd"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/cmake_modules/../utils/logger"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/components/../app"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/cqueue"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/epoch"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/utils/mqtt_fmt"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Core/Inc"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Drivers/STM32H5xx_HAL_Driver/Inc"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Drivers/STM32H5xx_HAL_Driver/Inc/Legacy"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32H5xx/Include"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Drivers/CMSIS/Include"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Middlewares/Third_Party/FreeRTOS/Source/include"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM33_NTZ/non_secure"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/stm32cubemx/../../Middlewares/Third_Party/CMSIS/RTOS2/Include"
+				}
+			],
+			"language" : "C",
+			"languageStandard" : 
+			{
+				"backtraces" : 
+				[
+					2
+				],
+				"standard" : "11"
+			},
+			"sourceIndexes" : 
+			[
+				0
+			]
+		}
+	],
+	"dependencies" : 
+	[
+		{
+			"backtrace" : 2,
+			"id" : "splc_utils::@85ff8dd7008a65abef30"
+		}
+	],
+	"id" : "splc_platform_freertos::@87ef8596fbbc557e0a48",
+	"name" : "splc_platform_freertos",
+	"paths" : 
+	{
+		"build" : "simple_plc/platforms/freertos",
+		"source" : "simple_plc/platforms/freertos"
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				0
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "simple_plc/platforms/freertos/sx_os_freertos.c",
+			"sourceGroupIndex" : 0
+		}
+	],
+	"type" : "OBJECT_LIBRARY"
+}

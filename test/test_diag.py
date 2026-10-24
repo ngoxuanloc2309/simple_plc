@@ -42,6 +42,7 @@ about --dwell-ms AFTER the exit; without it, DO1 rises immediately.
 """
 
 import argparse
+import test_report as R   # Excel evidence report (--report / --no-report)
 import inspect
 import sys
 import time
@@ -332,7 +333,9 @@ def main():
     p.add_argument("--unit", type=int, default=1, help="Modbus unit id (default 1)")
     p.add_argument("--baudrate", type=int, default=115200)
     p.add_argument("--skip-expiry", action="store_true", help="Skip the ~4 s lease-expiry test")
+    R.add_args(p)
     a = p.parse_args()
+    R.start(a)
 
     client = ModbusSerialClient(port=a.port, baudrate=a.baudrate, bytesize=8,
                                 parity="N", stopbits=1, timeout=1)

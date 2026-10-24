@@ -1,0 +1,11 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board/board_device/board_zigbee_io.c:489:13:mbm_tx_done	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board/board_device/board_zigbee_io.c:587:16:idle_read	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board/board_device/board_zigbee_io.c:593:16:idle_write	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board/board_device/board_zigbee_io.c:137:13:board_log_write	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board/board_device/board_zigbee_io.c:495:12:mbm_configure	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board/board_device/board_zigbee_io.c:463:12:mbm_read	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board/board_device/board_zigbee_io.c:472:12:mbm_write_start	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board/board_device/board_zigbee_io.c:93:16:board_get_tag_layout	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board/board_device/board_zigbee_io.c:538:6:board_hw_init	32	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board/board_device/board_zigbee_io.c:599:20:board_get_modbus_transport	40	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/board/board_device/board_zigbee_io.c:622:6:USB_DRD_FS_IRQHandler	0	static

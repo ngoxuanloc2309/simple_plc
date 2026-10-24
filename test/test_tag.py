@@ -41,6 +41,7 @@ Usage:
 """
 
 import argparse
+import test_report as R   # Excel evidence report (--report / --no-report)
 import inspect
 import sys
 import time
@@ -256,7 +257,9 @@ def main():
     p.add_argument("--pin-seconds", type=float, default=5.0, help="length of the --pins pause (default 5)")
     p.add_argument("--commit", action="store_true", help="also test COMMIT_RETAIN (writes Flash)")
     p.add_argument("--reboot", action="store_true", help="also test the Step 5 baseline reset + REBOOT")
+    R.add_args(p)
     a = p.parse_args()
+    R.start(a)
     global PIN_SECONDS
     PIN_SECONDS = a.pin_seconds
 

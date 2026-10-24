@@ -1,0 +1,2 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/adc/stm32h5_adc.c:21:6:sx_adc_init	48	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/adc/stm32h5_adc.c:55:10:sx_adc_read	16	static

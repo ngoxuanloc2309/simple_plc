@@ -1,0 +1,8 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/flash/stm32h5_flash.c:80:13:sx_flash_clear_error_flags	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/flash/stm32h5_flash.c:133:13:sx_flash_program	64	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/flash/stm32h5_flash.c:49:6:sx_flash_lock	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/flash/stm32h5_flash.c:54:6:sx_flash_unlock	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/flash/stm32h5_flash.c:59:6:sx_flash_read	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/flash/stm32h5_flash.c:189:6:sx_flash_write	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/flash/stm32h5_flash.c:194:6:sx_flash_write_quiet	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/flash/stm32h5_flash.c:199:6:sx_flash_erase	56	static

@@ -1,0 +1,7 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rule_flash/plc_rule_flash.c:470:13:rule_flash_write_sector	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rule_flash/plc_rule_flash.c:530:13:rule_flash_apply_buffer	64	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rule_flash/plc_rule_flash.c:409:13:rule_flash_read_header	24	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rule_flash/plc_rule_flash.c:435:13:rule_flash_read_and_validate	64	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rule_flash/plc_rule_flash.c:497:13:rule_flash_copy_sector	40	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rule_flash/plc_rule_flash.c:625:6:plc_rule_flash_load	48	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rule_flash/plc_rule_flash.c:666:6:plc_rule_flash_save	40	static

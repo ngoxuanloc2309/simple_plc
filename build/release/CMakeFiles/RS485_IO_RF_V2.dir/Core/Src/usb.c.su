@@ -1,0 +1,3 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/usb.c:31:6:MX_USB_PCD_Init	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/usb.c:62:6:HAL_PCD_MspInit	224	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/Core/Src/usb.c:95:6:HAL_PCD_MspDeInit	0	static

@@ -57,6 +57,7 @@ Usage:
   python test_retain.py COM14 --periodic           (adds the ~6 minute step 5)
 """
 import argparse
+import test_report as R   # Excel evidence report (--report / --no-report)
 import sys
 import time
 
@@ -310,7 +311,9 @@ def main():
                    help="RETAIN_SNAPSHOT_PERIOD_MS of the firmware in seconds (default 300)")
     p.add_argument("--port-after", default=None,
                    help="COM port to use after a reboot if Windows renumbers it")
+    R.add_args(p)
     args = p.parse_args()
+    R.start(args)
 
     client = ModbusSerialClient(port=args.port, baudrate=args.baudrate, parity="N",
                                 stopbits=1, bytesize=8, timeout=1.0)

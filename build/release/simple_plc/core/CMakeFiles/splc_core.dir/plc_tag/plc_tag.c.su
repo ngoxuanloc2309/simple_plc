@@ -1,0 +1,12 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag/plc_tag.c:34:13:tag_fill_range	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag/plc_tag.c:47:6:tag_table_load_from_flash	56	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag/plc_tag.c:96:10:tag_di_base_index	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag/plc_tag.c:97:10:tag_do_base_index	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag/plc_tag.c:98:10:tag_ai_base_index	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag/plc_tag.c:99:10:tag_vflag_base_index	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag/plc_tag.c:100:10:tag_vreg_base_index	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag/plc_tag.c:101:10:tag_vreg_retain_base_index	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag/plc_tag.c:102:10:tag_counter_base_index	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag/plc_tag.c:104:9:tag_read	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag/plc_tag.c:112:6:tag_write	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/core/plc_tag/plc_tag.c:120:14:tag_get_kind	0	static

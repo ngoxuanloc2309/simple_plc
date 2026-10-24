@@ -1,0 +1,16 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:72:13:drain_rx	32	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:99:13:finish	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:19:13:put_crc	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:193:13:can_start	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:150:13:send_frame.isra	24	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:208:6:modbus_rtu_master_init	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:230:6:modbus_rtu_master_read_fc	40	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:248:6:modbus_rtu_master_read	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:272:6:modbus_rtu_master_write	288	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:295:6:modbus_rtu_master_write_fc	304	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:353:23:modbus_rtu_master_poll	24	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:433:17:modbus_rtu_master_regs	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:438:23:modbus_rtu_master_error	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:443:9:modbus_rtu_master_exception	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:449:6:modbus_rtu_master_set_min_gap_ms	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/port/modbus_serial/modbus_serial.c:454:6:modbus_rtu_master_is_busy	0	static

@@ -43,6 +43,7 @@ Usage:
 Exit codes: 0 = ALL PASS, 1 = a check failed, 2 = cannot open port, 3 = link error.
 """
 import argparse
+import test_report as R   # Excel evidence report (--report / --no-report)
 import sys
 import time
 
@@ -398,7 +399,9 @@ def main():
                    help="also test receiving messages: publish to this broker (needs paho-mqtt; the board "
                         "must be connected to the same broker)")
     p.add_argument("--live-topic", default="splc/test/sub", help="topic used by --live (default splc/test/sub)")
+    R.add_args(p)
     args = p.parse_args()
+    R.start(args)
     self_check_encoding()
     T.Dev.chunk = max(1, min(args.chunk, 120))
 

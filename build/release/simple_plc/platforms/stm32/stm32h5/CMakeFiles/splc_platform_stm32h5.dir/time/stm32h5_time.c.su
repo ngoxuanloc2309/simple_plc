@@ -1,0 +1,4 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/time/stm32h5_time.c:14:6:sx_delay_ms	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/time/stm32h5_time.c:23:6:sx_delay_s	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/time/stm32h5_time.c:31:10:sx_get_tick_ms	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/stm32/stm32h5/time/stm32h5_time.c:36:10:sx_get_tick_s	8	static

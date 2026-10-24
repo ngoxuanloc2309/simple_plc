@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "simple_plc/platforms/stm32/stm32h5",
+		"source" : "simple_plc/platforms/stm32/stm32h5"
+	}
+}

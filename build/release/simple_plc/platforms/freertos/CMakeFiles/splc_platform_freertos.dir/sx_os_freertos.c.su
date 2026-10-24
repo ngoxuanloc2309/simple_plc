@@ -1,0 +1,3 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/freertos/sx_os_freertos.c:13:6:sx_os_is_running	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/freertos/sx_os_freertos.c:18:6:sx_os_sleep_ms	0	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/platforms/freertos/sx_os_freertos.c:25:6:sx_os_yield_wait	8	static

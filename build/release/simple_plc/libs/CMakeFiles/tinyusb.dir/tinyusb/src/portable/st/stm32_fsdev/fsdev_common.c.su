@@ -1,0 +1,4 @@
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/tinyusb/src/portable/st/stm32_fsdev/fsdev_common.c:20:6:fsdev_core_reset	8	static,ignoring_inline_asm
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/tinyusb/src/portable/st/stm32_fsdev/fsdev_common.c:44:6:fsdev_deinit	8	static,ignoring_inline_asm
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/tinyusb/src/portable/st/stm32_fsdev/fsdev_common.c:63:10:pma_align_buffer_size	8	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/libs/tinyusb/src/portable/st/stm32_fsdev/fsdev_common.c:81:6:btable_set_rx_bufsize	24	static

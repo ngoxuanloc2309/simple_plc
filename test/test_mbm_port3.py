@@ -41,6 +41,7 @@ Firmware: SPLC_MBM_ENABLE=1, SPLC_REAL_ENABLE=1, SPLC_MBM_PORT_COUNT >= N.
 Exit codes: 0 = values read, 1 = a check failed / no valid poll, 2 = cannot open port, 3 = link error.
 """
 import argparse
+import test_report as R   # Excel evidence report (--report / --no-report)
 import struct
 import sys
 import time
@@ -223,7 +224,9 @@ def main():
     p.add_argument("--timeout", type=int, default=300, help="answer timeout ms (default 300)")
     p.add_argument("--seconds", type=float, default=6.0, help="how long to watch the tags (default 6)")
     p.add_argument("--clear", action="store_true", help="end with CLEAR_RULES (stops the polling)")
+    R.add_args(p)
     args = p.parse_args()
+    R.start(args)
     T.Dev.chunk = max(1, min(args.chunk, 120))
 
     client = T.make_client(args.port, args.baudrate)
