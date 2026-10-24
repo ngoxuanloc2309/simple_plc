@@ -287,6 +287,15 @@
 #define SPLC_WIFI_ENABLE                 0
 #endif
 
+/* 1 = build the MQTT TLS certificate block 0x0F00..0x0F43 (plc_mqtt_tls.h, ICD MQTT-003):
+ * the App sends the Root CA / client certificate / client key in chunks, SimplePLC checks
+ * every chunk and hands it straight to the host (splc_mqtt_tls_register()); the host stores
+ * it and loads it into its TLS stack. SimplePLC buffers no certificate and owns no TLS.
+ * Needs SPLC_MQTT_ENABLE = 1. 0 = nothing changes: no code, no RAM. */
+#ifndef SPLC_MQTT_TLS_CERT_ENABLE
+#define SPLC_MQTT_TLS_CERT_ENABLE        0
+#endif
+
 /* Number of App-link transports the Modbus config server can serve at once (1..3).
  * 1 = exactly the single transport board_get_modbus_transport() returns: no extra
  * code, no extra RAM, the exact baseline binary. >1 = plc_modbus_cfg_add_transport()
@@ -421,6 +430,12 @@
 #endif
 #if (SPLC_WIFI_ENABLE != 0) && (SPLC_WIFI_ENABLE != 1)
 #error "SPLC_WIFI_ENABLE must be 0 or 1"
+#endif
+#if (SPLC_MQTT_TLS_CERT_ENABLE != 0) && (SPLC_MQTT_TLS_CERT_ENABLE != 1)
+#error "SPLC_MQTT_TLS_CERT_ENABLE must be 0 or 1"
+#endif
+#if SPLC_MQTT_TLS_CERT_ENABLE && !SPLC_MQTT_ENABLE
+#error "SPLC_MQTT_TLS_CERT_ENABLE needs SPLC_MQTT_ENABLE = 1 (the certificates are for the MQTT broker connection)"
 #endif
 #if (SPLC_MBW_ENABLE != 0) && (SPLC_MBW_ENABLE != 1)
 #error "SPLC_MBW_ENABLE must be 0 or 1"

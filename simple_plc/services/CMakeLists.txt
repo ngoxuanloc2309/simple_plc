@@ -22,6 +22,7 @@ set(SPLC_SERVICES_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_mbm/plc_mbm.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_mbw/plc_mbw.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_wifi/plc_wifi.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_mqtt_tls/plc_mqtt_tls.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule_flash/plc_rule_flash.c
 )
 
@@ -44,6 +45,7 @@ target_include_directories(splc_services PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_mbm
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_mbw
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_wifi
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_mqtt_tls
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule_flash
 )
 

@@ -8,6 +8,7 @@
 #include "plc_rtc.h"          /* plc_rtc_get_epoch(): {ts} */
 #include "splc_mqtt_fmt.h"    /* template check, deadband check */
 #include "splc_opt.h"         /* SPLC_REAL_ENABLE */
+#include "plc_mqtt_tls.h"      /* plc_mqtt_tls_ready(): use_tls=1 is accepted once the host registered TLS */
 #if SPLC_REAL_ENABLE
 #include "plc_tagtype.h"      /* plc_tagtype_get(): REAL / BOOL / INT32 per tag */
 #endif
@@ -426,8 +427,8 @@ static bool broker_valid(const uint16_t *brk)
         return false;
     }
 #if !SPLC_MQTT_TLS_SUPPORTED
-    if ((brk[BK_CONTROL] & SPLC_BROKER_CTRL_USE_TLS_BIT) != 0U) {
-        log_warn(TAG, "COMMIT: broker use_tls=1 but this build has no TLS (SPLC_MQTT_TLS_SUPPORTED=0)");
+    if ((brk[BK_CONTROL] & SPLC_BROKER_CTRL_USE_TLS_BIT) != 0U && !plc_mqtt_tls_ready()) {
+        log_warn(TAG, "COMMIT: broker use_tls=1 but this build has no TLS (SPLC_MQTT_TLS_SUPPORTED=0 and no host TLS functions registered)");
         return false;
     }
 #endif

@@ -13,6 +13,7 @@
 #include "plc_mbm.h"
 #include "plc_mbw.h"
 #include "plc_wifi.h"
+#include "plc_mqtt_tls.h"
 #if SPLC_MQTT_SUB_ENABLE
 #include "plc_mqtt_sub.h"
 #endif
@@ -179,6 +180,7 @@ static void scan_cycle(uint32_t now_ms)
 #endif
     modbus_config_service();
     plc_wifi_service(now_ms);    /* no-op unless SPLC_WIFI_ENABLE: boot restore + save after GOT_IP */
+    plc_mqtt_tls_service(now_ms);/* no-op unless SPLC_MQTT_TLS_CERT_ENABLE: abandon a certificate transfer idle for 30 s */
     retain_service();
 
     plc_modbus_cfg_record_scan_time(sx_get_tick_ms() - now_ms);

@@ -12,6 +12,8 @@ rule helpers those scripts need). Firmware must be built with SPLC_MQTT_ENABLE=1
 
 Target: Gateway over RS485 (App link), e.g.
     python test_mqtt.py COM35 --unit 1 --baudrate 115200
+Or over Modbus TCP (SPLC_MODBUS_MAX_TRANSPORTS 2 + SPLC_HOST_MODBUS_TCP_ENABLE 1, port 5020):
+    python test_mqtt.py 192.168.1.50 --unit 1            (or 192.168.1.50:5020, tcp://host:5020)
 
 WARNING: this test WRITES Flash (rule table + MQTT config), REPLACES the rule
 table and runs CLEAR_RULES (which also wipes the MQTT config and the broker the
@@ -228,9 +230,33 @@ class ErrResp:
         return self.text or f"exception {self.exception_code}"
 
 
+def parse_tcp_target(port):
+    """Return (host, tcp_port) when `port` names a Modbus TCP target, else None.
+    Accepted: "192.168.1.50", "192.168.1.50:5020", "tcp://host[:5020]", "host:5020".
+    A serial name ("COM35", "/dev/ttyUSB0") returns None. Default TCP port 5020
+    (SPLC_HOST_MODBUS_TCP_PORT of the gateway; the host's own Modbus TCP bridge owns 502)."""
+    import re
+    t = str(port).strip()
+    if t.lower().startswith("tcp://"):
+        t = t[6:]
+    elif not (re.match(r"^\d{1,3}(\.\d{1,3}){3}(:\d+)?$", t) or re.match(r"^[A-Za-z0-9_.-]+:\d+$", t)):
+        return None
+    host, _, prt = t.partition(":")
+    return host, (int(prt) if prt else 5020)
+
+
 def make_client(port, baudrate):
-    """Serial client with pymodbus' own resend DISABLED (retries=0): a write is never
-    sent twice behind the script's back."""
+    """Serial client (RTU) or, when `port` is an IP / host:port / tcp://..., a Modbus TCP
+    client. pymodbus' own resend is DISABLED (retries=0): a write is never sent twice behind
+    the script's back."""
+    tcp = parse_tcp_target(port)
+    if tcp is not None:
+        from pymodbus.client import ModbusTcpClient
+        host, tport = tcp
+        try:
+            return ModbusTcpClient(host, port=tport, timeout=3.0, retries=0)
+        except TypeError:
+            return ModbusTcpClient(host, port=tport, timeout=3.0)
     from pymodbus.client import ModbusSerialClient
     kw = dict(port=port, baudrate=baudrate, parity="N", stopbits=1, bytesize=8, timeout=1.0)
     try:
@@ -351,7 +377,7 @@ class Dev:
         except Exception:
             pass
         port = args.port_after or args.port
-        deadline = time.time() + 25.0
+        deadline = time.time() + (60.0 if parse_tcp_target(port) else 25.0)   # LAN: DHCP/link after reboot
         while time.time() < deadline:
             time.sleep(1.0)
             try:

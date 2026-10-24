@@ -15,6 +15,7 @@
 #include "plc_mbm.h"        /* MB_READ blocks 0x1000..0x10FF (SPLC_MBM_ENABLE=1 only) */
 #include "plc_mbw.h"        /* MB_WRITE blocks 0x1100..0x11FF (SPLC_MBW_ENABLE=1 only) */
 #include "plc_wifi.h"       /* Wi-Fi block 0x1300..0x13FF (SPLC_WIFI_ENABLE=1 only) */
+#include "plc_mqtt_tls.h"   /* TLS certificate block 0x0F00..0x0F43 (SPLC_MQTT_TLS_CERT_ENABLE=1 only) */
 #if SPLC_MQTT_SUB_ENABLE
 #include "plc_mqtt_sub.h"    /* MQTT Subscribe blocks 0x0D80..0x0DFF (SPLC_MQTT_SUB_ENABLE=1 only) */
 #endif
@@ -201,6 +202,9 @@ static void read_hw_capabilities(uint16_t offset, uint16_t quantity, uint16_t *r
 #endif
 #if SPLC_WIFI_ENABLE
     caps |= plc_wifi_capabilities();   /* 0x0200, only once the host registered its Wi-Fi functions */
+#endif
+#if SPLC_MQTT_TLS_CERT_ENABLE
+    caps |= plc_mqtt_tls_capabilities();   /* 0x0080, only once the host registered its TLS functions */
 #endif
     if (g_device_resource_info.max_rules > 0U)        { caps |= SPLC_CAP_BASE_LOGIC; }
     if (g_device_resource_info.vreg_retain_count > 0U) { caps |= SPLC_CAP_RETENTIVE; }
@@ -1405,6 +1409,9 @@ static const modbus_block_t s_blocks[] = {
     { 0x0C00, 0x0D7F, true,  plc_mqtt_telemetry_read,     NULL },   /* FC16 writes handled in cb_write_multiple_registers */
     { 0x0E00, 0x0E5F, true,  plc_mqtt_broker_read,        NULL },   /* 0x0E54..0x0E5F read-only status; FC16 writes handled in cb_write_multiple_registers */
 #endif
+#if SPLC_MQTT_TLS_CERT_ENABLE
+    { 0x0F00, 0x0F43, true,  plc_mqtt_tls_read,           NULL },   /* TLS certificate (MQTT-003); FC16/FC06 writes handled in cb_write_multiple_registers */
+#endif
 #if SPLC_MQTT_SUB_ENABLE
     { 0x0D80, 0x0DFF, true,  plc_mqtt_sub_read,           NULL },   /* RUNNING blocks; FC16 writes handled in cb_write_multiple_registers (go to the draft) */
 #endif
@@ -1610,6 +1617,23 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
         case PLC_WIFI_WRITE_OK:    return NMBS_ERROR_NONE;
         case PLC_WIFI_WRITE_VALUE: return NMBS_EXCEPTION_ILLEGAL_DATA_VALUE;
         default:                   return NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+        }
+    }
+#endif
+
+#if SPLC_MQTT_TLS_CERT_ENABLE
+    /*
+     * TLS certificate block (plc_mqtt_tls.h): chunks and COMMIT go straight to the host,
+     * nothing is drafted. 0x02 = address (read-only register, past 0x0F43, a request that
+     * is not one whole chunk running into ACK/STATUS), 0x03 = value (bad header, CRC-ok
+     * chunk out of order, wrong COMMIT magic or COMMIT before the transfer is complete,
+     * a chunk that is not exactly 64 registers).
+     */
+    if (address >= PLC_MQTT_TLS_BASE && address < PLC_MQTT_TLS_BASE + PLC_MQTT_TLS_REGS) {
+        switch (plc_mqtt_tls_write((uint16_t)(address - PLC_MQTT_TLS_BASE), quantity, registers)) {
+        case PLC_MQTT_TLS_WRITE_OK:    return NMBS_ERROR_NONE;
+        case PLC_MQTT_TLS_WRITE_VALUE: return NMBS_EXCEPTION_ILLEGAL_DATA_VALUE;
+        default:                       return NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
         }
     }
 #endif

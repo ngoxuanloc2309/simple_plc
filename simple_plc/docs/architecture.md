@@ -91,7 +91,7 @@ splc_config/splcopts.h   (gốc repo) — file cấu hình của sản phẩm hi
   (`SPLC_FLASH_SIZE_KB`), retain (`RETAIN_SNAPSHOT_PERIOD_MS`,
   `PLC_PVD_EMERGENCY_SAVE_ENABLE`, `RETAIN_EMERGENCY_MIN_INTERVAL_MS`), link App
   (`SPLC_PORT_USB_CDC`, `SPLC_MODBUS_UNIT_ID`, `SPLC_MODBUS_MAX_TRANSPORTS`, `SPLC_LINK_RX_BUF_SIZE`: lũy thừa của 2,
-  ≥ 256, mặc định 512), REAL (`SPLC_REAL_ENABLE`), MQTT Subscribe (`SPLC_MQTT_SUB_ENABLE`, `SPLC_MQTT_SUB_FIFO_DEPTH`), MB_WRITE (`SPLC_MBW_ENABLE`), Wi-Fi (`SPLC_WIFI_ENABLE`), Remote I/O (`SPLC_REMOTE_MAX_NODES`,
+  ≥ 256, mặc định 512), REAL (`SPLC_REAL_ENABLE`), MQTT Subscribe (`SPLC_MQTT_SUB_ENABLE`, `SPLC_MQTT_SUB_FIFO_DEPTH`), MB_WRITE (`SPLC_MBW_ENABLE`), Wi-Fi (`SPLC_WIFI_ENABLE`), MQTT TLS cert (`SPLC_MQTT_TLS_CERT_ENABLE`, cần `SPLC_MQTT_ENABLE=1`), Remote I/O (`SPLC_REMOTE_MAX_NODES`,
   `_TIMEOUT_MS`, `_POLL_MS`, `_OFFLINE_AFTER`, `_RETRY_MS`), log (`SPLC_LOG_LEVEL`,
   `SPLC_LOG_BUFFER_SIZE`, `SPLC_LOGGER_BUILTIN`, macro `SPLC_LOG_OUTPUT`).
 - CMake đọc `SPLC_BOARD`, `SPLC_PLATFORM`, `SPLC_LOGGER_BUILTIN` thẳng từ `splcopts.h`
@@ -271,6 +271,7 @@ timeout bằng tick thật, CRC bằng `nmbs_crc_calc()` (byte-swapped, ghi big-
 - **`plc_mbm`** (chỉ khi `SPLC_MBM_ENABLE=1`): MB_READ, master Modbus RTU đọc cảm biến theo 4 khối `0x1000..0x10FF` (nháp + COMMIT, lưu bit 12 của bản ghi Rule Table, mỗi scan một request qua `modbus_rtu_master_read_fc`, ghi vào tag). `SPLC_MBM_PORT_COUNT` (1..4) cổng RS485, mỗi cổng một master; host đăng ký từng cổng (`splc_mbm_set_rs485_port(index, port, configure)`), baud/parity/data/stop/gap/retry do App ghi ở `0x1400..0x143F` (MBM-003, lưu cùng đoạn bit 12 = 640 B); xem `plc_mbm.h`, handoff quyết định 38–39, 43–44, 46.
 - **`plc_mbw`** (chỉ khi `SPLC_MBW_ENABLE=1`, cần `SPLC_MBM_ENABLE=1`): MB_WRITE, ghi tag xuống slave Modbus qua FC05/06/15/16 (Direct hoặc ChannelIndexed/Sort-to-Light), 4 khối `0x1100..0x11FF` (nháp + COMMIT, lưu bit 9 của bản ghi Rule Table, đoạn cuối). Mượn master RS485 của `plc_mbm` qua `plc_mbm_port_claim/release` (mỗi khung một lần, ghi được ưu tiên hơn đọc); `plc_mbw_scan()` chạy TRƯỚC `plc_mbm_scan()`. Xem `plc_mbw.h`, handoff quyết định 48.
 - **`plc_wifi`** (chỉ khi `SPLC_WIFI_ENABLE=1`): khối Wi-Fi `0x1300..0x13FF` (ICD WIFI-004) — khối LỆNH, không nháp/COMMIT. Lib không có radio và không ghi Flash: giữ cấu hình App ghi trong RAM, chuyển lệnh (scan/connect/disconnect/forget) thành lời gọi hàm KHÔNG CHẶN của host (`splc_wifi_register(&ops)`, kiểu `netif_add`), đọc trạng thái live từ host khi có FC03; `plc_wifi_service()` (sau `modbus_config_service()`) khôi phục + tự nối lại lúc boot và gọi `save` của host sau `GOT_IP`; `plc_wifi_factory_reset()` từ `FACTORY_RESET`. Xem `plc_wifi.h`, handoff quyết định 50.
+- **`plc_mqtt_tls`** (chỉ khi `SPLC_MQTT_TLS_CERT_ENABLE=1`, cần `SPLC_MQTT_ENABLE=1`): nạp chứng chỉ TLS cho broker MQTT, khối `0x0F00..0x0F43` (ICD MQTT-003) — khối LỆNH, không nháp/COMMIT, không lưu Flash trong lib. Chứng chỉ ≤ 32 mảnh × 120 B; lib kiểm từng mảnh (header, CRC-16 trên `chunk_len` byte, thứ tự, ACK lại khi mất ACK) rồi chuyển THẲNG cho host qua `splc_mqtt_tls_register(&ops)` (`begin/chunk/commit/abort/clear/active_mask`, kiểu `netif_add`), KHÔNG đệm chứng chỉ; COMMIT `0xA5A5` chỉ khi đủ mảnh và đủ byte; transfer nhàn rỗi 30 s bị bỏ (`plc_mqtt_tls_service()` cuối `scan_cycle`, sau `plc_wifi_service`); `FACTORY_RESET` gọi `plc_mqtt_tls_factory_reset()`. Cờ `0x0080` ở `0x0A08` và việc nhận `use_tls=1` ở `0x0E00` chỉ khi host đã đăng ký. Xem `plc_mqtt_tls.h`, handoff quyết định 51.
 - **`plc_mqtt_sub`** (chỉ khi `SPLC_MQTT_SUB_ENABLE=1`, cần `SPLC_MQTT_ENABLE=1`): MQTT Subscribe, lệnh/setpoint từ broker vào tag, 2 khối `0x0D80..0x0DFF` (nháp + COMMIT, lưu bit 10 của bản ghi Rule Table, đoạn cuối). Không có client mạng: host subscribe theo `splc_mqtt_sub_get()` và đẩy bản tin vào `splc_mqtt_input()`; `plc_mqtt_sub_scan()` chạy sau `input_scan()`, trước `rule_scan`. Xem `plc_mqtt_sub.h`, handoff quyết định 47.
 - **`plc_rtc`**: khối `0x0810` (epoch UTC, tz, `status_flags` RO), `plc_rtc_get_local_hhmm()`.
 
@@ -287,7 +288,7 @@ unsigned, an toàn khi tràn):
 ```
 diag_tick → input_scan
   → [không bị diag treo]  plc_mqtt_sub_scan (SPLC_MQTT_SUB_ENABLE) → rule_scan (+ rule_runtime_reset khi vừa thoát diag) → plc_fb_scan
-  → output_scan → modbus_config_service → retain_service → ghi scan_time
+  → output_scan → modbus_config_service → plc_wifi_service → plc_mqtt_tls_service → retain_service → ghi scan_time
   → plc_system_cmd_service            (cuối cùng: có thể reset MCU)
 ```
 
@@ -317,6 +318,7 @@ ghi, high byte trước; CRC khung RTU little-endian.
 | `0x0A0A` | R | Số cổng RS-485 vật lý (uint16 = `SPLC_MBM_PORT_COUNT`; chỉ khi `SPLC_MBM_ENABLE=1`) |
 | `0x1000..0x10FF` | R/W | MB_READ, 4 khối × 64 reg (chỉ khi `SPLC_MBM_ENABLE=1`; ghi vào nháp, COMMIT áp dụng) |
 | `0x1100..0x11FF` | R/W | MB_WRITE, 4 khối × 64 reg (chỉ khi `SPLC_MBW_ENABLE=1`; ghi vào nháp, COMMIT áp dụng) |
+| `0x0F00..0x0F43` | W / R | TLS cert (MQTT-003; chỉ khi `SPLC_MQTT_TLS_CERT_ENABLE=1` và host đã đăng ký): staging 64 reg (W, đọc 0) `0x0F00..0x0F3F`, ACK `0x0F40`, STATUS `0x0F41` (0 OK, 1 CRC, 2 tràn, 3 lỗi lưu), COMMIT `0xA5A5` `0x0F42` (W), mặt nạ active `0x0F43`; mảnh sai ⇒ exception `0x03`, địa chỉ/độ dài sai ⇒ `0x02`; ngoài ra Reserved |
 | `0x1400..0x143F` | R/W | Bảng cổng RS-485 (4 × 16 reg, MBM-003; chỉ khi `SPLC_MBM_ENABLE=1`; nháp + COMMIT) |
 | `0x1300..0x13FF` | R/W | Wi-Fi (WIFI-004: cấu hình + live `0x1300`, lệnh `0x1340`, 8 AP `0x1350`; chỉ khi `SPLC_WIFI_ENABLE=1` và host đã đăng ký; không nháp, ghi chỉ cập nhật RAM) |
 | `0x9000..0x9005` | R/W | Staging handshake (status, error, staged count, expected CRC, active count, active CRC) |
