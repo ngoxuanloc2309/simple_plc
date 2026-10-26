@@ -31,7 +31,8 @@ CLEAR_RULES. Dev board only. Firmware: SPLC_MBM_ENABLE=1, SPLC_REAL_ENABLE=1.
 
 Usage (sim in another terminal first, same --baud as the firmware, 9600):
     python mbm_slave_sim.py COM35 --unit 1 --baud 9600
-    python test_mbm_live.py COM14
+    python test_mbm_live.py COM14                      # RS485 port 3 by default
+    python test_mbm_live.py COM14 --rs485-port 3 --baud 9600 --parity N
     python mbm_slave_sim.py COM35 --fault crc
     python test_mbm_live.py COM14 --expect crc
 
@@ -125,10 +126,14 @@ def dep(d, rule, blocks, real_tags, what):
         check(False, f"{what}: tag type table write failed ({resp})")
         return False
     full = {i: blocks.get(i, M.block(enabled=False)) for i in range(M.BLOCKS)}
+    if PORT_CFG:                                   # same draft as the blocks, then COMMIT
+        if not M.write_port_table(d, *PORT_CFG):
+            return False
     return M.deploy_ok(d, rule_holder[0], full, what)
 
 
 rule_holder = [None]
+PORT_CFG = None      # (port_no, baud, parity, stop) of the RS485 port under test
 
 
 def run_none(d, vr0, timeout_ms):
@@ -272,9 +277,17 @@ def main():
     p.add_argument("--expect", choices=["none", "timeout", "crc", "exception", "short", "late"], default="none",
                    help="which fault the sim was started with (default none)")
     p.add_argument("--timeout", type=int, default=300, help="block timeout in ms (default 300)")
+    p.add_argument("--rs485-port", type=int, choices=[1, 2, 3, 4], default=3,
+                   help="RS485 port the blocks poll on (default 3 = USART3 of the wg_ue gateway)")
+    p.add_argument("--baud", type=int, default=9600, help="line speed of that port, same as the sim (default 9600)")
+    p.add_argument("--parity", choices=["N", "E", "O"], default="N")
+    p.add_argument("--stop", type=int, choices=[1, 2], default=1)
     R.add_args(p)
     args = p.parse_args()
     R.start(args)
+    global PORT_CFG
+    PORT_CFG = (args.rs485_port, args.baud, args.parity, args.stop)
+    M.DEFAULT_PORT = args.rs485_port - 1           # every enabled block names this port
     T.Dev.chunk = max(1, min(args.chunk, 120))
 
     client = T.make_client(args.port, args.baudrate)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_mbm.py - Verify the MB_READ blocks 0x1000..0x10FF of SimplePLC (decisions 38..41
+test_mpm.py - Verify the MB_READ blocks 0x1000..0x10FF of SimplePLC (decisions 38..41
 in docs/handoff.md, plc_mbm) over Modbus RTU.
 
 Requires: pip install pymodbus pyserial
@@ -39,9 +39,9 @@ inconsistent status tags fail. This also needs the host to have registered an RS
 port with splc_mbm_set_rs485_port() (no port = no poll = a clear message).
 
 Usage:
-    python test_mbm.py COM35 --unit 1 --baudrate 115200
-    python test_mbm.py COM35 --reboot [--port-after COM36]
-    python test_mbm.py COM35 --live 1 --live-addr 0 --live-count 2
+    python test_mpm.py COM14 --unit 1 --baudrate 115200
+    python test_mpm.py COM14 --reboot [--port-after COM15]
+    python test_mpm.py COM14 --live 1 --live-addr 0 --live-count 2 [--rs485-port 3 --baud 9600 --parity N]
 
 Exit codes: 0 = ALL PASS, 1 = a check failed, 2 = cannot open port,
 3 = link error (inconclusive).
@@ -76,11 +76,20 @@ def pin(tag=NONE, off=0, dt=DT_INT16, endian=0, mult=1.0):
     return [tag, off, dt, endian, *f32_regs(mult), 0, 0, 0, 0, 0, 0]
 
 
+DEFAULT_PORT = None   # RS485 port index (0..3) given to every enabled block that names no port;
+                      # None = leave the port bits 0 (port 1). test_mbm_live.py sets it.
+
+
 def block(enabled=True, fc=3, slave=1, start=0, count=2, interval=500, timeout=200,
-          valid=NONE, err=NONE, errcode=NONE, mode=0, trig=NONE, pins=()):
-    """64-register image of one MB_READ block (layout of plc_mbm.h)."""
+          valid=NONE, err=NONE, errcode=NONE, mode=0, trig=NONE, pins=(), port=None):
+    """64-register image of one MB_READ block (layout of plc_mbm.h).
+    port = RS485 port index 0..3 (App's port-1), flags bits 4..7; None -> DEFAULT_PORT."""
     r = [0] * BLOCK_REGS
     r[0] = 1 if enabled else 0
+    if port is None:
+        port = DEFAULT_PORT
+    if enabled and port:
+        r[0] |= (port & 0xF) << 4
     r[1] = (fc << 8) | slave
     r[2], r[3] = start, count
     r[4], r[5] = interval >> 16, interval & 0xFFFF
@@ -130,6 +139,34 @@ def write_blocks(d, blocks):
         if resp is not None:
             return resp
     return None
+
+
+REG_PORTS = 0x0A0A          # RS485_PORT_COUNT
+REG_PORT_TABLE = 0x1400     # 4 records x 16 registers (SPLC-SPEC-MBM-003)
+PORT_REGS, PORT_TABLE_REGS = 16, 64
+PARITY = {"N": 0, "E": 1, "O": 2}
+
+
+def write_port_table(d, port_no, baud=9600, parity="N", stop=1):
+    """Write the record of RS485 port `port_no` (1..4) into the draft: enabled, baud, 8 bits,
+    parity, stop bits (same record test_mbm_port3.py writes). The other records are kept.
+    Must be followed by a COMMIT in the same draft. Returns True when the draft write was ACKed."""
+    idx = port_no - 1
+    n, err = d.try_read(REG_PORTS, 1)
+    if err is None:
+        info(f"RS485_PORT_COUNT (0x0A0A) = {n[0]}")
+        if not check(port_no <= n[0], f"the device has RS485 port {port_no} (it has {n[0]})"):
+            info("SPLC_MBM_PORT_COUNT in splcopts.h is too small, or the host did not build with it")
+            return False
+    table = d.read(REG_PORT_TABLE, PORT_TABLE_REGS)
+    new, b = list(table), idx * PORT_REGS
+    new[b + 0] = 0x0100 | port_no
+    new[b + 1], new[b + 2] = baud >> 16, baud & 0xFFFF
+    new[b + 3] = PARITY[parity]
+    new[b + 4] = (8 << 8) | stop
+    new[b + 5], new[b + 6], new[b + 7] = 200, 20, 1
+    resp = d.write_regs(REG_PORT_TABLE, new)
+    return check(resp is None, f"port table: RS485 port {port_no} enabled at {baud} baud {parity}{stop} (draft)")
 
 
 def deploy(d, rule, blocks):
@@ -334,12 +371,15 @@ def run(d, args):
 
     # ---------------------------------------------------------------- 8
     if args.live is not None:
-        print(f"\n8. Live poll of slave {args.live} (FC03, {args.live_count} register(s) at {args.live_addr})")
+        print(f"\n8. Live poll of slave {args.live} on RS485 port {args.rs485_port} "
+              f"(FC03, {args.live_count} register(s) at {args.live_addr}, {args.baud} baud {args.parity}{args.stop})")
         valid, errt, code, t0v = TAGV + 1, TAGV + 2, TAGV + 3, TAGV
         lb = block(fc=3, slave=args.live, start=args.live_addr, count=args.live_count,
                    interval=500, timeout=300, valid=valid, err=errt, errcode=code,
-                   pins=[pin(t0v, 0, DT_UINT16)])
-        deploy_ok(d, rule, {0: lb}, "enable block 0")
+                   pins=[pin(t0v, 0, DT_UINT16)], port=args.rs485_port - 1)
+        if not write_port_table(d, args.rs485_port, args.baud, args.parity, args.stop):
+            return
+        deploy_ok(d, rule, {0: lb}, f"enable block 0 on RS485 port {args.rs485_port}")
         seen_valid, last = False, None
         t_end = time.time() + 4.0
         while time.time() < t_end:
@@ -378,6 +418,11 @@ def main():
     p.add_argument("--live", type=int, default=None, metavar="SLAVE",
                    help="also poll this slave id with block 0 and check the status tags")
     p.add_argument("--live-addr", type=int, default=0)
+    p.add_argument("--rs485-port", type=int, choices=[1, 2, 3, 4], default=3,
+                   help="RS485 port the --live poll uses (default 3 = USART3 of the wg_ue gateway)")
+    p.add_argument("--baud", type=int, default=9600, help="line speed of that port for --live (default 9600)")
+    p.add_argument("--parity", choices=["N", "E", "O"], default="N")
+    p.add_argument("--stop", type=int, choices=[1, 2], default=1)
     p.add_argument("--live-count", type=int, default=2)
     R.add_args(p)
     args = p.parse_args()

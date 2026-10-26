@@ -65,7 +65,15 @@ static uint16_t host_status(int rc)
 
 static void check_watchdog(uint32_t now_ms)
 {
-    if (s_x.active && (uint32_t)(now_ms - s_x.last_ms) >= PLC_MQTT_TLS_ABORT_MS) {
+    /*
+     * Signed difference, NOT unsigned: plc_mqtt_tls_service() is called with the tick sampled
+     * at the START of the scan, but a chunk accepted in modbus_config_service() of the same
+     * scan stamps last_ms with a later tick (a Flash/littlefs write takes milliseconds). With
+     * an unsigned difference now_ms - last_ms then wraps to ~4e9 and the watchdog abandons
+     * the transfer right after chunk 0. A negative difference means "not idle yet". Still
+     * safe across the 32-bit tick wrap (elapsed time stays far below 2^31 ms).
+     */
+    if (s_x.active && (int32_t)(now_ms - s_x.last_ms) >= (int32_t)PLC_MQTT_TLS_ABORT_MS) {
         log_warn(TAG, "transfer abandoned: no chunk for %lu ms", (unsigned long)PLC_MQTT_TLS_ABORT_MS);
         drop_transfer();
     }
