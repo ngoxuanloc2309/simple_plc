@@ -190,6 +190,9 @@ static void read_hw_capabilities(uint16_t offset, uint16_t quantity, uint16_t *r
 #endif
 #if SPLC_MBM_ENABLE
     caps |= PLC_MBM_CAP_MODBUS_MASTER;
+#if SPLC_MODBUS_SLAVE_ENABLE
+    caps |= PLC_MBM_CAP_MODBUS_SLAVE;   /* 0x4000, App header SPLC_CAP_MODBUS_SLAVE; needs the Slave module */
+#endif
 #endif
 #if SPLC_MQTT_SUB_ENABLE
     caps |= PLC_MQTT_SUB_CAP_MQTT_SUB;

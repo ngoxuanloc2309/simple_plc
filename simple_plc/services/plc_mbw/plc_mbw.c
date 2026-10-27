@@ -335,6 +335,15 @@ bool plc_mbw_validate_draft(void)
     for (unsigned i = 0U; i < PLC_MBW_BLOCKS; i++) {
         if ((s_draft_mask & (1U << i)) != 0U && !block_valid(s_draft[i], i)) { return false; }
     }
+    /* An enabled block (as it will be after this COMMIT) must not name an enabled Slave port,
+     * judged on the port table as it will be after this COMMIT (plc_mbm). */
+    for (unsigned i = 0U; i < PLC_MBW_BLOCKS; i++) {
+        const uint16_t *b = ((s_draft_mask & (1U << i)) != 0U) ? s_draft[i] : s_run[i];
+        if (blk_enabled(b) && plc_mbm_port_is_slave_after_commit(blk_port(b))) {
+            log_warn(TAG, "MB_WRITE block %u uses port %u, which is a Modbus Slave", i, blk_port(b) + 1U);
+            return false;
+        }
+    }
     return true;
 }
 

@@ -386,6 +386,20 @@ uint8_t plc_mbm_port_slave_id(unsigned idx)
     return (idx < PORTS && s_port[idx].enabled && s_port[idx].role == PLC_MBM_ROLE_SLAVE) ? s_port[idx].slave_id : 0U;
 }
 
+uint16_t plc_mbm_port_response_delay_ms(unsigned idx)
+{
+    return (idx < PORTS && s_port[idx].enabled && s_port[idx].role == PLC_MBM_ROLE_SLAVE) ? s_port[idx].gap_ms : 0U;
+}
+
+bool plc_mbm_port_is_slave_after_commit(unsigned idx)
+{
+    if (idx >= PORTS) { return false; }
+    const uint16_t *t = s_pdraft_on ? s_pdraft : s_prun;
+    port_cfg_t c;
+    parse_port(&t[idx * PLC_MBM_PORT_REGS], &c);
+    return c.enabled && c.role == PLC_MBM_ROLE_SLAVE;
+}
+
 void plc_mbm_set_role_listener(plc_mbm_role_listener_fn fn) { s_role_listener = fn; }
 
 void splc_mbm_set_rs485_port(uint8_t port_index, const modbus_serial_port_t *port, plc_mbm_configure_fn configure)
@@ -462,14 +476,10 @@ bool plc_mbm_validate_draft(void)
     if (s_pdraft_on && !port_table_valid(s_pdraft)) { return false; }
     /* A block that will be enabled must not name an enabled Slave port (checked on the
      * blocks and the port table as they will be after this COMMIT). */
-    const uint16_t *pt = s_pdraft_on ? s_pdraft : s_prun;
     for (unsigned i = 0U; i < PLC_MBM_BLOCKS; i++) {
         const uint16_t *b = ((s_draft_mask & (1U << i)) != 0U) ? s_draft[i] : s_run[i];
         if (!blk_enabled(b) || blk_port(b) >= PORTS) { continue; }
-        const uint16_t *r = &pt[blk_port(b) * PLC_MBM_PORT_REGS];
-        port_cfg_t c;
-        parse_port(r, &c);
-        if (c.enabled && c.role == PLC_MBM_ROLE_SLAVE) {
+        if (plc_mbm_port_is_slave_after_commit(blk_port(b))) {
             log_warn(TAG, "block %u uses port %u, which is a Modbus Slave", i, blk_port(b) + 1U);
             return false;
         }
