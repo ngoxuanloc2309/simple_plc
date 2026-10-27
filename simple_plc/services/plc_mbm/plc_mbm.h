@@ -15,7 +15,7 @@
  *   +3 reg count                    +4..+5 poll_interval_ms     +6..+7 timeout_ms
  *   +8 valid tag   +9 error tag   +10 err_code tag   (0xFFFF = none)
  *   +11 pin count (0..4)   +12 read mode (0 cyclic, 1 on rising edge of a tag)
- *   +13 trigger tag (0xFFFF = none)   +14..+15 reserved
+ *   +13 trigger tag (0xFFFF = none)   (block)  /  port record: +14 role, +15 Slave ID
  *   +16 + 12*i  pin i: tag, reg_offset, data_type (1 BOOL 2 INT16 3 UINT16
  *               4 INT32 5 UINT32 6 REAL), endianness (0 ABCD 1 CDAB 2 BADC
  *               3 DCBA), multiplier (float32, High Word first), label (12 B)
@@ -152,6 +152,23 @@ void plc_mbm_init(void);
 
 /* Number of RS-485 ports of this device: the value of register 0x0A0A. */
 uint16_t plc_mbm_port_count(void);
+
+/* Role of an RS-485 port (SPLC-SPEC-SLAVE-001), set by the App in the port table
+ * (bit 9 of +0 and +14 = Slave, +15 = Slave ID). A Slave port is never used as a Master:
+ * MB_READ / MB_WRITE blocks on it do not send (err_code 1), and COMMIT refuses an enabled
+ * block that names it. Switching the role is done by a COMMIT of the port table. */
+typedef enum { PLC_MBM_ROLE_MASTER = 0, PLC_MBM_ROLE_SLAVE = 1 } plc_mbm_role_t;
+
+/* Role of port `idx` as running now (MASTER for a disabled port or an index out of range)
+ * and its Slave ID (0 unless the port is an enabled Slave). */
+plc_mbm_role_t plc_mbm_port_role(unsigned idx);
+uint8_t        plc_mbm_port_slave_id(unsigned idx);
+
+/* Called (from the COMMIT / boot context) whenever a port's role or Slave ID changes, with
+ * the new values; role is MASTER for a disabled port. The module that serves the Slave
+ * side registers here to start or stop listening on the port. NULL = nobody listens. */
+typedef void (*plc_mbm_role_listener_fn)(unsigned port_index, plc_mbm_role_t role, uint8_t slave_id);
+void plc_mbm_set_role_listener(plc_mbm_role_listener_fn fn);
 
 /* FC03 of `quantity` registers at `offset` (0..255): the RUNNING blocks. */
 void plc_mbm_read(uint16_t offset, uint16_t quantity, uint16_t *registers_out);

@@ -56,7 +56,13 @@ _Static_assert(SPLC_MBM_PORT_COUNT >= 1 && SPLC_MBM_PORT_COUNT <= (int)PLC_MBM_P
 #define PF_TIMEOUT     5U
 #define PF_GAP         6U
 #define PF_RETRY       7U
-/* +8..+13 name, +14..+15 reserved: not used by the firmware */
+/* +8..+13 name (ignored). Role (SPLC-SPEC-SLAVE-001): bit 9 of +0 and +14 both say Slave
+ * (+14: 0 Master, 1 Slave); +15 is the Slave ID (1..247) of a Slave port, 0 for a Master. */
+#define PF_ROLE        14U
+#define PF_SLAVE_ID    15U
+#define PF_CTRL_ENABLED     0x0100U
+#define PF_CTRL_ROLE_SLAVE  0x0200U
+#define SLAVE_ID_MAX        247U
 
 #define TAG_NONE_IDX   0xFFFFU
 
@@ -88,6 +94,8 @@ typedef struct {
     plc_mbm_configure_fn configure;
     bool                 async_tx;       /* the port sends without blocking */
     bool                 enabled;        /* from the port table */
+    plc_mbm_role_t       role;           /* from the port table: a Slave port is never a Master */
+    uint8_t              slave_id;       /* its Slave ID when role is Slave, else 0 */
     plc_mbm_serial_t     serial;
     uint16_t             gap_ms;
     uint8_t              retries;
@@ -117,6 +125,7 @@ static uint16_t   s_pdraft[PT_REGS];
 static bool       s_pdraft_on;
 static block_rt_t s_rt[PLC_MBM_BLOCKS];
 static port_rt_t  s_port[PORTS];
+static plc_mbm_role_listener_fn s_role_listener;                /* told when a port's role/ID changes */
 static uint8_t    s_rr;                                         /* round-robin start */
 static bool       s_boot_logged;
 
@@ -206,6 +215,8 @@ static bool block_valid(const uint16_t *b, unsigned idx)
  * port's timeout field is only range-checked. */
 typedef struct {
     bool             enabled;
+    plc_mbm_role_t   role;
+    uint8_t          slave_id;
     plc_mbm_serial_t serial;
     uint16_t         gap_ms;
     uint8_t          retries;
@@ -214,7 +225,9 @@ typedef struct {
 static void parse_port(const uint16_t *r, port_cfg_t *c)
 {
     const uint16_t framing = r[PF_FRAMING];
-    c->enabled          = (r[PF_CONTROL] & 0x0100U) != 0U;
+    c->enabled          = (r[PF_CONTROL] & PF_CTRL_ENABLED) != 0U;
+    c->role             = (((r[PF_CONTROL] & PF_CTRL_ROLE_SLAVE) != 0U) || r[PF_ROLE] == 1U) ? PLC_MBM_ROLE_SLAVE : PLC_MBM_ROLE_MASTER;
+    c->slave_id         = (c->role == PLC_MBM_ROLE_SLAVE) ? (uint8_t)r[PF_SLAVE_ID] : 0U;
     c->serial.baud      = get_u32(&r[PF_BAUD]);
     c->serial.parity    = (uint8_t)r[PF_PARITY];
     c->serial.data_bits = (uint8_t)((framing >> 8) == 0U ? 8U : (framing >> 8));          /* 0 = default 8 */
@@ -223,15 +236,30 @@ static void parse_port(const uint16_t *r, port_cfg_t *c)
     c->retries          = (uint8_t)r[PF_RETRY];
 }
 
+/* The role fields of an enabled port: bit 9 of +0 and +14 must agree (+14 is 0 or 1), and a
+ * Slave needs a Slave ID of 1..247. A Master's +15 is ignored. */
+static bool port_role_valid(const uint16_t *r, unsigned i)
+{
+    const bool bit9 = (r[PF_CONTROL] & PF_CTRL_ROLE_SLAVE) != 0U;
+    if (r[PF_ROLE] > 1U) { log_warn(TAG, "port %u: role %u", i + 1U, (unsigned)r[PF_ROLE]); return false; }
+    if (bit9 != (r[PF_ROLE] == 1U)) { log_warn(TAG, "port %u: role bit 9 and +14 disagree", i + 1U); return false; }
+    if (bit9 && (r[PF_SLAVE_ID] < 1U || r[PF_SLAVE_ID] > SLAVE_ID_MAX)) {
+        log_warn(TAG, "port %u: slave id %u", i + 1U, (unsigned)r[PF_SLAVE_ID]);
+        return false;
+    }
+    return true;
+}
+
 /* Ports the device lacks (index >= SPLC_MBM_PORT_COUNT) are not stored or checked;
  * a disabled port is not checked either. */
 static bool port_table_valid(const uint16_t *t)
 {
     for (unsigned i = 0U; i < PORTS; i++) {
         const uint16_t *r = &t[i * PLC_MBM_PORT_REGS];
-        if ((r[PF_CONTROL] & 0x0100U) == 0U) { continue; }
+        if ((r[PF_CONTROL] & PF_CTRL_ENABLED) == 0U) { continue; }
         port_cfg_t c;
         parse_port(r, &c);
+        if (!port_role_valid(r, i)) { return false; }
         if ((r[PF_CONTROL] & 0xFFU) != i + 1U) { log_warn(TAG, "port %u: port number %u", i + 1U, (unsigned)(r[PF_CONTROL] & 0xFFU)); return false; }
         if (c.serial.baud < 1200U || c.serial.baud > 921600U) { log_warn(TAG, "port %u: baud %lu", i + 1U, (unsigned long)c.serial.baud); return false; }
         if (c.serial.parity > PLC_MBM_PARITY_ODD) { log_warn(TAG, "port %u: parity %u", i + 1U, c.serial.parity); return false; }
@@ -271,11 +299,28 @@ static void apply_port_table(void)
         port_rt_t *p = &s_port[i];
         const bool changed = c.serial.baud != p->serial.baud || c.serial.parity != p->serial.parity ||
                              c.serial.data_bits != p->serial.data_bits || c.serial.stop_bits != p->serial.stop_bits;
-        p->enabled = c.enabled;
-        p->serial  = c.serial;
+        /* A disabled port is nobody's: whatever role bits it carries, it counts as Master. */
+        const plc_mbm_role_t role = c.enabled ? c.role : PLC_MBM_ROLE_MASTER;
+        const uint8_t        sid  = (role == PLC_MBM_ROLE_SLAVE) ? c.slave_id : 0U;
+        const bool role_changed = role != p->role || sid != p->slave_id;
+        p->enabled  = c.enabled;
+        p->role     = role;
+        p->slave_id = sid;
+        p->serial   = c.serial;
         p->gap_ms  = c.gap_ms;
         p->retries = c.retries;
         modbus_rtu_master_set_min_gap_ms(&p->master, c.gap_ms);
+        if (role_changed) {
+            /* Master <-> Slave: the UART is re-applied, a Master request still on the wire has
+             * its answer dropped, and a write waiting for the bus is forgotten. */
+            p->dirty = true;
+            p->configure_next_ms = 0U;
+            if (p->active >= 0) { p->active_stale = true; }
+#if SPLC_MBW_ENABLE
+            if (role == PLC_MBM_ROLE_SLAVE) { p->write_wanted = false; }
+#endif
+            if (s_role_listener != NULL) { s_role_listener(i, role, sid); }
+        }
         if (changed) {
             p->dirty = true;
             p->configure_next_ms = 0U;
@@ -330,6 +375,18 @@ void plc_mbm_clear_all(void)
 }
 
 uint16_t plc_mbm_port_count(void) { return (uint16_t)PORTS; }
+
+plc_mbm_role_t plc_mbm_port_role(unsigned idx)
+{
+    return (idx < PORTS && s_port[idx].enabled) ? s_port[idx].role : PLC_MBM_ROLE_MASTER;
+}
+
+uint8_t plc_mbm_port_slave_id(unsigned idx)
+{
+    return (idx < PORTS && s_port[idx].enabled && s_port[idx].role == PLC_MBM_ROLE_SLAVE) ? s_port[idx].slave_id : 0U;
+}
+
+void plc_mbm_set_role_listener(plc_mbm_role_listener_fn fn) { s_role_listener = fn; }
 
 void splc_mbm_set_rs485_port(uint8_t port_index, const modbus_serial_port_t *port, plc_mbm_configure_fn configure)
 {
@@ -402,7 +459,22 @@ bool plc_mbm_validate_draft(void)
     for (unsigned i = 0U; i < PLC_MBM_BLOCKS; i++) {
         if ((s_draft_mask & (1U << i)) != 0U && !block_valid(s_draft[i], i)) { return false; }
     }
-    return !s_pdraft_on || port_table_valid(s_pdraft);
+    if (s_pdraft_on && !port_table_valid(s_pdraft)) { return false; }
+    /* A block that will be enabled must not name an enabled Slave port (checked on the
+     * blocks and the port table as they will be after this COMMIT). */
+    const uint16_t *pt = s_pdraft_on ? s_pdraft : s_prun;
+    for (unsigned i = 0U; i < PLC_MBM_BLOCKS; i++) {
+        const uint16_t *b = ((s_draft_mask & (1U << i)) != 0U) ? s_draft[i] : s_run[i];
+        if (!blk_enabled(b) || blk_port(b) >= PORTS) { continue; }
+        const uint16_t *r = &pt[blk_port(b) * PLC_MBM_PORT_REGS];
+        port_cfg_t c;
+        parse_port(r, &c);
+        if (c.enabled && c.role == PLC_MBM_ROLE_SLAVE) {
+            log_warn(TAG, "block %u uses port %u, which is a Modbus Slave", i, blk_port(b) + 1U);
+            return false;
+        }
+    }
+    return true;
 }
 
 void plc_mbm_commit_draft(void)
@@ -726,6 +798,7 @@ void plc_mbm_scan(uint32_t now_ms)
 
         if (!pr->registered) { fail_block_no_port(i, now_ms, "has no RS485 port registered"); continue; }
         if (!pr->enabled)    { fail_block_no_port(i, now_ms, "is disabled in the port table"); continue; }
+        if (pr->role == PLC_MBM_ROLE_SLAVE) { fail_block_no_port(i, now_ms, "is on a port configured as Modbus Slave"); continue; }
         if (pr->dirty && pr->configure != NULL) { continue; }   /* do not poll with the wrong line settings */
         if (pr->active >= 0)                    { continue; }   /* this bus is busy */
 #if SPLC_MBW_ENABLE
@@ -760,7 +833,7 @@ plc_mbm_claim_t plc_mbm_port_claim(unsigned idx, modbus_rtu_master_t **master, u
 {
     if (idx >= PORTS) { return PLC_MBM_CLAIM_UNUSABLE; }
     port_rt_t *p = &s_port[idx];
-    if (!p->registered || !p->enabled) { return PLC_MBM_CLAIM_UNUSABLE; }
+    if (!p->registered || !p->enabled || p->role == PLC_MBM_ROLE_SLAVE) { return PLC_MBM_CLAIM_UNUSABLE; }
     if ((p->dirty && p->configure != NULL) || p->active >= 0 || (!p->async_tx && s_blocking_started)) {
         p->write_wanted = true;
         return PLC_MBM_CLAIM_BUSY;
