@@ -43,7 +43,7 @@
 #define TEST_LED_RGB 0
 #endif
 #ifndef TEST_RS485
-#define TEST_RS485  1//(!TEST_LED_RGB)
+#define TEST_RS485  0//(!TEST_LED_RGB)
 #endif
 #if TEST_LED_RGB && TEST_RS485
 #error "TEST_LED_RGB and TEST_RS485 cannot both be 1 (both use the main task slot)"
