@@ -65,6 +65,6 @@
 #define RS485_DE_ACTIVE_HIGH        1           /* RDE net drives DE and /RE tied together: HIGH = transmit, LOW = listen (schematic U1) */
 
 #include "splc_opt.h"
-#define MODBUS_UNIT_ID    SPLC_MODBUS_UNIT_ID
+#define MODBUS_UNIT_ID              SPLC_MODBUS_UNIT_ID
 
 #endif

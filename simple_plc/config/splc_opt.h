@@ -358,6 +358,31 @@
 #define SPLC_ADC_BUILTIN                 1
 #endif
 
+/* --- External RTC (registered hooks) ----------------------------------
+ * 0 (default) = the clock is the Layer 1 contract sx_rtc_*() (built-in STM32H5
+ *               RTC, or the host's own sx_rtc_*() when SPLC_RTC_BUILTIN = 0).
+ * 1           = the clock is an EXTERNAL chip (I2C/SPI RTC) that the product
+ *               owns. SimplePLC has no driver for it: the product registers
+ *               two functions (get / set the UTC epoch, optionally "is the
+ *               time valid") with plc_rtc_register() (services/plc_rtc/
+ *               plc_rtc.h) before plc_engine_init(). Implies SPLC_RTC_BUILTIN 0
+ *               (no STM32 RTC driver, no HAL_RTC_Set* wrap) -- you do not have
+ *               to set it yourself. Same style as splc_link_register().
+ * SPLC_RTC_EXT_READ_PERIOD_MS: the registered get/is_synced hooks are called
+ *               at most this often (the time in between is counted from the
+ *               system tick), so a slow bus never stalls the 10 ms scan.
+ */
+#ifndef SPLC_RTC_EXTERNAL
+#define SPLC_RTC_EXTERNAL                0
+#endif
+#ifndef SPLC_RTC_EXT_READ_PERIOD_MS
+#define SPLC_RTC_EXT_READ_PERIOD_MS      1000U
+#endif
+#if SPLC_RTC_EXTERNAL
+#undef  SPLC_RTC_BUILTIN
+#define SPLC_RTC_BUILTIN                 0
+#endif
+
 /* Initial log level: 0 OFF, 1 ERROR, 2 WARNING, 3 INFO, 4 DEBUG. */
 #ifndef SPLC_LOG_LEVEL
 #define SPLC_LOG_LEVEL                   4
@@ -472,6 +497,12 @@
 #endif
 #if (SPLC_RTC_BUILTIN != 0) && (SPLC_RTC_BUILTIN != 1)
 #error "SPLC_RTC_BUILTIN must be 0 or 1"
+#endif
+#if (SPLC_RTC_EXTERNAL != 0) && (SPLC_RTC_EXTERNAL != 1)
+#error "SPLC_RTC_EXTERNAL must be 0 or 1"
+#endif
+#if (SPLC_RTC_EXT_READ_PERIOD_MS < 100U) || (SPLC_RTC_EXT_READ_PERIOD_MS > 60000U)
+#error "SPLC_RTC_EXT_READ_PERIOD_MS must be 100..60000"
 #endif
 #if (SPLC_ADC_BUILTIN != 0) && (SPLC_ADC_BUILTIN != 1)
 #error "SPLC_ADC_BUILTIN must be 0 or 1"

@@ -138,7 +138,14 @@ message(STATUS "SimplePLC logger   : ${SPLC_LOGGER_BUILTIN} (1 = built-in utils/
 # supplies the sx_rtc_* / sx_adc_* functions itself (config/splc_opt.h).
 splc_read_flag(SPLC_RTC_BUILTIN SPLC_RTC_BUILTIN)
 splc_read_flag(SPLC_ADC_BUILTIN SPLC_ADC_BUILTIN)
-message(STATUS "SimplePLC RTC      : ${SPLC_RTC_BUILTIN} (1 = built-in STM32H5 RTC driver, 0 = host's sx_rtc_*)")
+# SPLC_RTC_EXTERNAL 1: the clock is an external chip reached through hooks the
+# product registers with plc_rtc_register() -- no STM32 RTC driver at all, so it
+# forces SPLC_RTC_BUILTIN off (splc_opt.h does the same for the C code).
+splc_read_flag(SPLC_RTC_EXTERNAL SPLC_RTC_EXTERNAL)
+if(SPLC_RTC_EXTERNAL)
+    set(SPLC_RTC_BUILTIN 0)
+endif()
+message(STATUS "SimplePLC RTC      : builtin=${SPLC_RTC_BUILTIN} external=${SPLC_RTC_EXTERNAL} (builtin 1 = STM32H5 RTC driver; builtin 0 = host's sx_rtc_*; external 1 = registered hooks, plc_rtc_register())")
 message(STATUS "SimplePLC ADC      : ${SPLC_ADC_BUILTIN} (1 = built-in STM32H5 ADC driver, 0 = host's sx_adc_*)")
 
 # --- USB-CDC port module ------------------------------------------------

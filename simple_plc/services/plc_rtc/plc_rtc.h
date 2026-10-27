@@ -15,6 +15,8 @@
  *
  * status_flags is NEVER taken from the Host. It is computed on every read:
  *   SYNCED      <- sx_rtc_is_synced()   (a Host has set the time)
+ *                  [SPLC_RTC_EXTERNAL = 1: the registered is_synced hook, or
+ *                  "a Host has set the time since boot" when there is none]
  *   HW_PRESENT  <- g_rtc_caps.hw_present (set by the board's own init)
  *   BATTERY_LOW <- always 0 (no board reports it yet)
  * so a Host that still sends a 4th register has it ignored.
@@ -32,6 +34,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "splc_opt.h"     /* SPLC_RTC_EXTERNAL */
 #include "plc_device.h"   /* SPLC_RtcCaps, SPLC_RtcFlags */
 
 #ifdef __cplusplus
@@ -40,6 +43,57 @@ extern "C" {
 
 #define PLC_RTC_ADDR_BASE   0x0810U
 #define PLC_RTC_REG_COUNT   4U
+
+#if SPLC_RTC_EXTERNAL
+/*
+ * External RTC chip (SPLC_RTC_EXTERNAL = 1) -- registered hooks.
+ *
+ * SimplePLC has no driver for the chip. The product owns it (I2C/SPI, its own
+ * calendar maths) and hands the library two functions, exactly like
+ * splc_link_register() hands it a byte pipe. The contract speaks UTC Unix
+ * epoch seconds only; the timezone offset stays inside SimplePLC.
+ *
+ *   get_epoch   (required) read the chip, *epoch_utc_s = UTC epoch seconds.
+ *               Return false if the chip could not be read.
+ *   set_epoch   (required) write the chip from UTC epoch seconds (the library
+ *               has already checked 2000-01-01 .. 2099-12-31). Return false on
+ *               failure; the library then answers the Host with a device error.
+ *   is_synced   (optional) true when the chip holds a trustworthy time -- e.g.
+ *               its oscillator-stop / power-loss flag is clear. NULL = the
+ *               library reports "synced" only after a Host has written the
+ *               time since this boot (a battery-backed chip should supply the
+ *               hook, otherwise Time Window rules stay quiet after every
+ *               power cycle until Studio writes the time again).
+ *   ctx         passed back as the first argument of every hook.
+ *
+ * Rules for the hooks: they run in the ENGINE context (the one that calls
+ * plc_engine_poll()), never from an ISR; keep them short (a 7-byte I2C
+ * transfer is fine); do not call any plc_* / splc_* function from inside.
+ * The library calls get_epoch / is_synced at most every
+ * SPLC_RTC_EXT_READ_PERIOD_MS (default 1000 ms) and counts the time in
+ * between from sx_get_tick_ms(), so the 10 ms scan never waits on the bus.
+ * set_epoch is called once per Host write, and the next read-back follows
+ * immediately.
+ *
+ * Set g_rtc_caps.hw_present = true in the board init as usual: it only feeds
+ * the HW_PRESENT bit of status_flags.
+ */
+typedef struct {
+    void *ctx;
+    bool (*get_epoch)(void *ctx, uint32_t *epoch_utc_s);
+    bool (*set_epoch)(void *ctx, uint32_t epoch_utc_s);
+    bool (*is_synced)(void *ctx);          /* optional, may be NULL */
+} plc_rtc_ops_t;
+
+/*
+ * Registers (or replaces) the hooks. The struct is COPIED. Call it before
+ * plc_engine_init() (or at least before the first scan), from the engine
+ * context. Returns false and changes nothing if ops is NULL or get_epoch /
+ * set_epoch is NULL. Until it succeeds the clock reads "unavailable": time
+ * reads fail, a Host write is answered with a device error, SYNCED = 0.
+ */
+bool plc_rtc_register(const plc_rtc_ops_t *ops);
+#endif /* SPLC_RTC_EXTERNAL */
 
 /*
  * Board clock capabilities, written ONCE at boot by the board's init

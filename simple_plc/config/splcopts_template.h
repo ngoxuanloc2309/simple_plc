@@ -72,6 +72,8 @@
 /* --- Logging --------------------------------------------------------- */
 /* #define SPLC_RTC_BUILTIN              1 */      /* 0 = host supplies sx_rtc_*() (no CubeMX RTC needed) */
 /* #define SPLC_ADC_BUILTIN              1 */      /* 0 = host supplies sx_adc_*() (no CubeMX ADC needed) */
+/* #define SPLC_RTC_EXTERNAL             0 */      /* 1 = external RTC chip: register get/set hooks with plc_rtc_register() (implies SPLC_RTC_BUILTIN 0) */
+/* #define SPLC_RTC_EXT_READ_PERIOD_MS   1000U */  /* 100..60000: how often the registered hooks are called */
 /* #define SPLC_LOG_LEVEL                4 */      /* 0 OFF .. 4 DEBUG */
 /* #define SPLC_LOG_BUFFER_SIZE          4096 */
 
