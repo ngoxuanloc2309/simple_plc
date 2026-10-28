@@ -366,6 +366,16 @@
 /*===========BOARD_REMOTE_IO===========*/
 
 
+/*===========BOARD_WIFI_IO===========*/
+#if BOARD_WIFI_IO
+/* Tags 0..111: 4 DI + 4 DO + 0 AI + 32 VFLAG + 32 VREG + 32 VREG_RETAIN +
+ * 8 COUNTER = 112, same map as BOARD_ZIGBEE_IO (must match s_tag_layout in
+ * board_wifi_io.c). Base indices are read at runtime with tag_di_base_index()
+ * etc., so no TAG_xxx macros are kept for this board. */
+#define MAX_TAGS 112
+#endif
+/*===========BOARD_WIFI_IO===========*/
+
 #ifndef MAX_TAGS
 #error "board_tag_define.h: no MAX_TAGS for the selected board (see board_config.h)"
 #endif

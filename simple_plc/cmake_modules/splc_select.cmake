@@ -24,6 +24,7 @@ set(SPLC_BOARD_TABLE
     "SPLC_BOARD_REMOTE_IO_8DI_8DO|remote_io_8di_8do"
     "SPLC_BOARD_DATALOGGER|datalogger"
     "SPLC_BOARD_GATEWAY|ethernet_wifi_gateway"
+    "SPLC_BOARD_WIFI_IO|wifi_io"
 )
 # Row format: "<selector macro name>|<dir under platforms/>|<library target>"
 set(SPLC_PLATFORM_TABLE
