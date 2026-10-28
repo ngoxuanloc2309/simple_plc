@@ -7,16 +7,20 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_WIFI_IO);
 
 #include "splc_opt.h"
 /*
- * App link of this board: RS485 Modbus RTU slave on USART1 (DE = PA15, active
- * high). The USB peripheral is not used by this board file, and the only RS485
- * port is the App link, so MB_READ / MB_WRITE (which need a Modbus master
- * port) cannot be built here.
+ * App link of this board: two ways to reach the App, picked by SPLC_PORT_USB_CDC
+ * in splcopts.h; either way the core only sees the byte pipe of port/modbus_link.
+ *   SPLC_PORT_USB_CDC = 1 : USB-CDC (CubeMX USB_DRD_FS, PA11/PA12). SimplePLC owns
+ *                           the USB peripheral through its own port module
+ *                           port/usb/ (TinyUSB), which registers the pipe itself.
+ *                           This file starts it and forwards the USB interrupt.
+ *                           It includes nothing from TinyUSB.
+ *   SPLC_PORT_USB_CDC = 0 : RS485 Modbus RTU slave on USART1 (DE = PA15, active
+ *                           high). rs485_output/rs485_pump are written right here.
+ * Either way the Modbus master (MB_READ / MB_WRITE) is not built on this board
+ * yet: USART1 is the only RS485 port and its master glue is not written.
  */
-#if SPLC_PORT_USB_CDC
-#error "board_wifi_io.c: the App link is RS485 (USART1); set SPLC_PORT_USB_CDC 0"
-#endif
 #if SPLC_MBM_ENABLE || SPLC_MBW_ENABLE
-#error "board_wifi_io.c: the only RS485 port is the App link; set SPLC_MBM_ENABLE 0 and SPLC_MBW_ENABLE 0"
+#error "board_wifi_io.c: MB_READ/MB_WRITE glue is not written for this board; set SPLC_MBM_ENABLE 0 and SPLC_MBW_ENABLE 0"
 #endif
 
 #include "main.h"    /* CubeMX-generated: GPIOx, GPIO_PIN_x used by board_wifi_io.h */
@@ -24,6 +28,9 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_WIFI_IO);
 
 #include "sx_gpio.h"
 #include "sx_uart.h"
+#if SPLC_PORT_USB_CDC
+#include "splc_usb_cdc.h"   /* optional USB-CDC port module: splc_usb_cdc_init(), splc_usb_irq() */
+#endif
 #include "modbus_link.h"    /* splc_link_register(), splc_link_get_transport() */
 #include "splc_log.h"
 #include "logger.h"         /* logger_init(): this board always uses the built-in logger */
@@ -82,8 +89,10 @@ typedef struct {
     sx_uart_t         log_uart;
     sx_uart_config_t  log_uart_cfg;
 
+#if !SPLC_PORT_USB_CDC
     sx_uart_t         app_uart;       /* App link over RS485 (USART1) */
     sx_uart_config_t  app_uart_cfg;
+#endif
 } wifi_io_board_t;
 
 static wifi_io_board_t s_board;
@@ -91,10 +100,12 @@ static wifi_io_board_t s_board;
 static uint8_t s_log_rx_buf[128];
 static uint8_t s_log_tx_buf[128];
 
+#if !SPLC_PORT_USB_CDC
 /* RX byte queue of the RS485 App link: must hold the longest request that can
  * arrive during one 10 ms scan (~115 bytes at 115200); FC16 is at most 256. */
 static uint8_t s_app_rx_buf[256];
 static uint8_t s_app_tx_buf[1];   /* sx_uart_write() is direct, no TX queue */
+#endif
 
 /* True once the App link has been registered. */
 static bool s_link_ok;
@@ -212,6 +223,23 @@ static void board_log_uart_init(void)
     log_info(TAG, "Wi-Fi IO board init start");
 }
 
+#if SPLC_PORT_USB_CDC
+
+static void board_app_link_init(void)
+{
+    /* Registers the USB-CDC pipe with the App link and starts TinyUSB. A failure
+     * is logged and the board still runs (rules, retain, I/O); only the App
+     * cannot reach it, and board_get_modbus_transport() then hands out an idle
+     * transport. */
+    splc_link_err_t err = splc_usb_cdc_init();
+    s_link_ok = (err == SPLC_LINK_OK);
+    if (!s_link_ok) {
+        log_error(TAG, "USB-CDC App link init FAILED (%d)", (int)err);
+    }
+}
+
+#else /* RS485 */
+
 static void rs485_de(bool transmit)
 {
     GPIO_PinState level = (transmit == (RS485_DE_ACTIVE_HIGH != 0)) ? GPIO_PIN_SET
@@ -278,6 +306,8 @@ static void board_app_link_init(void)
     }
 }
 
+#endif /* SPLC_PORT_USB_CDC */
+
 void board_hw_init(void)
 {
     board_log_uart_init();
@@ -297,9 +327,22 @@ void board_hw_init(void)
     }
 
     board_app_link_init();
+#if SPLC_PORT_USB_CDC
+    if (s_link_ok) {
+        log_info(TAG, "USB CDC initialized");
+
+        /* Let the host enumerate the device before the engine starts scanning. */
+        uint32_t t0 = HAL_GetTick();
+        while ((HAL_GetTick() - t0) < 500U) {
+            splc_usb_cdc_process();
+            sx_os_yield_wait();   /* 1-tick sleep under FreeRTOS */
+        }
+    }
+#else
     if (s_link_ok) {
         log_info(TAG, "UART/RS485 App link initialized (USART1, unit %d)", (int)MODBUS_UNIT_ID);
     }
+#endif
 }
 
 /* Transport handed to plc_modbus_cfg when no App link exists: nothing arrives
@@ -332,3 +375,11 @@ modbus_transport_t board_get_modbus_transport(void)
     t.unit_id = MODBUS_UNIT_ID;
     return t;
 }
+
+#if SPLC_PORT_USB_CDC
+/* USB interrupt: forwarded to the USB-CDC port module (TinyUSB stays inside it). */
+void USB_DRD_FS_IRQHandler(void)
+{
+    splc_usb_irq();
+}
+#endif
