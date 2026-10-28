@@ -64,11 +64,20 @@ static bool prescaler_for(uint32_t kernel, uint32_t want_hz, uint32_t *presc)
     return false;
 }
 
-/* DWT cycle counter: microsecond waits that need no timer. */
-static void cyc_enable(void)
+/* DWT cycle counter: microsecond waits that need no timer. If the counter does
+ * not advance (DWT unavailable), waits fall back to a NOP loop that errs on the
+ * long side, so a CS wait can never hang or come out short. */
+static bool cyc_enable(void)
 {
+    uint32_t a;
+
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+    a = DWT->CYCCNT;
+    for (volatile uint32_t i = 0U; i < 16U; i++) {
+        __NOP();
+    }
+    return DWT->CYCCNT != a;
 }
 
 static uint32_t cyc_now(void)
@@ -76,11 +85,24 @@ static uint32_t cyc_now(void)
     return DWT->CYCCNT;
 }
 
-static void wait_us(uint32_t us)
+static void wait_us(const sx_spi_t *spi, uint32_t us)
 {
-    uint32_t n = us * (SystemCoreClock / 1000000U);
-    uint32_t s = cyc_now();
-    while ((uint32_t)(cyc_now() - s) < n) {
+    uint32_t per_us = SystemCoreClock / 1000000U;
+    uint32_t n;
+
+    if (per_us == 0U) {
+        per_us = 1U;
+    }
+    n = us * per_us;
+    if (spi->dwt_ok) {
+        uint32_t s = cyc_now();
+        while ((uint32_t)(cyc_now() - s) < n) {
+        }
+    } else {
+        volatile uint32_t k = n / 4U + 1U;      /* ~4 cycles per iteration */
+        while (k-- != 0U) {
+            __NOP();
+        }
     }
 }
 
@@ -101,6 +123,7 @@ int sx_spi_init(sx_spi_t *spi, sx_spi_config_t *config)
     }
     spi->ready = false;
     spi->have_last = false;
+    spi->dwt_ok = false;
     spi->config = config;
 
     h = handle_of(config);
@@ -142,7 +165,7 @@ int sx_spi_init(sx_spi_t *spi, sx_spi_config_t *config)
         sx_gpio_value_t idle = config->cs_active_high ? SX_GPIO_LOW : SX_GPIO_HIGH;
         sx_gpio_write(config->cs, idle);        /* idle level first, then make it an output */
         sx_gpio_init(config->cs, idle);
-        cyc_enable();
+        spi->dwt_ok = cyc_enable();
     }
     spi->ready = true;
     return SX_SPI_OK;
@@ -203,13 +226,18 @@ void sx_spi_select(sx_spi_t *spi)
     }
     c = spi->config;
     if (spi->have_last && c->cs_gap_us != 0U) {
-        uint32_t n = (uint32_t)c->cs_gap_us * (SystemCoreClock / 1000000U);
-        while ((uint32_t)(cyc_now() - spi->last_deselect_cyc) < n) {
+        if (spi->dwt_ok) {
+            uint32_t per_us = SystemCoreClock / 1000000U;
+            uint32_t n = (uint32_t)c->cs_gap_us * ((per_us != 0U) ? per_us : 1U);
+            while ((uint32_t)(cyc_now() - spi->last_deselect_cyc) < n) {
+            }
+        } else {
+            wait_us(spi, c->cs_gap_us);         /* no counter: wait the whole gap */
         }
     }
     cs_drive(c, true);
     if (c->cs_setup_us != 0U) {
-        wait_us(c->cs_setup_us);
+        wait_us(spi, c->cs_setup_us);
     }
 }
 
@@ -219,7 +247,7 @@ void sx_spi_deselect(sx_spi_t *spi)
         return;
     }
     cs_drive(spi->config, false);
-    spi->last_deselect_cyc = cyc_now();
+    spi->last_deselect_cyc = spi->dwt_ok ? cyc_now() : 0U;
     spi->have_last = true;
 }
 

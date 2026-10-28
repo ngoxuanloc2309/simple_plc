@@ -44,6 +44,7 @@ typedef struct sx_spi {
     uint8_t          dummy_buf[SX_SPI_DUMMY_MAX];
     uint32_t         last_deselect_cyc;
     bool             have_last;
+    bool             dwt_ok;        /* DWT cycle counter verified running; else CS waits use a (longer) NOP loop */
 } sx_spi_t;
 
 /*
