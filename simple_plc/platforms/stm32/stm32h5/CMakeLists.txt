@@ -19,7 +19,7 @@
 # That header currently lives in app/ (Layer 4), not in this layer -- see
 # the TODO below. It must resolve for this target to build at all.
 #
-# Timer (stm32h5_timer.c/.h) and I2C are 0 lines today (see
+# Timer (stm32h5_timer.c/.h) is 0 lines today (see
 # docs/handoff.md section 1.3) -- deliberately left out of
 # SPLC_PLATFORM_STM32H5_SRC below; add stm32h5_timer.c once it has real
 # content, or the build will link fine but silently be missing timer
@@ -51,8 +51,14 @@ set(SPLC_PLATFORM_STM32H5_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/time/stm32h5_time.c
     ${CMAKE_CURRENT_SOURCE_DIR}/system/stm32h5_system.c
     ${CMAKE_CURRENT_SOURCE_DIR}/pwd/stm32h5_pwd.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/spi/stm32h5_spi.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/i2c/stm32h5_i2c.c
 )
 
+# stm32h5_spi.c / stm32h5_i2c.c compile to nothing when CubeMX has not enabled
+# HAL_SPI_MODULE_ENABLED / HAL_I2C_MODULE_ENABLED (stm32h5xx_hal_conf.h), so a
+# board that does not use them builds as before.
+#
 # The ADC and RTC drivers need peripherals the host project may not have
 # configured in CubeMX (hadc1 / hrtc). SPLC_ADC_BUILTIN / SPLC_RTC_BUILTIN = 0
 # (splcopts.h, read in cmake_modules/splc_select.cmake) leaves them out; the
@@ -82,6 +88,8 @@ target_include_directories(splc_platform_stm32h5 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/pwd
     ${CMAKE_CURRENT_SOURCE_DIR}/system
     ${CMAKE_CURRENT_SOURCE_DIR}/rtc
+    ${CMAKE_CURRENT_SOURCE_DIR}/spi
+    ${CMAKE_CURRENT_SOURCE_DIR}/i2c
 )
 
 # stm32h5_rtc.c #includes "splc_epoch.h" (Layer U, utils/epoch/) for the

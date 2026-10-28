@@ -10,8 +10,8 @@
 # port module port/usb/ (only with SPLC_PORT_USB_CDC = 1), not a Layer 1 driver.
 # Nothing here depends on TinyUSB.
 #
-# i2c/ and timer/ are 0-line placeholder headers today -- not referenced
-# below; add them once they have real content.
+# timer/ is a 0-line placeholder header today -- not referenced below; add it
+# once it has real content.
 
 add_library(splc_components INTERFACE)
 
@@ -28,6 +28,8 @@ target_include_directories(splc_components INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/system
     ${CMAKE_CURRENT_SOURCE_DIR}/rtc
     ${CMAKE_CURRENT_SOURCE_DIR}/pwd
+    ${CMAKE_CURRENT_SOURCE_DIR}/spi
+    ${CMAKE_CURRENT_SOURCE_DIR}/i2c
 )
 
 # sx_os.h (components/os/) is only the contract; its FreeRTOS implementation
