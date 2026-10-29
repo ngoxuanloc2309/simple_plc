@@ -130,6 +130,13 @@ void retain_emergency_snapshot(void);
 void retain_flash_op_begin(void);
 void retain_flash_op_end(void);
 
+/*
+ * True when the 32 retain tags differ from what the newest Flash record holds (or no record
+ * has been read / written since boot), i.e. a snapshot is still due. Read-only, main loop
+ * only; used for the FLASH_DIRTY bit of the Slave SYS_DIAG status_flags (plc_mbs).
+ */
+bool retain_has_unsaved_changes(void);
+
 #ifdef __cplusplus
 }
 #endif

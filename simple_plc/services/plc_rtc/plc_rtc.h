@@ -36,6 +36,7 @@
 
 #include "splc_opt.h"     /* SPLC_RTC_EXTERNAL */
 #include "plc_device.h"   /* SPLC_RtcCaps, SPLC_RtcFlags */
+#include "splc_epoch.h"   /* splc_datetime_t */
 
 #ifdef __cplusplus
 extern "C" {
@@ -139,6 +140,14 @@ plc_rtc_write_result_t plc_rtc_write(uint16_t offset, uint16_t quantity,
  * Cheap enough to call every scan cycle.
  */
 bool plc_rtc_get_local_hhmm(uint16_t *hhmm);
+
+/*
+ * Local calendar date and time (UTC epoch + the timezone offset the Host wrote), for the Slave
+ * SYS_DIAG block. Same conditions as plc_rtc_get_local_hhmm(): false (and *dt untouched)
+ * unless the clock is SYNCED, the offset has been written since boot and the RTC could be
+ * read -- otherwise the "local" time would silently be UTC.
+ */
+bool plc_rtc_get_local_datetime(splc_datetime_t *dt);
 
 /*
  * Current UTC epoch seconds (for the MQTT {ts} token). Returns false (and

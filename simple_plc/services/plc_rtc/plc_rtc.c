@@ -208,6 +208,20 @@ bool plc_rtc_get_local_hhmm(uint16_t *hhmm)
     return true;
 }
 
+bool plc_rtc_get_local_datetime(splc_datetime_t *dt)
+{
+    uint32_t epoch = 0U;
+    if (dt == NULL || !s_tz_known || !hw_is_synced() || !hw_get_epoch(&epoch)) {
+        return false;
+    }
+    /* epoch + tz stays inside uint32 for 2000..2099 and |tz| <= 14 h */
+    const int64_t local = (int64_t)epoch + (int64_t)s_tz_offset_min * 60;
+    if (local < 0 || local > (int64_t)UINT32_MAX) {
+        return false;
+    }
+    return splc_epoch_to_datetime((uint32_t)local, dt);
+}
+
 bool plc_rtc_get_epoch(uint32_t *epoch)
 {
     uint32_t now;

@@ -22,9 +22,12 @@ What it checks
             DO_WORD and VFLAG_DWORD are THREE regions: 0x0000 x2, 0x0001 x2 (CHKL-SLAVE-04),
             0x0000 x4 all -> 0x02), a coil/DI past its range -> 0x02; quantity 0 / too large,
             bad byte count, bad FC05 value, writes to DI_WORD / AI / SYS_DIAG -> 0x03.
-            A write that crosses regions AND touches a read-only one answers 0x02 today; the
-            App has not said whether it should be 0x03, so that case is reported as info.
-  5 sys     SYS_DIAG uptime runs; scan time is plausible.
+            A write that crosses regions AND touches a read-only one answers 0x02 (App answer
+            of 29/10: address/boundary is checked before permission).
+  5 sys     SYS_DIAG (ICD v2.12.0): uptime runs; scan_time (u16) plausible; status_flags
+            bits 6..15 = 0 and exactly one of ENGINE_RUNNING / FORCE_ACTIVE; reserved words
+            0; RTC words are either all 0 (clock not synced / timezone not written) or a
+            valid local date and time; writes to SYS_DIAG -> 0x03.
   6 framing garbage in front of a valid frame, another unit's frame in front, a bad CRC (no
             answer, next request still fine), a stale partial frame, 3 requests in ONE burst
             (3 answers), another Slave ID (silence), broadcast write (executes, silent).
@@ -171,8 +174,15 @@ def t_32bit(m, c):
             # an entry past the board's count: reads 0, a write is ACKed and dropped
             if 2 * n + 2 <= {"VREG": 64, "VREG_R": 64, "COUNTER": 16}[name]:
                 ex = base + 2 * n
-                m.write_regs(ex, [0x7777, 0x8888])
-                check(m.read_holding(ex, 2) == [0, 0], f"{name}{n} (not on this board): write ACKed, still reads 0")
+                check(exc_of(m.write_regs, ex, [0x7777, 0x8888]) == 2,
+                      f"{name}{n} (not on this board): FC16 write -> 0x02 (not a silent ACK)")
+                check(exc_of(m.write_reg, ex + 1, 1) == 2, f"{name}{n} (not on this board): FC06 write -> 0x02")
+                check(m.read_holding(ex, 2) == [0, 0], f"{name}{n} (not on this board): still reads 0, no error")
+                if n >= 1:
+                    check(exc_of(m.write_regs, base + 2 * n - 2, [1, 2, 3, 4]) == 2,
+                          f"{name}: FC16 reaching past the last entry -> 0x02")
+                    check(M.u32_of(m.read_holding(base + 2 * n - 2, 2)) != 0x00010002,
+                          f"{name}: the refused FC16 changed nothing (all-or-nothing)")
         finally:
             m.write_regs(base, old)
 
@@ -199,9 +209,8 @@ def t_errors(m, c):
     check(exc_of(m.read_holding, 0x0020, 126) == 3, "FC03 quantity 126 -> 0x03")
     check(exc_of(m.write_reg, 0x0000, 1) == 3, "write DI_WORD (RO) -> 0x03")
     check(exc_of(m.write_regs, 0x0000, [1]) == 3, "FC16 on DI_WORD alone (0x0000 x1) -> 0x03")
-    e = exc_of(m.write_regs, 0x0000, [1, 2])
-    info(f"FC16 0x0000 x2 (crosses regions AND touches RO DI_WORD) answered 0x{e:02X}; "
-         "firmware gives 0x02 first - App has not said whether 0x03 is expected")
+    check(exc_of(m.write_regs, 0x0000, [1, 2]) == 2,
+          "FC16 0x0000 x2 (crosses regions AND touches RO DI_WORD) -> 0x02 (boundary before permission)")
     check(exc_of(m.write_reg, 0x0010, 1) == 3, "write AI (RO) -> 0x03")
     check(exc_of(m.write_reg, 0x00F0, 1) == 3, "write SYS_DIAG (RO) -> 0x03")
     check(exc_of(m.read_coils, 0x0010, 1) == 2, "coil 0x0010 (hole after DO) -> 0x02")
@@ -220,16 +229,38 @@ def t_errors(m, c):
 
 def t_sys(m, c):
     section("5 SYS_DIAG")
-    a = m.read_holding(0x00F0, 10)
+    a = m.read_holding(0x00F0, 16)
     time.sleep(2.2)
-    b = m.read_holding(0x00F0, 10)
+    b = m.read_holding(0x00F0, 16)
     ua, ub = M.u32_of(a, 0), M.u32_of(b, 0)
-    check(1 <= ub - ua <= 4, f"uptime runs: {ua} s -> {ub} s")
-    st, mx = M.u32_of(b, 6), M.u32_of(b, 8)
-    check(st <= mx or mx == 0, f"scan_time {st} ms <= max_scan_time {mx} ms")
-    check(mx < 1000, f"max scan time {mx} ms is below 1 s")
-    check(b[4] <= 100 and b[5] <= 100, f"cpu {b[4]} % and ram {b[5]} % are percentages")
-    info(f"reset_reason={b[2]} health_flags=0x{b[3]:04X}")
+    check(1 <= ub - ua <= 4, f"0x00F0..F1 uptime runs: {ua} s -> {ub} s")
+    check(b[2] < 1000, f"0x00F2 scan_time_ms (u16) {b[2]} ms is plausible (< 1 s)")
+    fl = b[3]
+    check(fl >> 6 == 0, f"0x00F3 status_flags bits 6..15 are 0: 0x{fl:04X}")
+    running, forced = fl & 0x0001, (fl >> 1) & 1
+    check(running != forced,
+          f"exactly one of ENGINE_RUNNING ({running}) / FORCE_ACTIVE ({forced}) "
+          "(FORCE_ACTIVE = 1 only while the App holds a diagnostic session)")
+    check((fl >> 2) & 1 == 0, "BATTERY_LOW = 0 (the board has no battery to measure)")
+    check((fl >> 5) & 1 == 0, "RS485_BUS_FAULT = 0 (no detection exists yet)")
+    info(f"status_flags 0x{fl:04X}: RTC_SYNCED={(fl >> 3) & 1} FLASH_DIRTY={(fl >> 4) & 1}")
+    check(b[4] == 0, "0x00F4 reserved reads 0")
+    y, mo, d, h, mi, sec = b[5:11]
+    if (y, mo, d, h, mi, sec) == (0, 0, 0, 0, 0, 0):
+        info("RTC words 0x00F5..FA are 0: clock not synced, or the Host has not written the "
+             "timezone since boot (write 0x0810 first to see a local time)")
+    else:
+        check(2000 <= y <= 2099 and 1 <= mo <= 12 and 1 <= d <= 31 and h < 24 and mi < 60 and sec < 60,
+              f"RTC local time {y:04d}-{mo:02d}-{d:02d} {h:02d}:{mi:02d}:{sec:02d} is a valid date and time")
+        check((fl >> 3) & 1 == 1, "a non-zero RTC implies RTC_SYNCED = 1")
+        t0 = m.read_holding(0x00F9, 2)
+        time.sleep(2.2)
+        t1 = m.read_holding(0x00F9, 2)
+        dt = ((t1[0] * 60 + t1[1]) - (t0[0] * 60 + t0[1])) % 3600
+        check(1 <= dt <= 4, f"RTC seconds advance: +{dt} s in ~2.2 s")
+    check(b[11:16] == [0] * 5, "0x00FB..FF reserved read 0")
+    check(exc_of(m.write_reg, 0x00F4, 1) == 3, "write 0x00F4 (reserved) -> 0x03")
+    check(exc_of(m.write_reg, 0x00F3, 1) == 3, "write status_flags -> 0x03")
 
 
 def t_framing(m, c):

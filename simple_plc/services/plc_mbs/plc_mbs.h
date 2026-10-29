@@ -23,12 +23,14 @@
  *             0x0020..0x005F VREG0..31   RW  the tag's 32 bits (INT32, or float bits of a REAL)
  *             0x0060..0x009F VREG_R0..31 RW  retained VREG
  *             0x00A0..0x00AF COUNTER0..7 RW  the counter tag
- *             0x00F0..0x00FF SYS_DIAG    RO  health image (see below)
+ *             0x00F0..0x00FF SYS_DIAG    RO  uptime, scan time, status_flags, RTC (see below)
  *   Coils     0x0000..0x000F DO0..15     RW
  *             0x0064..0x0083 VFLAG0..31  RW
  *   Discrete  0x0000..0x000F DI0..15     RO
- * A group entry the board does not have (DI 5 on a 4-DI board, VREG 20 when the layout has 12)
- * reads 0 and ignores writes, as long as the address is inside the fixed map.
+ * A group entry the board does not have reads 0 (DI 5 on a 4-DI board, VREG 20 when the layout
+ * has 12). Writes: a DO / VFLAG bit without a tag is ignored (ACK); a VREG / VREG_R / COUNTER
+ * entry beyond the board's count is refused with 0x02, for the whole request, before any
+ * entry is written (ICD v2.12.0, CHKL-SLAVE-04).
  * Exceptions: function code not served 0x01; address outside the map, a hole between groups, or a
  * request crossing two regions 0x02 (DI_WORD 0x0000, DO_WORD 0x0001 and VFLAG_DWORD
  * 0x0002..0x0003 are THREE regions: CHKL-SLAVE-04); bad quantity / byte count
@@ -41,8 +43,14 @@
  *    the fixed indices in the ICD sample code.
  *  - AI: the tag's raw value as float32, i.e. (float)value for an INT32 tag and the stored
  *    bits for a REAL tag; no scaling. The ICD says "normalised voltage" without a formula.
- *  - SYS_DIAG: g_device_health as 10 registers (uptime_s 2, reset_reason, health_flags,
- *    cpu_load_percent, ram_usage_percent, scan_time_ms 2, max_scan_time_ms 2), then zeros.
+ *  - SYS_DIAG (layout fixed by the ICD): 0x00F0..F1 uptime_s (u32), 0x00F2 scan_time_ms (u16,
+ *    saturates at 65535), 0x00F3 status_flags, 0x00F4 reserved 0, 0x00F5..FA RTC LOCAL time
+ *    (year 4 digits, month, day, hour, minute, second), 0x00FB..FF reserved 0.
+ *    status_flags: bit0 ENGINE_RUNNING (no diagnostic session holds the tags), bit1 FORCE_ACTIVE
+ *    (a diagnostic session does), bit2 BATTERY_LOW (always 0: no battery), bit3 RTC_SYNCED,
+ *    bit4 FLASH_DIRTY (retain tags changed since the last snapshot), bit5 RS485_BUS_FAULT
+ *    (always 0 until the App defines what counts), bits 6..15 = 0. The RTC words are 0 while
+ *    the clock is not synced or the Host has not written the timezone since boot.
  *  - Writes are refused (0x06) while the rule engine is suspended by a diagnostic session.
  *
  * Framing: a frame is complete as soon as its length is known (8 bytes, or 9 + byte count

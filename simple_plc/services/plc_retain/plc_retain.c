@@ -309,6 +309,11 @@ static bool retain_values_changed(void)
     return false;
 }
 
+bool retain_has_unsaved_changes(void)
+{
+    return retain_values_changed();
+}
+
 /*
  * Makes the write position safe to program, at boot (main loop, so an
  * erase is allowed). Two things can leave it unusable:

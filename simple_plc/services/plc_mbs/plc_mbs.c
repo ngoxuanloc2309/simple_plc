@@ -9,7 +9,10 @@
 
 #include "plc_tag.h"
 #include "plc_mbm.h"
-#include "plc_modbus_cfg.h"   /* g_device_health */
+#include "plc_modbus_cfg.h"   /* g_device_health, plc_modbus_cfg_is_rule_engine_suspended() */
+#include "plc_rtc.h"
+#include "plc_retain.h"
+#include "splc_epoch.h"
 #include "splc_nmbs.h"        /* nmbs_crc_calc() only */
 #include "splc_log.h"
 #include "sx_time.h"
@@ -107,22 +110,48 @@ static uint32_t ai_bits(uint16_t tag)
     return float_bits((float)tag_read(tag));
 }
 
+/* SYS_DIAG status_flags (ICD v2.12.0 / Conformance 13.x). Bits 6..15 are 0. */
+#define SYSF_ENGINE_RUNNING  0x0001U   /* the rule engine is scanning (no diagnostic session holds the tags) */
+#define SYSF_FORCE_ACTIVE    0x0002U   /* a diagnostic session holds the tags (host-forced values) */
+#define SYSF_BATTERY_LOW     0x0004U   /* always 0: the board has no backup battery to measure */
+#define SYSF_RTC_SYNCED      0x0008U   /* a Host has set the clock */
+#define SYSF_FLASH_DIRTY     0x0010U   /* retain tags changed since the last Flash snapshot */
+#define SYSF_RS485_FAULT     0x0020U   /* always 0: no bus-fault detection exists yet */
+
+static uint16_t sys_status_flags(void)
+{
+    uint16_t f = 0U;
+    uint16_t rtc_flags = 0U;
+    if (plc_modbus_cfg_is_rule_engine_suspended()) { f |= SYSF_FORCE_ACTIVE; } else { f |= SYSF_ENGINE_RUNNING; }
+    plc_rtc_read(3U, 1U, &rtc_flags);                                  /* status_flags of the RTC block */
+    if ((rtc_flags & (uint16_t)SPLC_RTC_FLAG_SYNCED) != 0U) { f |= SYSF_RTC_SYNCED; }
+    if (retain_has_unsaved_changes()) { f |= SYSF_FLASH_DIRTY; }
+    return f;
+}
+
+/* 0x00F0..0x00FF: uptime u32 | scan_time_ms u16 (saturates) | status_flags | 0 | RTC local
+ * Y M D h m s | 0 x5. The RTC words are 0 while the clock is not usable: not synced, or the Host
+ * has not written the timezone since boot (the "local" time would be UTC). */
 static uint16_t sys_diag_reg(uint16_t i)
 {
-    const SPLC_DeviceHealth *h = &g_device_health;
-    const uint32_t up = sx_get_tick_ms() / 1000U;
     switch (i) {
-    case 0: return (uint16_t)(up >> 16);
-    case 1: return (uint16_t)(up & 0xFFFFU);
-    case 2: return h->reset_reason;
-    case 3: return h->health_flags;
-    case 4: return h->cpu_load_percent;
-    case 5: return h->ram_usage_percent;
-    case 6: return (uint16_t)(h->scan_time_ms >> 16);
-    case 7: return (uint16_t)(h->scan_time_ms & 0xFFFFU);
-    case 8: return (uint16_t)(h->max_scan_time_ms >> 16);
-    case 9: return (uint16_t)(h->max_scan_time_ms & 0xFFFFU);
-    default: return 0U;
+    case 0: return (uint16_t)((sx_get_tick_ms() / 1000U) >> 16);
+    case 1: return (uint16_t)((sx_get_tick_ms() / 1000U) & 0xFFFFU);
+    case 2: return (g_device_health.scan_time_ms > 65535U) ? 65535U : (uint16_t)g_device_health.scan_time_ms;
+    case 3: return sys_status_flags();
+    case 5: case 6: case 7: case 8: case 9: case 10: {
+        splc_datetime_t dt;
+        if (!plc_rtc_get_local_datetime(&dt)) { return 0U; }
+        switch (i) {
+        case 5:  return dt.year;
+        case 6:  return dt.month;
+        case 7:  return dt.day;
+        case 8:  return dt.hour;
+        case 9:  return dt.minute;
+        default: return dt.second;
+        }
+    }
+    default: return 0U;                                                /* 4 and 11..15 reserved */
     }
 }
 
@@ -167,6 +196,22 @@ static uint16_t read_hreg(const hreg_t *r, uint16_t addr, const counts_t *c)
     default: break;
     }
     return hi ? (uint16_t)(v >> 16) : (uint16_t)(v & 0xFFFFU);
+}
+
+/* A write to a 32-bit entry the board does not have (VREG20 on a 16-VREG board) is refused with
+ * 0x02, so the SCADA cannot mistake a silent drop for success (ICD v2.12.0, CHKL-SLAVE-04).
+ * Checked for the whole request before anything is written. Reads of such entries return 0. */
+static bool hreg_write_in_resource(const hreg_t *r, uint16_t addr, uint16_t qty, const counts_t *c)
+{
+    uint16_t have;
+    switch (r->kind) {
+    case R_VREG: have = c->vreg; break;
+    case R_VRET: have = c->vret; break;
+    case R_CNT:  have = c->cnt;  break;
+    default:     return true;       /* DO_WORD / VFLAG_DWORD: bits without a tag are ignored */
+    }
+    const uint16_t last = (uint16_t)(((uint16_t)(addr + qty - 1U) - r->start) / 2U);
+    return last < have;
 }
 
 static void write_hreg(const hreg_t *r, uint16_t addr, uint16_t value, const counts_t *c)
@@ -279,6 +324,7 @@ uint16_t plc_mbs_execute(const uint8_t *req, uint16_t req_len, uint8_t *rsp, boo
         const hreg_t *r = find_hreg(addr, 1U);
         if (r == NULL) { return exception(rsp, fc, EX_ADDRESS); }
         if (r->ro) { return exception(rsp, fc, EX_VALUE); }
+        if (!hreg_write_in_resource(r, addr, 1U, &c)) { return exception(rsp, fc, EX_ADDRESS); }
         if (!writes_allowed) { return exception(rsp, fc, EX_BUSY); }
         write_hreg(r, addr, val, &c);
         memcpy(rsp, req, 5U);
@@ -305,6 +351,7 @@ uint16_t plc_mbs_execute(const uint8_t *req, uint16_t req_len, uint8_t *rsp, boo
         const hreg_t *r = find_hreg(addr, qty);
         if (r == NULL) { return exception(rsp, fc, EX_ADDRESS); }
         if (r->ro) { return exception(rsp, fc, EX_VALUE); }
+        if (!hreg_write_in_resource(r, addr, qty, &c)) { return exception(rsp, fc, EX_ADDRESS); }
         if (!writes_allowed) { return exception(rsp, fc, EX_BUSY); }
         for (uint16_t i = 0U; i < qty; i++) { write_hreg(r, (uint16_t)(addr + i), be16(&req[6U + 2U * i]), &c); }
         memcpy(rsp, req, 5U);
