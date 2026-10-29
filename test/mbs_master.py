@@ -1,326 +1,358 @@
 #!/usr/bin/env python3
 """
-test_mbs.py - Verify the Modbus SLAVE serving module (plc_mbs, decision 75 in docs/handoff.md,
-SPLC-SPEC-SLAVE-001 map) from a Modbus RTU master on the RS-485 port the App set to Slave.
+mbs_master.py - a small Modbus RTU MASTER for trying out the SimplePLC Modbus SLAVE
+(plc_mbs, decision 75 in docs/handoff.md, SPLC-SPEC-SLAVE-001 map).
 
-Requires: pip install pyserial           (uses mbs_master.py from the same folder)
-Firmware: SPLC_MBM_ENABLE = 1 and SPLC_MODBUS_SLAVE_ENABLE = 1; the App (or a manual write of
-the port table 0x1400 through the other link) must have COMMITted the port as Slave:
-+0 = enabled | port number, +14 = 1, +15 = Slave ID. The port under test is NOT the App link.
+Requires: pip install pyserial          (no pymodbus: the RTU frames are built here, so
+                                          test_mbs.py can also send broken frames)
 
-WARNING: the test WRITES tags: DO pins really switch, VFLAG / VREG / VREG_R / COUNTER get test
-values. Everything it touched is restored at the end (also after a failure). Dev board only;
-disconnect loads from the DO pins first.
+The device side: the RS-485 port must be configured as Slave by the App (port table 0x1400,
++14 = 1, +15 = Slave ID) and the firmware built with SPLC_MODBUS_SLAVE_ENABLE = 1.
 
-What it checks
-  1 map     every region reads with the right size; entries/bits the board does not have read 0.
-  2 DO/VFLAG  DO_WORD, VFLAG_DWORD and the coils are the same tags (write one, read the other);
-            bits beyond the board's DO / VFLAG count are ignored on write.
-  3 32-bit  VREG, VREG_R, COUNTER: FC16 writes the whole value (high word first), FC06 changes
-            only the addressed half, an entry beyond the board's count reads 0.
-  4 errors  FC04 and unknown FC -> 0x01; a hole, a request crossing two regions, a coil/DI past
-            its range -> 0x02; quantity 0 / too large, bad byte count, bad FC05 value, writes
-            to DI_WORD / AI / SYS_DIAG -> 0x03.
-  5 sys     SYS_DIAG uptime runs; scan time is plausible.
-  6 framing garbage in front of a valid frame, another unit's frame in front, a bad CRC (no
-            answer, next request still fine), a stale partial frame, 3 requests in ONE burst
-            (3 answers), another Slave ID (silence), broadcast write (executes, silent).
-  7 speed   N back-to-back reads: all answered, latency figures printed (info only).
-What it does NOT check: exception 0x06 while a diag session holds the tags (needs the App link);
-the 3.5-character idle rule at the byte level (OS timing is too coarse); a REAL tag in an AI slot.
+Use as a tool:
+    python mbs_master.py COM35 dump                       # read the whole map, decoded
+    python mbs_master.py COM35 dump --unit 5 --baudrate 115200 --parity E
+    python mbs_master.py COM35 read  holding 0x20 4       # FC03   (also: coils, discrete)
+    python mbs_master.py COM35 write reg 0x20 0x1234      # FC06
+    python mbs_master.py COM35 write regs 0x20 0x1234 0x5678   # FC16
+    python mbs_master.py COM35 write coil 1 1             # FC05
+    python mbs_master.py COM35 write coils 0x64 1 0 1 1   # FC15
+    python mbs_master.py COM35 poll 0x0000 4 --period 0.5 # FC03 in a loop (Ctrl+C stops)
+Numbers accept 0x.. hex. Use --tcp-less: this tool is serial only.
 
-Usage:
-    python test_mbs.py COM35 --unit 5 --baudrate 115200 [--parity N] [--di 4 --do 4 --ai 0
-        --vflag 32 --vreg 32 --vret 32 --counter 8] [--speed-n 200] [--trace]
-The counts default to the Zigbee-IO board (4 DI, 4 DO, 0 AI, 32 VFLAG, 32 VREG, 32 VREG_R, 8 COUNTER).
+Use as a module (test_mbs.py does):
+    from mbs_master import RtuMaster
+    m = RtuMaster("COM35", 115200, unit=5)
+    print(m.read_holding(0x0000, 4))
 
-Exit codes: 0 = ALL PASS, 1 = a check failed, 2 = cannot open port, 3 = no link at all.
+Exit codes (CLI): 0 ok, 1 Modbus exception / no answer, 2 cannot open port.
 """
 import argparse
 import struct
 import sys
 import time
 
-import mbs_master as M
-from mbs_master import RtuMaster, ModbusException, NoAnswer
-
-_fail = 0
-_checks = 0
-
-
-def check(cond, msg):
-    global _fail, _checks
-    _checks += 1
-    print(f"  [{'PASS' if cond else 'FAIL'}] {msg}")
-    if not cond:
-        _fail += 1
-    return cond
+try:
+    import serial
+except ImportError:  # pragma: no cover
+    print("pyserial is missing: pip install pyserial")
+    sys.exit(2)
 
 
-def info(msg):
-    print(f"  (info) {msg}")
+# ------------------------------------------------------------------ errors
+class ModbusError(Exception):
+    """Base class."""
 
 
-def section(t):
-    print(f"\n== {t}")
+class NoAnswer(ModbusError):
+    """Nothing (or a broken frame) came back within the timeout."""
 
 
-def exc_of(fn, *a, **k):
-    """Run fn; return the exception code it raised, 0 if it succeeded, -1 on silence."""
-    try:
-        fn(*a, **k)
+class ModbusException(ModbusError):
+    """The slave answered with an exception response."""
+
+    NAMES = {1: "ILLEGAL_FUNCTION", 2: "ILLEGAL_DATA_ADDRESS", 3: "ILLEGAL_DATA_VALUE",
+             4: "SLAVE_DEVICE_FAILURE", 6: "SLAVE_DEVICE_BUSY"}
+
+    def __init__(self, fc, code):
+        self.fc, self.code = fc, code
+        super().__init__(f"FC{fc:02X} exception 0x{code:02X} ({self.NAMES.get(code, '?')})")
+
+
+# ------------------------------------------------------------------ helpers
+def crc16(data):
+    """CRC-16/MODBUS, returned as an int (low byte goes first on the wire)."""
+    crc = 0xFFFF
+    for b in data:
+        crc ^= b
+        for _ in range(8):
+            crc = (crc >> 1) ^ 0xA001 if crc & 1 else crc >> 1
+    return crc
+
+
+def frame(unit, pdu):
+    body = bytes([unit]) + bytes(pdu)
+    return body + struct.pack("<H", crc16(body))
+
+
+def crc_ok(f):
+    return len(f) >= 4 and struct.unpack("<H", f[-2:])[0] == crc16(f[:-2])
+
+
+def u32_of(regs, i=0):
+    """Two registers, HIGH word first, as one unsigned 32-bit value."""
+    return (regs[i] << 16) | regs[i + 1]
+
+
+def f32_of(regs, i=0):
+    return struct.unpack(">f", struct.pack(">I", u32_of(regs, i)))[0]
+
+
+def s32(u):
+    return u - (1 << 32) if u & 0x80000000 else u
+
+
+def split_u32(v):
+    v &= 0xFFFFFFFF
+    return [v >> 16, v & 0xFFFF]
+
+
+def bits_to_list(data, n):
+    return [(data[i // 8] >> (i % 8)) & 1 for i in range(n)]
+
+
+def pack_bits(bits):
+    out = bytearray((len(bits) + 7) // 8)
+    for i, b in enumerate(bits):
+        if b:
+            out[i // 8] |= 1 << (i % 8)
+    return bytes(out)
+
+
+# ------------------------------------------------------------------ the master
+class RtuMaster:
+    """Blocking Modbus RTU master over a serial port. One request, one answer."""
+
+    def __init__(self, port, baudrate=115200, unit=1, parity="N", stopbits=1, bytesize=8,
+                 timeout=0.5, trace=False):
+        self.unit = unit
+        self.timeout = timeout
+        self.trace = trace
+        self.ser = serial.Serial(port=port, baudrate=baudrate, parity=parity, stopbits=stopbits,
+                                 bytesize=bytesize, timeout=0.02, write_timeout=1.0)
+        # 3.5 characters of silence between two frames (at least 2 ms: OS timing is coarse).
+        bits = 1 + bytesize + (0 if parity == "N" else 1) + stopbits
+        self.t35 = max(0.002, 3.5 * bits / baudrate)
+        self._last_tx = 0.0
+        self.flush()
+
+    def close(self):
+        self.ser.close()
+
+    def flush(self):
+        self.ser.reset_input_buffer()
+
+    # ---- raw wire ----------------------------------------------------------
+    def send_raw(self, data):
+        """Send bytes exactly as given (no CRC added) after the 3.5-char silence."""
+        wait = self.t35 - (time.monotonic() - self._last_tx)
+        if wait > 0:
+            time.sleep(wait)
+        if self.trace:
+            print("  TX", data.hex(" "))
+        self.ser.write(data)
+        self.ser.flush()
+        self._last_tx = time.monotonic()
+
+    def _recv_frame(self, timeout):
+        """Collect one answer. Ends when the length is known from the function code, or the
+        line has been quiet for 3.5 chars. Returns bytes (maybe empty)."""
+        buf = bytearray()
+        t_end = time.monotonic() + timeout
+        t_last = None
+        while time.monotonic() < t_end:
+            chunk = self.ser.read(256)
+            if chunk:
+                buf += chunk
+                t_last = time.monotonic()
+                want = self._expected(buf)
+                if want and len(buf) >= want:
+                    break
+            elif t_last is not None and time.monotonic() - t_last > max(self.t35, 0.01):
+                break
+        if self.trace and buf:
+            print("  RX", bytes(buf).hex(" "))
+        return bytes(buf)
+
+    @staticmethod
+    def _expected(buf):
+        if len(buf) < 2:
+            return 0
+        fc = buf[1]
+        if fc & 0x80:
+            return 5
+        if fc in (1, 2, 3, 4):
+            return 5 + buf[2] if len(buf) >= 3 else 0
+        if fc in (5, 6, 15, 16):
+            return 8
         return 0
-    except ModbusException as e:
-        return e.code
-    except NoAnswer:
-        return -1
+
+    def transact_raw(self, data, timeout=None):
+        """Send `data` as is and return whatever answer arrives (b'' = silence)."""
+        self.flush()
+        self.send_raw(data)
+        return self._recv_frame(self.timeout if timeout is None else timeout)
+
+    def request(self, pdu, unit=None, timeout=None):
+        """Send a PDU (function code first); return the response PDU. Raises NoAnswer on
+        silence / bad CRC / wrong unit, ModbusException on an exception response."""
+        u = self.unit if unit is None else unit
+        rsp = self.transact_raw(frame(u, pdu), timeout)
+        if not rsp:
+            raise NoAnswer("no answer")
+        if not crc_ok(rsp):
+            raise NoAnswer(f"bad CRC in answer: {rsp.hex(' ')}")
+        if rsp[0] != u:
+            raise NoAnswer(f"answer from unit {rsp[0]}, expected {u}")
+        body = rsp[1:-2]
+        if body[0] == (pdu[0] | 0x80):
+            raise ModbusException(pdu[0], body[1])
+        if body[0] != pdu[0]:
+            raise NoAnswer(f"answer for FC{body[0]:02X}, asked FC{pdu[0]:02X}")
+        return body
+
+    # ---- function codes ------------------------------------------------------
+    def read_coils(self, addr, qty):
+        b = self.request(struct.pack(">BHH", 1, addr, qty))
+        return bits_to_list(b[2:], qty)
+
+    def read_discrete(self, addr, qty):
+        b = self.request(struct.pack(">BHH", 2, addr, qty))
+        return bits_to_list(b[2:], qty)
+
+    def read_holding(self, addr, qty):
+        b = self.request(struct.pack(">BHH", 3, addr, qty))
+        return list(struct.unpack(f">{qty}H", b[2:2 + 2 * qty]))
+
+    def read_input(self, addr, qty):
+        b = self.request(struct.pack(">BHH", 4, addr, qty))
+        return list(struct.unpack(f">{qty}H", b[2:2 + 2 * qty]))
+
+    def write_coil(self, addr, value):
+        self.request(struct.pack(">BHH", 5, addr, 0xFF00 if value else 0))
+
+    def write_reg(self, addr, value):
+        self.request(struct.pack(">BHH", 6, addr, value & 0xFFFF))
+
+    def write_coils(self, addr, bits):
+        self.request(struct.pack(">BHHB", 15, addr, len(bits), (len(bits) + 7) // 8) + pack_bits(bits))
+
+    def write_regs(self, addr, values):
+        self.request(struct.pack(">BHHB", 16, addr, len(values), 2 * len(values)) +
+                     struct.pack(f">{len(values)}H", *[v & 0xFFFF for v in values]))
+
+    # ---- map decoding ------------------------------------------------------------
+    def read_map(self, di=4, do=4, ai=0, vflag=32, vreg=32, vret=32, counter=8):
+        """Read every region of the Slave map and decode it. Counts = what the board has."""
+        out = {}
+        w = self.read_holding(0x0000, 4)
+        out["DI_WORD"], out["DO_WORD"] = w[0], w[1]
+        out["VFLAG_DWORD"] = u32_of(w, 2)
+        out["DI"] = [(w[0] >> i) & 1 for i in range(di)]
+        out["DO"] = [(w[1] >> i) & 1 for i in range(do)]
+        out["VFLAG"] = [(out["VFLAG_DWORD"] >> i) & 1 for i in range(vflag)]
+        if ai:
+            a = self.read_holding(0x0010, 8)
+            out["AI"] = [f32_of(a, 2 * i) for i in range(ai)]
+        if vreg:
+            r = self.read_holding(0x0020, 2 * vreg)
+            out["VREG"] = [s32(u32_of(r, 2 * i)) for i in range(vreg)]
+        if vret:
+            r = self.read_holding(0x0060, 2 * vret)
+            out["VREG_R"] = [s32(u32_of(r, 2 * i)) for i in range(vret)]
+        if counter:
+            r = self.read_holding(0x00A0, 2 * counter)
+            out["COUNTER"] = [s32(u32_of(r, 2 * i)) for i in range(counter)]
+        d = self.read_holding(0x00F0, 10)
+        out["SYS_DIAG"] = {"uptime_s": u32_of(d, 0), "reset_reason": d[2], "health_flags": d[3],
+                           "cpu_load_percent": d[4], "ram_usage_percent": d[5],
+                           "scan_time_ms": u32_of(d, 6), "max_scan_time_ms": u32_of(d, 8)}
+        return out
 
 
-class Ctx:
-    pass
+# ------------------------------------------------------------------ CLI
+def num(s):
+    return int(s, 0)
 
 
-# ---------------------------------------------------------------- tests
-def t_map(m, c):
-    section("1 map")
-    w = m.read_holding(0x0000, 4)
-    check(len(w) == 4, "FC03 0x0000 x4 (DI_WORD, DO_WORD, VFLAG_DWORD) answers 4 registers")
-    check(w[0] >> c.di == 0, f"DI_WORD bits >= {c.di} (no DI there) read 0: 0x{w[0]:04X}")
-    check(w[1] >> c.do == 0, f"DO_WORD bits >= {c.do} (no DO there) read 0: 0x{w[1]:04X}")
-    if c.vflag < 32:
-        check(M.u32_of(w, 2) >> c.vflag == 0, f"VFLAG_DWORD bits >= {c.vflag} read 0")
-    d = m.read_discrete(0, 16)
-    check(len(d) == 16, "FC02 0..15 answers 16 inputs")
-    check(all(v == 0 for v in d[c.di:]), f"DI {c.di}..15 (not on this board) read 0")
-    check(sum(b << i for i, b in enumerate(d)) == w[0], "FC02 DI bits == DI_WORD (same moment)") \
-        or info("DI changed between the two reads? repeat with inputs steady")
-    ai = m.read_holding(0x0010, 8)
-    check(all(r == 0 for r in ai[2 * c.ai:]), f"AI slots >= {c.ai} read 0")
-    big = m.read_holding(0x0020, 64)
-    check(len(big) == 64, "VREG region 0x0020..0x005F reads in one request (64 regs)")
-    check(all(r == 0 for r in big[2 * c.vreg:]), f"VREG entries >= {c.vreg} read 0")
-    check(len(m.read_holding(0x0060, 64)) == 64, "VREG_R region 0x0060..0x009F reads")
-    cn = m.read_holding(0x00A0, 16)
-    check(all(r == 0 for r in cn[2 * c.counter:]), f"COUNTER entries >= {c.counter} read 0")
-    check(len(m.read_holding(0x00F0, 16)) == 16, "SYS_DIAG 0x00F0..0x00FF reads 16 registers")
-    check(len(m.read_holding(0x0000, 4)) == 4 and len(m.read_holding(0x0003, 1)) == 1,
-          "a request may start inside a region (0x0003 x1)")
-
-
-def t_do_vflag(m, c):
-    section("2 DO / VFLAG")
-    w0 = m.read_holding(0x0000, 4)
-    ctx_do, ctx_vf = w0[1], M.u32_of(w0, 2)
-    try:
-        # DO_WORD <-> coils
-        pattern = 0b1010 & ((1 << c.do) - 1)
-        m.write_reg(0x0001, pattern)
-        check(m.read_holding(0x0001, 1)[0] == pattern, f"FC06 DO_WORD = 0b{pattern:04b} reads back")
-        coils = m.read_coils(0, 16)
-        check(sum(b << i for i, b in enumerate(coils)) == pattern, "FC01 coils 0..15 == DO_WORD")
-        m.write_coil(0, 1)
-        check(m.read_holding(0x0001, 1)[0] == pattern | 1, "FC05 coil 0 ON shows in DO_WORD")
-        m.write_coil(0, 0)
-        m.write_regs(0x0001, [0xFFFF])
-        check(m.read_holding(0x0001, 1)[0] == (1 << c.do) - 1,
-              f"DO_WORD = 0xFFFF: only the {c.do} real DO bits stay set (extra bits ignored)")
-        m.write_coils(0, [0] * 16)
-        check(m.read_holding(0x0001, 1)[0] == 0, "FC15 16 coils OFF clears DO_WORD")
-        # VFLAG_DWORD <-> coils 0x64..
-        m.write_regs(0x0002, [0x0000, 0x0005])
-        check(M.u32_of(m.read_holding(0x0002, 2)) == 0x5, "FC16 VFLAG_DWORD = 0x00000005 reads back")
-        vc = m.read_coils(0x0064, 32)
-        check(vc[:4] == [1, 0, 1, 0] and sum(vc) == 2, "FC01 0x0064.. shows VFLAG0 and VFLAG2 only")
-        m.write_coil(0x0064 + 17, 1)
-        check(m.read_holding(0x0002, 1)[0] & 0x0002 == 0x0002,
-              "VFLAG17 (coil 0x0075) is bit 1 of the HIGH word (reg 0x0002)")
-        m.write_regs(0x0002, [0xFFFF, 0xFFFF])
-        want = (1 << c.vflag) - 1 if c.vflag < 32 else 0xFFFFFFFF
-        check(M.u32_of(m.read_holding(0x0002, 2)) == want, f"VFLAG_DWORD = all ones -> 0x{want:08X}")
-        m.write_coils(0x0064, [0] * 32)
-        check(M.u32_of(m.read_holding(0x0002, 2)) == 0, "FC15 32 coils OFF clears VFLAG_DWORD")
-    finally:
-        m.write_regs(0x0001, [ctx_do])
-        m.write_regs(0x0002, M.split_u32(ctx_vf))
-
-
-def t_32bit(m, c):
-    section("3 32-bit entries")
-    for name, base, n in (("VREG", 0x0020, c.vreg), ("VREG_R", 0x0060, c.vret), ("COUNTER", 0x00A0, c.counter)):
-        if n == 0:
-            info(f"{name}: the board has none, skipped")
-            continue
-        old = m.read_holding(base, 4)
-        try:
-            m.write_regs(base, [0x1234, 0x5678])
-            check(m.read_holding(base, 2) == [0x1234, 0x5678], f"{name}0 FC16 0x12345678 reads back (high word first)")
-            m.write_reg(base + 1, 0xABCD)
-            check(m.read_holding(base, 2) == [0x1234, 0xABCD], f"{name}0 FC06 on the LOW word changes only it")
-            m.write_reg(base, 0x0099)
-            check(m.read_holding(base, 2) == [0x0099, 0xABCD], f"{name}0 FC06 on the HIGH word changes only it")
-            if n >= 2:
-                m.write_regs(base + 2, M.split_u32(-2 & 0xFFFFFFFF))
-                got = M.s32(M.u32_of(m.read_holding(base + 2, 2)))
-                check(got == -2, f"{name}1 holds -2 (INT32 bits as they are): {got}")
-                check(M.u32_of(m.read_holding(base, 2)) == 0x0099ABCD, f"{name}1 write did not touch {name}0")
-            # an entry past the board's count: reads 0, a write is ACKed and dropped
-            if 2 * n + 2 <= {"VREG": 64, "VREG_R": 64, "COUNTER": 16}[name]:
-                ex = base + 2 * n
-                m.write_regs(ex, [0x7777, 0x8888])
-                check(m.read_holding(ex, 2) == [0, 0], f"{name}{n} (not on this board): write ACKed, still reads 0")
-        finally:
-            m.write_regs(base, old)
-
-
-def t_errors(m, c):
-    section("4 exceptions")
-    check(exc_of(m.read_input, 0, 1) == 1, "FC04 -> 0x01 (only the holding map is served)")
-    r = m.transact_raw(M.frame(m.unit, bytes([0x2B, 0x0E, 0x01, 0x00])))
-    check(len(r) == 5 and r[1] == 0xAB and r[2] == 1 and M.crc_ok(r), "FC0x2B -> exception 0xAB/0x01 with a good CRC")
-    check(exc_of(m.read_holding, 0x0004, 1) == 2, "hole 0x0004 -> 0x02")
-    check(exc_of(m.read_holding, 0x0018, 1) == 2, "hole 0x0018 -> 0x02")
-    check(exc_of(m.read_holding, 0x00B0, 1) == 2, "hole 0x00B0 -> 0x02")
-    check(exc_of(m.read_holding, 0x0100, 1) == 2, "past the map 0x0100 -> 0x02")
-    check(exc_of(m.read_holding, 0x0003, 14) == 2, "0x0003..0x0010 crosses two regions -> 0x02")
-    check(exc_of(m.read_holding, 0x005F, 2) == 2, "VREG / VREG_R boundary crossing -> 0x02")
-    check(exc_of(m.read_holding, 0x00F0, 17) == 2, "SYS_DIAG past 0x00FF -> 0x02")
-    check(exc_of(m.read_holding, 0x0020, 0) == 3, "FC03 quantity 0 -> 0x03")
-    check(exc_of(m.read_holding, 0x0020, 126) == 3, "FC03 quantity 126 -> 0x03")
-    check(exc_of(m.write_reg, 0x0000, 1) == 3, "write DI_WORD (RO) -> 0x03")
-    check(exc_of(m.write_regs, 0x0000, [1, 2]) == 3, "FC16 starting on DI_WORD -> 0x03")
-    check(exc_of(m.write_reg, 0x0010, 1) == 3, "write AI (RO) -> 0x03")
-    check(exc_of(m.write_reg, 0x00F0, 1) == 3, "write SYS_DIAG (RO) -> 0x03")
-    check(exc_of(m.read_coils, 0x0010, 1) == 2, "coil 0x0010 (hole after DO) -> 0x02")
-    check(exc_of(m.read_coils, 0x0000, 17) == 2, "coils 0..16 cross out of the DO range -> 0x02")
-    check(exc_of(m.read_coils, 0x0064, 33) == 2, "coils 0x0064 x33 pass the VFLAG range -> 0x02")
-    check(exc_of(m.read_coils, 0x0000, 0) == 3, "FC01 quantity 0 -> 0x03")
-    check(exc_of(m.read_discrete, 0x0010, 1) == 2, "discrete input 0x0010 -> 0x02")
-    r = m.transact_raw(M.frame(m.unit, struct.pack(">BHH", 5, 1, 0x1234)))
-    check(len(r) >= 3 and r[1] == 0x85 and r[2] == 3, "FC05 value 0x1234 -> 0x03")
-    r = m.transact_raw(M.frame(m.unit, struct.pack(">BHHB", 16, 0x0020, 2, 3) + b"\x00\x00\x00"))
-    check(len(r) >= 3 and r[1] == 0x90 and r[2] == 3, "FC16 byte count 3 for 2 registers -> 0x03")
-    r = m.transact_raw(M.frame(m.unit, struct.pack(">BHHB", 15, 0x0064, 10, 1) + b"\xFF"))
-    check(len(r) >= 3 and r[1] == 0x8F and r[2] == 3, "FC15 byte count 1 for 10 coils -> 0x03")
-    check(exc_of(m.read_holding, 0x0020, 2) == 0, "the link still works after all of that")
-
-
-def t_sys(m, c):
-    section("5 SYS_DIAG")
-    a = m.read_holding(0x00F0, 10)
-    time.sleep(2.2)
-    b = m.read_holding(0x00F0, 10)
-    ua, ub = M.u32_of(a, 0), M.u32_of(b, 0)
-    check(1 <= ub - ua <= 4, f"uptime runs: {ua} s -> {ub} s")
-    st, mx = M.u32_of(b, 6), M.u32_of(b, 8)
-    check(st <= mx or mx == 0, f"scan_time {st} ms <= max_scan_time {mx} ms")
-    check(mx < 1000, f"max scan time {mx} ms is below 1 s")
-    check(b[4] <= 100 and b[5] <= 100, f"cpu {b[4]} % and ram {b[5]} % are percentages")
-    info(f"reset_reason={b[2]} health_flags=0x{b[3]:04X}")
-
-
-def t_framing(m, c):
-    section("6 framing")
-    good = M.frame(m.unit, struct.pack(">BHH", 3, 0x0000, 2))
-
-    def ok_answer(r):
-        return len(r) == 9 and M.crc_ok(r) and r[0] == m.unit and r[1] == 3 and r[2] == 4
-
-    r = m.transact_raw(b"\xFF\x05\x00" + good)
-    check(ok_answer(r), "3 garbage bytes in front of a valid frame: answered")
-    other = M.frame((m.unit % 247) + 1, struct.pack(">BHH", 3, 0, 2))
-    r = m.transact_raw(other + good)
-    check(ok_answer(r), "another unit's frame in front, in the same burst: answered")
-    bad = bytearray(good)
-    bad[-1] ^= 0xFF
-    r = m.transact_raw(bytes(bad), timeout=0.3)
-    check(r == b"", "bad CRC: no answer")
-    check(ok_answer(m.transact_raw(good)), "valid request right after the bad one: answered")
-    m.flush()
-    m.send_raw(good[:4])
-    time.sleep(0.15)                      # the half frame is dead after 3.5 chars of silence
-    r = m.transact_raw(good)
-    check(ok_answer(r), "stale partial frame (150 ms old) does not spoil the next request")
-    m.flush()
-    three = good + M.frame(m.unit, struct.pack(">BHH", 3, 0x0001, 1)) + M.frame(m.unit, struct.pack(">BHH", 3, 0x0010, 1))
-    m.send_raw(three)
-    got = bytearray()
-    t_end = time.monotonic() + 1.0
-    while time.monotonic() < t_end and len(got) < 9 + 7 + 7:
-        got += m.ser.read(64)
-    check(len(got) == 23, f"3 requests in one burst -> 3 answers ({len(got)} bytes, expected 23)")
-    r = m.transact_raw(M.frame((m.unit % 247) + 1, struct.pack(">BHH", 3, 0, 2)), timeout=0.3)
-    check(r == b"", f"request for unit {(m.unit % 247) + 1}: silence")
-    # broadcast
-    keep = m.read_holding(0x0020, 2)
-    try:
-        r = m.transact_raw(M.frame(0, struct.pack(">BHH", 6, 0x0021, 0x0B0B)), timeout=0.3)
-        check(r == b"", "broadcast FC06: no answer")
-        check(m.read_holding(0x0021, 1)[0] == 0x0B0B, "broadcast FC06 was executed")
-        r = m.transact_raw(M.frame(0, struct.pack(">BHH", 3, 0x0000, 1)), timeout=0.3)
-        check(r == b"", "broadcast read: ignored")
-    finally:
-        m.write_regs(0x0020, keep)
-
-
-def t_speed(m, c, n):
-    section(f"7 speed ({n} reads)")
-    ok, lat = 0, []
-    for _ in range(n):
-        t0 = time.monotonic()
-        try:
-            m.read_holding(0x0000, 4)
-            ok += 1
-            lat.append((time.monotonic() - t0) * 1000)
-        except M.ModbusError:
-            pass
-    check(ok == n, f"{ok}/{n} answered")
-    if lat:
-        lat.sort()
-        info(f"latency ms: min {lat[0]:.1f}  median {lat[len(lat)//2]:.1f}  p95 {lat[int(len(lat)*0.95)-1]:.1f}  max {lat[-1]:.1f}"
-             " (one scan = 10 ms; a request is answered in the scan after it arrived)")
+def cli_dump(m, a):
+    t0 = time.monotonic()
+    d = m.read_map(a.di, a.do, a.ai, a.vflag, a.vreg, a.vret, a.counter)
+    dt = (time.monotonic() - t0) * 1000
+    print(f"Slave {m.unit}  (map read in {dt:.0f} ms)")
+    print(f"  DI_WORD   0x{d['DI_WORD']:04X}   DI    {d['DI']}")
+    print(f"  DO_WORD   0x{d['DO_WORD']:04X}   DO    {d['DO']}")
+    print(f"  VFLAG     0x{d['VFLAG_DWORD']:08X}   set: {[i for i, v in enumerate(d['VFLAG']) if v]}")
+    if "AI" in d:
+        print(f"  AI        {d['AI']}")
+    for k in ("VREG", "VREG_R", "COUNTER"):
+        if k in d:
+            nz = {i: v for i, v in enumerate(d[k]) if v}
+            print(f"  {k:<9} {len(d[k])} entries, non-zero: {nz if nz else 'none'}")
+    print("  SYS_DIAG ", d["SYS_DIAG"])
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Test the SimplePLC Modbus Slave (plc_mbs)")
-    ap.add_argument("port")
-    ap.add_argument("--unit", type=int, default=1, help="Slave ID the App set (+15)")
+    ap = argparse.ArgumentParser(description="Modbus RTU master for the SimplePLC Slave map")
+    ap.add_argument("port", help="serial port, e.g. COM35 or /dev/ttyUSB0")
+    ap.add_argument("--unit", type=int, default=1, help="Slave ID set by the App (+15), default 1")
     ap.add_argument("--baudrate", type=int, default=115200)
     ap.add_argument("--parity", choices="NEO", default="N")
     ap.add_argument("--stopbits", type=int, choices=(1, 2), default=1)
+    ap.add_argument("--timeout", type=float, default=0.5)
+    ap.add_argument("--trace", action="store_true", help="print every frame")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    d = sub.add_parser("dump", help="read the whole map")
     for n, v in (("di", 4), ("do", 4), ("ai", 0), ("vflag", 32), ("vreg", 32), ("vret", 32), ("counter", 8)):
-        ap.add_argument(f"--{n}", type=int, default=v, help=f"tags of that kind on the board (default {v})")
-    ap.add_argument("--speed-n", type=int, default=200)
-    ap.add_argument("--trace", action="store_true")
+        d.add_argument(f"--{n}", type=int, default=v, help=f"tags of that kind on the board (default {v})")
+
+    r = sub.add_parser("read", help="one read request")
+    r.add_argument("kind", choices=("coils", "discrete", "holding", "input"))
+    r.add_argument("addr", type=num)
+    r.add_argument("qty", type=num)
+
+    w = sub.add_parser("write", help="one write request")
+    w.add_argument("kind", choices=("coil", "reg", "coils", "regs"))
+    w.add_argument("addr", type=num)
+    w.add_argument("values", type=num, nargs="+")
+
+    p = sub.add_parser("poll", help="FC03 in a loop")
+    p.add_argument("addr", type=num)
+    p.add_argument("qty", type=num)
+    p.add_argument("--period", type=float, default=1.0)
+
     a = ap.parse_args()
-    c = Ctx()
-    c.di, c.do, c.ai, c.vflag, c.vreg, c.vret, c.counter = a.di, a.do, a.ai, a.vflag, a.vreg, a.vret, a.counter
     try:
-        m = RtuMaster(a.port, a.baudrate, a.unit, a.parity, a.stopbits, timeout=0.6, trace=a.trace)
-    except M.serial.SerialException as e:
+        m = RtuMaster(a.port, a.baudrate, a.unit, a.parity, a.stopbits, timeout=a.timeout, trace=a.trace)
+    except serial.SerialException as e:
         print(f"cannot open {a.port}: {e}")
         return 2
     try:
-        try:
-            m.read_holding(0x0000, 1)
-        except M.ModbusError as e:
-            print(f"no link with unit {a.unit} on {a.port}: {e}\n"
-                  "Check: port configured as Slave (0x1400 +14 = 1, +15 = ID) and COMMITted, "
-                  "firmware built with SPLC_MODBUS_SLAVE_ENABLE=1, A/B wiring, baud/parity.")
-            return 3
-        for t in (t_map, t_do_vflag, t_32bit, t_errors, t_sys, t_framing):
+        if a.cmd == "dump":
+            cli_dump(m, a)
+        elif a.cmd == "read":
+            fn = {"coils": m.read_coils, "discrete": m.read_discrete,
+                  "holding": m.read_holding, "input": m.read_input}[a.kind]
+            v = fn(a.addr, a.qty)
+            if a.kind in ("holding", "input"):
+                print(" ".join(f"0x{x:04X}" for x in v))
+            else:
+                print(v)
+        elif a.cmd == "write":
+            if a.kind == "coil":
+                m.write_coil(a.addr, a.values[0])
+            elif a.kind == "reg":
+                m.write_reg(a.addr, a.values[0])
+            elif a.kind == "coils":
+                m.write_coils(a.addr, a.values)
+            else:
+                m.write_regs(a.addr, a.values)
+            print("OK")
+        elif a.cmd == "poll":
             try:
-                t(m, c)
-            except M.ModbusError as e:
-                check(False, f"{t.__name__}: unexpected {e}")
-        try:
-            t_speed(m, c, a.speed_n)
-        except M.ModbusError as e:
-            check(False, f"t_speed: unexpected {e}")
+                while True:
+                    v = m.read_holding(a.addr, a.qty)
+                    print(time.strftime("%H:%M:%S"), " ".join(f"{x:04X}" for x in v))
+                    time.sleep(a.period)
+            except KeyboardInterrupt:
+                pass
+    except ModbusError as e:
+        print(f"ERROR: {e}")
+        return 1
     finally:
         m.close()
-    print(f"\n{_checks} checks, {_fail} failed")
-    print("ALL PASS" if _fail == 0 else "FAILED")
-    return 0 if _fail == 0 else 1
+    return 0
 
 
 if __name__ == "__main__":
