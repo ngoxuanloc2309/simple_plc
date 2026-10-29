@@ -16,11 +16,13 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_WIFI_IO);
  *                           It includes nothing from TinyUSB.
  *   SPLC_PORT_USB_CDC = 0 : RS485 Modbus RTU slave on USART1 (DE = PA15, active
  *                           high). rs485_output/rs485_pump are written right here.
- * Either way the Modbus master (MB_READ / MB_WRITE) is not built on this board
- * yet: USART1 is the only RS485 port and its master glue is not written.
+ * Modbus master (MB_READ / MB_WRITE, SPLC_MBM_ENABLE / SPLC_MBW_ENABLE): runs on USART1,
+ * the only RS485 port, so it needs the App link on USB (SPLC_PORT_USB_CDC = 1). Sharing
+ * USART1 with an RS485 App link is not built (decision 39a). MB_WRITE rides on the MB_READ
+ * port (decision 48), so it needs SPLC_MBM_ENABLE too.
  */
-#if SPLC_MBM_ENABLE || SPLC_MBW_ENABLE
-#error "board_wifi_io.c: MB_READ/MB_WRITE glue is not written for this board; set SPLC_MBM_ENABLE 0 and SPLC_MBW_ENABLE 0"
+#if SPLC_MBW_ENABLE && !SPLC_MBM_ENABLE
+#error "board_wifi_io.c: SPLC_MBW_ENABLE needs SPLC_MBM_ENABLE (MB_WRITE uses the MB_READ port)"
 #endif
 
 #include "main.h"    /* CubeMX-generated: GPIOx, GPIO_PIN_x used by board_wifi_io.h */
@@ -45,6 +47,10 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_WIFI_IO);
 #include "plc_rule.h"       /* MAX_RULES */
 #include "plc_modbus_cfg.h" /* g_device_descriptor / g_device_resource_info */
 #include "plc_rtc.h"        /* g_rtc_caps */
+#if SPLC_MBM_ENABLE
+#include "plc_mbm.h"        /* splc_mbm_set_rs485_port() */
+#include "modbus_serial.h"  /* modbus_serial_port_t */
+#endif
 #include "stm32h5xx_hal.h"
 
 /*
@@ -308,6 +314,114 @@ static void board_app_link_init(void)
 
 #endif /* SPLC_PORT_USB_CDC */
 
+#if SPLC_MBM_ENABLE
+/*
+ * MB_READ / MB_WRITE master bus: USART1 + the RS485 transceiver (DE and /RE tied together,
+ * PA15, high = transmit). The only RS485 of this board (SPLC_MBM_PORT_COUNT 1), so the App
+ * link must be USB. Line settings (baud, data bits, parity, stop bits) are the App's choice
+ * (0x1400, MBM-003), applied through sx_uart_reconfigure() by plc_mbm (callback below);
+ * until the App writes them the port runs 9600-8-N-1.
+ *
+ * Transmit is BLOCKING, same as board_zigbee_io.c (decision 46): the master runs its
+ * asynchronous state machine (write_start / tx_done), but write_start() sends the whole
+ * frame with the blocking HAL transmit, so tx_done() is already true when it returns. The
+ * scan stalls for the length of the frame (~8.3 ms for 8 bytes at 9600 8N1).
+ */
+#if !SPLC_PORT_USB_CDC
+#error "board_wifi_io.c: MB_READ needs USART1, which is the App link when SPLC_PORT_USB_CDC = 0. Set SPLC_PORT_USB_CDC 1 (App over USB) or SPLC_MBM_ENABLE 0."
+#endif
+#if SPLC_MBM_PORT_COUNT != 1
+#error "board_wifi_io.c has ONE RS-485 port: set SPLC_MBM_PORT_COUNT 1 (the default)."
+#endif
+
+#define MBM_DEFAULT_BAUD  9600U
+
+static sx_uart_t        s_mbm_uart;
+static sx_uart_config_t s_mbm_uart_cfg;
+static uint8_t          s_mbm_rx_buf[256];   /* one full 125-register answer = 255 bytes */
+static uint8_t          s_mbm_tx_buf[1];     /* unused: the frame lives in the master */
+
+static void mbm_de(bool transmit)
+{
+    HAL_GPIO_WritePin(RS485_DE_PORT, RS485_DE_PIN,
+                      (transmit == (RS485_DE_ACTIVE_HIGH != 0)) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+static int mbm_read(void *ctx, uint8_t *buf, uint16_t max_len)
+{
+    (void)ctx;
+    return sx_uart_read(&s_mbm_uart, buf, (int)max_len);
+}
+
+/* Receiver off, DE up, blocking send (returns after the last bit left the UART), DE down,
+ * receiver on again. Switching the receiver back on flushes it, so the echo of our own
+ * frame never reaches mbm_read(). */
+static int mbm_write_start(void *ctx, const uint8_t *buf, uint16_t len)
+{
+    (void)ctx;
+    /* Worst case 12 bit times per character (start + 8 data + parity + 2 stop), plus a
+     * margin; never below 20 ms. */
+    uint32_t baud = (s_mbm_uart_cfg.baudrate != 0U) ? s_mbm_uart_cfg.baudrate : MBM_DEFAULT_BAUD;
+    uint32_t timeout_ms = (((uint32_t)len * 12U * 1000U) / baud) + 20U;
+
+    sx_uart_set_rx_enabled(&s_mbm_uart, false);
+    mbm_de(true);
+    int rc = sx_uart_write(&s_mbm_uart, buf, (int)len, timeout_ms);
+    mbm_de(false);
+    sx_uart_set_rx_enabled(&s_mbm_uart, true);
+    return (rc == 0) ? 0 : -1;
+}
+
+/* The frame is already out when mbm_write_start() returns. */
+static bool mbm_tx_done(void *ctx)
+{
+    (void)ctx;
+    return true;
+}
+
+static int mbm_configure(void *ctx, const plc_mbm_serial_t *cfg)
+{
+    (void)ctx;
+    s_mbm_uart_cfg.baudrate = cfg->baud;
+    s_mbm_uart_cfg.bits     = cfg->data_bits;
+    /* wire: 1 = even, 2 = odd (MBM-003); sx_uart: 1 = odd, 2 = even */
+    s_mbm_uart_cfg.parity   = (cfg->parity == PLC_MBM_PARITY_EVEN) ? 2U :
+                              (cfg->parity == PLC_MBM_PARITY_ODD)  ? 1U : 0U;
+    s_mbm_uart_cfg.stopbits = cfg->stop_bits;
+    return sx_uart_reconfigure(&s_mbm_uart);
+}
+
+static void board_mbm_init(void)
+{
+    s_mbm_uart_cfg.pDriver  = &UART_RS485;
+    s_mbm_uart_cfg.baudrate = MBM_DEFAULT_BAUD;
+    s_mbm_uart_cfg.bits     = 8;
+    s_mbm_uart_cfg.parity   = 0;
+    s_mbm_uart_cfg.stopbits = 1;
+    s_mbm_uart.rxBuffer     = s_mbm_rx_buf;
+    s_mbm_uart.rxBufferSize = (int)sizeof(s_mbm_rx_buf);
+    s_mbm_uart.txBuffer     = s_mbm_tx_buf;
+    s_mbm_uart.txBufferSize = (int)sizeof(s_mbm_tx_buf);
+
+    mbm_de(false);   /* listen */
+    sx_uart_init(&s_mbm_uart, &s_mbm_uart_cfg);
+
+    static const modbus_serial_port_t port = {
+        .read        = mbm_read,
+        .write       = NULL,
+        .set_tx      = NULL,
+        .ctx         = NULL,
+        .baudrate    = MBM_DEFAULT_BAUD,
+        .write_start = mbm_write_start,
+        .tx_done     = mbm_tx_done,
+        .write_abort = NULL,
+    };
+    splc_mbm_set_rs485_port(0U, &port, mbm_configure);
+    log_info(TAG, "MB master port 1 on USART1 (DE PA15), blocking TX, %lu baud until the App sets it",
+             (unsigned long)MBM_DEFAULT_BAUD);
+}
+#endif /* SPLC_MBM_ENABLE */
+
 void board_hw_init(void)
 {
     board_log_uart_init();
@@ -342,6 +456,10 @@ void board_hw_init(void)
     if (s_link_ok) {
         log_info(TAG, "UART/RS485 App link initialized (USART1, unit %d)", (int)MODBUS_UNIT_ID);
     }
+#endif
+
+#if SPLC_MBM_ENABLE
+    board_mbm_init();
 #endif
 }
 
