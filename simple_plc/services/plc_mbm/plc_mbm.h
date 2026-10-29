@@ -165,7 +165,8 @@ uint16_t plc_mbm_port_count(void);
 /* Role of an RS-485 port (SPLC-SPEC-SLAVE-001), set by the App in the port table
  * (bit 9 of +0 and +14 = Slave, +15 = Slave ID). A Slave port is never used as a Master:
  * MB_READ / MB_WRITE blocks on it do not send (err_code 1), and COMMIT refuses an enabled
- * block that names it. Switching the role is done by a COMMIT of the port table. */
+ * block that names it with CONFIG_ERROR_CODE = 7 (SPLC_ERROR_SLAVE_PORT_CONFLICT; the App
+ * compiler already blocks this, so it is a second line of defence). Switching the role is done by a COMMIT of the port table. */
 typedef enum { PLC_MBM_ROLE_MASTER = 0, PLC_MBM_ROLE_SLAVE = 1 } plc_mbm_role_t;
 
 /* Role of port `idx` as running now (MASTER for a disabled port or an index out of range)
@@ -206,6 +207,12 @@ void plc_mbm_ports_read(uint16_t offset, uint16_t quantity, uint16_t *registers_
 plc_mbm_write_result_t plc_mbm_ports_write(uint16_t offset, uint16_t quantity, const uint16_t *registers);
 
 bool plc_mbm_validate_draft(void);   /* true also when nothing was written */
+
+/* After plc_mbm_validate_draft() returned false: true when the rejection was an enabled
+ * MB_READ block naming a port that is an enabled Slave once this COMMIT is applied
+ * (plc_modbus_cfg then reports SPLC_ERROR_SLAVE_PORT_CONFLICT = 7 in CONFIG_ERROR_CODE),
+ * false for any other reason (error 2). Meaningless after a validate that returned true. */
+bool plc_mbm_draft_slave_conflict(void);
 void plc_mbm_commit_draft(void);     /* call only after validate returned true */
 void plc_mbm_discard_draft(void);
 

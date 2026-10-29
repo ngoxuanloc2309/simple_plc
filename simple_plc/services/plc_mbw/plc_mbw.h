@@ -102,6 +102,11 @@ void plc_mbw_read(uint16_t offset, uint16_t quantity, uint16_t *registers_out);
 plc_mbw_write_result_t plc_mbw_write(uint16_t offset, uint16_t quantity, const uint16_t *registers);
 
 bool plc_mbw_validate_draft(void);   /* true also when nothing was written */
+
+/* After plc_mbw_validate_draft() returned false: true when the rejection was an enabled
+ * MB_WRITE block naming a port that is an enabled Slave once this COMMIT is applied
+ * (reported as SPLC_ERROR_SLAVE_PORT_CONFLICT = 7), false for any other reason (error 2). */
+bool plc_mbw_draft_slave_conflict(void);
 void plc_mbw_commit_draft(void);     /* call only after validate returned true */
 void plc_mbw_discard_draft(void);
 

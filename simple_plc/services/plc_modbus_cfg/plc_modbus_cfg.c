@@ -1174,7 +1174,9 @@ static void write_commit_command(uint16_t value)
     if (!plc_mbm_validate_draft()) {
         log_warn(TAG, "commit rejected: MB_READ draft failed validation");
         s_config_status     = CONFIG_STATUS_ERROR;
-        s_config_error_code = SPLC_ERROR_INVALID_PARAMETER;
+        /* A Master block on a Slave port is reported as 7 so the App can tell it from a bad field. */
+        s_config_error_code = plc_mbm_draft_slave_conflict() ? SPLC_ERROR_SLAVE_PORT_CONFLICT
+                                                             : SPLC_ERROR_INVALID_PARAMETER;
         plc_fb_discard_draft();
 #if SPLC_MQTT_ENABLE
         plc_mqtt_discard_draft();
@@ -1199,7 +1201,8 @@ static void write_commit_command(uint16_t value)
     if (!plc_mbw_validate_draft()) {
         log_warn(TAG, "commit rejected: MB_WRITE draft failed validation");
         s_config_status     = CONFIG_STATUS_ERROR;
-        s_config_error_code = SPLC_ERROR_INVALID_PARAMETER;
+        s_config_error_code = plc_mbw_draft_slave_conflict() ? SPLC_ERROR_SLAVE_PORT_CONFLICT
+                                                             : SPLC_ERROR_INVALID_PARAMETER;
         plc_fb_discard_draft();
 #if SPLC_MQTT_ENABLE
         plc_mqtt_discard_draft();

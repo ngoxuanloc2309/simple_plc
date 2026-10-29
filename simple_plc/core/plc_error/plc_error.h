@@ -42,7 +42,10 @@ typedef enum {
     SPLC_ERROR_BUSY                 = 3, /* MCU busy with another operation */
     SPLC_ERROR_CRC_MISMATCH         = 4, /* Data CRC did not match */
     SPLC_ERROR_UNSUPPORTED          = 5, /* Feature not supported */
-    SPLC_ERROR_FLASH                = 6  /* Flash read/write error */
+    SPLC_ERROR_FLASH                = 6, /* Flash read/write error */
+    SPLC_ERROR_SLAVE_PORT_CONFLICT  = 7  /* COMMIT names an enabled MB_READ/MB_WRITE block on a
+                                          * port that is (or becomes) a Modbus Slave
+                                          * (SPLC-SPEC-SLAVE-001, App-confirmed 29/10/2026) */
 } SPLC_ErrorCode;
 
 #ifdef __cplusplus

@@ -330,8 +330,13 @@ plc_mbw_write_result_t plc_mbw_write(uint16_t offset, uint16_t quantity, const u
     return PLC_MBW_WRITE_OK;
 }
 
+static bool s_slave_conflict;   /* the last validate failed on a block naming a Slave port */
+
+bool plc_mbw_draft_slave_conflict(void) { return s_slave_conflict; }
+
 bool plc_mbw_validate_draft(void)
 {
+    s_slave_conflict = false;
     for (unsigned i = 0U; i < PLC_MBW_BLOCKS; i++) {
         if ((s_draft_mask & (1U << i)) != 0U && !block_valid(s_draft[i], i)) { return false; }
     }
@@ -341,6 +346,7 @@ bool plc_mbw_validate_draft(void)
         const uint16_t *b = ((s_draft_mask & (1U << i)) != 0U) ? s_draft[i] : s_run[i];
         if (blk_enabled(b) && plc_mbm_port_is_slave_after_commit(blk_port(b))) {
             log_warn(TAG, "MB_WRITE block %u uses port %u, which is a Modbus Slave", i, blk_port(b) + 1U);
+            s_slave_conflict = true;
             return false;
         }
     }
