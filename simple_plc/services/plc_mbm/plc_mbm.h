@@ -111,11 +111,8 @@ extern "C" {
 /* Capability bit MODBUS_SLAVE of 0x0A08 (App header SPLC_CAP_MODBUS_SLAVE, bit 14; 0x1000 is
  * HTTP_CLIENT). Declared statically by a build that has the Slave serving module
  * (SPLC_MODBUS_SLAVE_ENABLE = 1); the App refuses to Deploy a Slave port without it.
- * The module does NOT exist yet, so the option stays 0 and the bit is never declared. */
+ * The module is plc_mbs.h; the option itself lives in config/splc_opt.h. */
 #define PLC_MBM_CAP_MODBUS_SLAVE   0x00004000UL
-#ifndef SPLC_MODBUS_SLAVE_ENABLE
-#define SPLC_MODBUS_SLAVE_ENABLE   0
-#endif
 
 typedef enum {
     PLC_MBM_WRITE_OK = 0,
@@ -174,11 +171,15 @@ typedef enum { PLC_MBM_ROLE_MASTER = 0, PLC_MBM_ROLE_SLAVE = 1 } plc_mbm_role_t;
 plc_mbm_role_t plc_mbm_port_role(unsigned idx);
 uint8_t        plc_mbm_port_slave_id(unsigned idx);
 
-/* Turnaround Response Delay of an enabled Slave port in ms: register +6 of its record, the
- * wait before the Slave answers (0 = answer as soon as the 3.5-character silence allows).
- * The serving module must wait with a timer, never by blocking the scan. 0 for a Master or
- * disabled port. */
-uint16_t plc_mbm_port_response_delay_ms(unsigned idx);
+/* What the Slave serving module (plc_mbs) needs of a port. The Slave has no configurable
+ * turnaround: register +6 is "don't care" for a Slave port (App contract 29/10), it answers as
+ * soon as the request is complete.
+ *   plc_mbm_port_serial_port(): the host's byte port (NULL when none was registered).
+ *   plc_mbm_port_line(): the line settings now in the running port table (false: out of range).
+ *   plc_mbm_port_ready(): registered and its UART already runs the table's line settings. */
+const modbus_serial_port_t *plc_mbm_port_serial_port(unsigned idx);
+bool plc_mbm_port_line(unsigned idx, plc_mbm_serial_t *out);
+bool plc_mbm_port_ready(unsigned idx);
 
 /* true when port `idx` will be an ENABLED Slave once the pending COMMIT is applied (the draft
  * port table if one was written, else the running one). plc_mbw uses it to refuse an

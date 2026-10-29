@@ -12,6 +12,7 @@
 #include "plc_tagtype.h"
 #include "plc_mbm.h"
 #include "plc_mbw.h"
+#include "plc_mbs.h"
 #include "plc_wifi.h"
 #include "plc_mqtt_tls.h"
 #if SPLC_MQTT_SUB_ENABLE
@@ -66,6 +67,9 @@ void plc_engine_init(void)
 #endif
 #if SPLC_MBM_ENABLE
     plc_mbm_init();    /* before plc_rule_flash_load(): the Flash record will fill it (decision 41) */
+#endif
+#if SPLC_MODBUS_SLAVE_ENABLE
+    plc_mbs_init();    /* after plc_mbm_init(): it reads the port roles from there */
 #endif
 #if SPLC_MBW_ENABLE
     plc_mbw_init();    /* before plc_rule_flash_load(): the Flash record will fill it (decision 48) */
@@ -177,6 +181,12 @@ static void scan_cycle(uint32_t now_ms)
 #endif
         plc_mbm_scan(now_ms);
     }
+#endif
+#if SPLC_MODBUS_SLAVE_ENABLE
+    /* A Slave port answers its SCADA master also during a diag session (reads show the forced
+     * tags); writes are refused with exception 0x06 then. Plain `suspended`: the App owns the
+     * tags in that state. */
+    plc_mbs_scan(now_ms, suspended);
 #endif
     modbus_config_service();
     plc_wifi_service(now_ms);    /* no-op unless SPLC_WIFI_ENABLE: boot restore + save after GOT_IP */

@@ -280,6 +280,15 @@
 #define SPLC_MBW_ENABLE                  0
 #endif
 
+/* 1 = build the Modbus SLAVE serving module (plc_mbs.h, SPLC-SPEC-SLAVE-001): an RS-485 port
+ * the App set to the Slave role (0x1400 +14) answers a SCADA master with FC01/02/03/05/06/15/16
+ * over the fixed tag map, and the build declares capability MODBUS_SLAVE (0x4000) at 0x0A08.
+ * Needs SPLC_MBM_ENABLE = 1 (it shares the port table and the host's UART binding). 0 = nothing
+ * changes: no code, the exact baseline binary. */
+#ifndef SPLC_MODBUS_SLAVE_ENABLE
+#define SPLC_MODBUS_SLAVE_ENABLE         0
+#endif
+
 /* 1 = build the Wi-Fi block 0x1300..0x13FF (plc_wifi.h, ICD WIFI-004): the App scans,
  * connects and configures the host's Wi-Fi through a small set of host callbacks
  * (splc_wifi_register()). SimplePLC owns no radio and no Flash for it. 0 = nothing
@@ -468,6 +477,12 @@
 #endif
 #if SPLC_MBW_ENABLE && !SPLC_MBM_ENABLE
 #error "SPLC_MBW_ENABLE = 1 needs SPLC_MBM_ENABLE = 1 (MB_WRITE shares the RS-485 ports of the Modbus master)"
+#endif
+#if (SPLC_MODBUS_SLAVE_ENABLE != 0) && (SPLC_MODBUS_SLAVE_ENABLE != 1)
+#error "SPLC_MODBUS_SLAVE_ENABLE must be 0 or 1"
+#endif
+#if SPLC_MODBUS_SLAVE_ENABLE && !SPLC_MBM_ENABLE
+#error "SPLC_MODBUS_SLAVE_ENABLE = 1 needs SPLC_MBM_ENABLE = 1 (the Slave module uses the RS-485 ports and port table of the Modbus master)"
 #endif
 #if (SPLC_REAL_ENABLE != 0) && (SPLC_REAL_ENABLE != 1)
 #error "SPLC_REAL_ENABLE must be 0 or 1"

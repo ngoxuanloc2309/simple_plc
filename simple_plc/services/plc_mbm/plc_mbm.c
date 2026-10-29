@@ -386,9 +386,21 @@ uint8_t plc_mbm_port_slave_id(unsigned idx)
     return (idx < PORTS && s_port[idx].enabled && s_port[idx].role == PLC_MBM_ROLE_SLAVE) ? s_port[idx].slave_id : 0U;
 }
 
-uint16_t plc_mbm_port_response_delay_ms(unsigned idx)
+const modbus_serial_port_t *plc_mbm_port_serial_port(unsigned idx)
 {
-    return (idx < PORTS && s_port[idx].enabled && s_port[idx].role == PLC_MBM_ROLE_SLAVE) ? s_port[idx].gap_ms : 0U;
+    return (idx < PORTS && s_port[idx].registered) ? &s_port[idx].master.port : NULL;
+}
+
+bool plc_mbm_port_line(unsigned idx, plc_mbm_serial_t *out)
+{
+    if (idx >= PORTS || out == NULL) { return false; }
+    *out = s_port[idx].serial;
+    return true;
+}
+
+bool plc_mbm_port_ready(unsigned idx)
+{
+    return idx < PORTS && s_port[idx].registered && !s_port[idx].dirty;
 }
 
 bool plc_mbm_port_is_slave_after_commit(unsigned idx)
