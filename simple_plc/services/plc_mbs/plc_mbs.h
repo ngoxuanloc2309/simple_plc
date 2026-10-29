@@ -30,7 +30,8 @@
  * A group entry the board does not have (DI 5 on a 4-DI board, VREG 20 when the layout has 12)
  * reads 0 and ignores writes, as long as the address is inside the fixed map.
  * Exceptions: function code not served 0x01; address outside the map, a hole between groups, or a
- * request crossing two regions 0x02 (0x0000..0x0003 is ONE region); bad quantity / byte count
+ * request crossing two regions 0x02 (DI_WORD 0x0000, DO_WORD 0x0001 and VFLAG_DWORD
+ * 0x0002..0x0003 are THREE regions: CHKL-SLAVE-04); bad quantity / byte count
  * 0x03; write that touches a read-only register 0x03; write while a diagnostic session holds
  * the tags (the rule engine is suspended) 0x06.
  * FC06 on a 32-bit entry changes only the addressed half (FC16 is the way to write all of it).

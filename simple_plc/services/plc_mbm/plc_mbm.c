@@ -56,12 +56,12 @@ _Static_assert(SPLC_MBM_PORT_COUNT >= 1 && SPLC_MBM_PORT_COUNT <= (int)PLC_MBM_P
 #define PF_TIMEOUT     5U
 #define PF_GAP         6U
 #define PF_RETRY       7U
-/* +8..+13 name (ignored). Role (SPLC-SPEC-SLAVE-001): bit 9 of +0 and +14 both say Slave
- * (+14: 0 Master, 1 Slave); +15 is the Slave ID (1..247) of a Slave port, 0 for a Master. */
+/* +8..+13 name (ignored). Role (SPLC-SPEC-SLAVE-001): ONLY +14 decides (0 Master, 1 Slave);
+ * bit 9 of +0 is deprecated (Conformance 13.4.2) and ignored, whatever the App writes there.
+ * +15 is the Slave ID (1..247) of a Slave port, 0 for a Master. */
 #define PF_ROLE        14U
 #define PF_SLAVE_ID    15U
 #define PF_CTRL_ENABLED     0x0100U
-#define PF_CTRL_ROLE_SLAVE  0x0200U
 #define SLAVE_ID_MAX        247U
 
 #define TAG_NONE_IDX   0xFFFFU
@@ -226,7 +226,7 @@ static void parse_port(const uint16_t *r, port_cfg_t *c)
 {
     const uint16_t framing = r[PF_FRAMING];
     c->enabled          = (r[PF_CONTROL] & PF_CTRL_ENABLED) != 0U;
-    c->role             = (((r[PF_CONTROL] & PF_CTRL_ROLE_SLAVE) != 0U) || r[PF_ROLE] == 1U) ? PLC_MBM_ROLE_SLAVE : PLC_MBM_ROLE_MASTER;
+    c->role             = (r[PF_ROLE] == 1U) ? PLC_MBM_ROLE_SLAVE : PLC_MBM_ROLE_MASTER;   /* bit 9 of +0 ignored */
     c->slave_id         = (c->role == PLC_MBM_ROLE_SLAVE) ? (uint8_t)r[PF_SLAVE_ID] : 0U;
     c->serial.baud      = get_u32(&r[PF_BAUD]);
     c->serial.parity    = (uint8_t)r[PF_PARITY];
@@ -236,14 +236,13 @@ static void parse_port(const uint16_t *r, port_cfg_t *c)
     c->retries          = (uint8_t)r[PF_RETRY];
 }
 
-/* The role fields of an enabled port: bit 9 of +0 and +14 must agree (+14 is 0 or 1), and a
- * Slave needs a Slave ID of 1..247. A Master's +15 is ignored. */
+/* The role fields of an enabled port: +14 is 0 or 1, and a Slave needs a Slave ID of 1..247.
+ * A Master's +15 is ignored. Bit 9 of +0 is NOT checked (deprecated, see PF_ROLE). */
 static bool port_role_valid(const uint16_t *r, unsigned i)
 {
-    const bool bit9 = (r[PF_CONTROL] & PF_CTRL_ROLE_SLAVE) != 0U;
+    const bool slave = (r[PF_ROLE] == 1U);
     if (r[PF_ROLE] > 1U) { log_warn(TAG, "port %u: role %u", i + 1U, (unsigned)r[PF_ROLE]); return false; }
-    if (bit9 != (r[PF_ROLE] == 1U)) { log_warn(TAG, "port %u: role bit 9 and +14 disagree", i + 1U); return false; }
-    if (bit9 && (r[PF_SLAVE_ID] < 1U || r[PF_SLAVE_ID] > SLAVE_ID_MAX)) {
+    if (slave && (r[PF_SLAVE_ID] < 1U || r[PF_SLAVE_ID] > SLAVE_ID_MAX)) {
         log_warn(TAG, "port %u: slave id %u", i + 1U, (unsigned)r[PF_SLAVE_ID]);
         return false;
     }

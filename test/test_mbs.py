@@ -18,9 +18,12 @@ What it checks
             bits beyond the board's DO / VFLAG count are ignored on write.
   3 32-bit  VREG, VREG_R, COUNTER: FC16 writes the whole value (high word first), FC06 changes
             only the addressed half, an entry beyond the board's count reads 0.
-  4 errors  FC04 and unknown FC -> 0x01; a hole, a request crossing two regions, a coil/DI past
-            its range -> 0x02; quantity 0 / too large, bad byte count, bad FC05 value, writes
-            to DI_WORD / AI / SYS_DIAG -> 0x03.
+  4 errors  FC04 and unknown FC -> 0x01; a hole, a request crossing two regions (DI_WORD,
+            DO_WORD and VFLAG_DWORD are THREE regions: 0x0000 x2, 0x0001 x2 (CHKL-SLAVE-04),
+            0x0000 x4 all -> 0x02), a coil/DI past its range -> 0x02; quantity 0 / too large,
+            bad byte count, bad FC05 value, writes to DI_WORD / AI / SYS_DIAG -> 0x03.
+            A write that crosses regions AND touches a read-only one answers 0x02 today; the
+            App has not said whether it should be 0x03, so that case is reported as info.
   5 sys     SYS_DIAG uptime runs; scan time is plausible.
   6 framing garbage in front of a valid frame, another unit's frame in front, a bad CRC (no
             answer, next request still fine), a stale partial frame, 3 requests in ONE burst
@@ -83,16 +86,19 @@ class Ctx:
 # ---------------------------------------------------------------- tests
 def t_map(m, c):
     section("1 map")
-    w = m.read_holding(0x0000, 4)
-    check(len(w) == 4, "FC03 0x0000 x4 (DI_WORD, DO_WORD, VFLAG_DWORD) answers 4 registers")
-    check(w[0] >> c.di == 0, f"DI_WORD bits >= {c.di} (no DI there) read 0: 0x{w[0]:04X}")
-    check(w[1] >> c.do == 0, f"DO_WORD bits >= {c.do} (no DO there) read 0: 0x{w[1]:04X}")
+    di_w = m.read_holding(0x0000, 1)
+    do_w = m.read_holding(0x0001, 1)
+    vf_w = m.read_holding(0x0002, 2)
+    check(len(di_w) == 1 and len(do_w) == 1 and len(vf_w) == 2,
+          "DI_WORD (0x0000 x1), DO_WORD (0x0001 x1), VFLAG_DWORD (0x0002 x2) each answer on their own")
+    check(di_w[0] >> c.di == 0, f"DI_WORD bits >= {c.di} (no DI there) read 0: 0x{di_w[0]:04X}")
+    check(do_w[0] >> c.do == 0, f"DO_WORD bits >= {c.do} (no DO there) read 0: 0x{do_w[0]:04X}")
     if c.vflag < 32:
-        check(M.u32_of(w, 2) >> c.vflag == 0, f"VFLAG_DWORD bits >= {c.vflag} read 0")
+        check(M.u32_of(vf_w, 0) >> c.vflag == 0, f"VFLAG_DWORD bits >= {c.vflag} read 0")
     d = m.read_discrete(0, 16)
     check(len(d) == 16, "FC02 0..15 answers 16 inputs")
     check(all(v == 0 for v in d[c.di:]), f"DI {c.di}..15 (not on this board) read 0")
-    check(sum(b << i for i, b in enumerate(d)) == w[0], "FC02 DI bits == DI_WORD (same moment)") \
+    check(sum(b << i for i, b in enumerate(d)) == di_w[0], "FC02 DI bits == DI_WORD (same moment)") \
         or info("DI changed between the two reads? repeat with inputs steady")
     ai = m.read_holding(0x0010, 8)
     check(all(r == 0 for r in ai[2 * c.ai:]), f"AI slots >= {c.ai} read 0")
@@ -103,14 +109,13 @@ def t_map(m, c):
     cn = m.read_holding(0x00A0, 16)
     check(all(r == 0 for r in cn[2 * c.counter:]), f"COUNTER entries >= {c.counter} read 0")
     check(len(m.read_holding(0x00F0, 16)) == 16, "SYS_DIAG 0x00F0..0x00FF reads 16 registers")
-    check(len(m.read_holding(0x0000, 4)) == 4 and len(m.read_holding(0x0003, 1)) == 1,
-          "a request may start inside a region (0x0003 x1)")
+    check(len(m.read_holding(0x0003, 1)) == 1, "a request may start inside a region (0x0003 x1)")
+    check(exc_of(m.read_holding, 0x0000, 4) == 2, "0x0000 x4 spans three regions -> 0x02 (no read across)")
 
 
 def t_do_vflag(m, c):
     section("2 DO / VFLAG")
-    w0 = m.read_holding(0x0000, 4)
-    ctx_do, ctx_vf = w0[1], M.u32_of(w0, 2)
+    ctx_do, ctx_vf = m.read_holding(0x0001, 1)[0], M.u32_of(m.read_holding(0x0002, 2))
     try:
         # DO_WORD <-> coils
         pattern = 0b1010 & ((1 << c.do) - 1)
@@ -182,12 +187,21 @@ def t_errors(m, c):
     check(exc_of(m.read_holding, 0x00B0, 1) == 2, "hole 0x00B0 -> 0x02")
     check(exc_of(m.read_holding, 0x0100, 1) == 2, "past the map 0x0100 -> 0x02")
     check(exc_of(m.read_holding, 0x0003, 14) == 2, "0x0003..0x0010 crosses two regions -> 0x02")
+    check(exc_of(m.read_holding, 0x0000, 2) == 2, "DI_WORD + DO_WORD (0x0000 x2) -> 0x02")
+    check(exc_of(m.read_holding, 0x0001, 2) == 2, "DO_WORD + VFLAG_DWORD (0x0001 x2, CHKL-SLAVE-04) -> 0x02")
+    check(exc_of(m.read_holding, 0x0000, 4) == 2, "all three status regions in one read (0x0000 x4) -> 0x02")
+    check(exc_of(m.read_holding, 0x0002, 3) == 2, "VFLAG_DWORD running into the hole (0x0002 x3) -> 0x02")
+    check(exc_of(m.write_regs, 0x0001, [0, 0, 0]) == 2, "FC16 DO_WORD + VFLAG_DWORD (0x0001 x3) -> 0x02")
+    check(exc_of(m.write_regs, 0x0002, [0, 0, 0]) == 2, "FC16 VFLAG_DWORD past 0x0003 (0x0002 x3) -> 0x02")
     check(exc_of(m.read_holding, 0x005F, 2) == 2, "VREG / VREG_R boundary crossing -> 0x02")
     check(exc_of(m.read_holding, 0x00F0, 17) == 2, "SYS_DIAG past 0x00FF -> 0x02")
     check(exc_of(m.read_holding, 0x0020, 0) == 3, "FC03 quantity 0 -> 0x03")
     check(exc_of(m.read_holding, 0x0020, 126) == 3, "FC03 quantity 126 -> 0x03")
     check(exc_of(m.write_reg, 0x0000, 1) == 3, "write DI_WORD (RO) -> 0x03")
-    check(exc_of(m.write_regs, 0x0000, [1, 2]) == 3, "FC16 starting on DI_WORD -> 0x03")
+    check(exc_of(m.write_regs, 0x0000, [1]) == 3, "FC16 on DI_WORD alone (0x0000 x1) -> 0x03")
+    e = exc_of(m.write_regs, 0x0000, [1, 2])
+    info(f"FC16 0x0000 x2 (crosses regions AND touches RO DI_WORD) answered 0x{e:02X}; "
+         "firmware gives 0x02 first - App has not said whether 0x03 is expected")
     check(exc_of(m.write_reg, 0x0010, 1) == 3, "write AI (RO) -> 0x03")
     check(exc_of(m.write_reg, 0x00F0, 1) == 3, "write SYS_DIAG (RO) -> 0x03")
     check(exc_of(m.read_coils, 0x0010, 1) == 2, "coil 0x0010 (hole after DO) -> 0x02")
@@ -220,14 +234,14 @@ def t_sys(m, c):
 
 def t_framing(m, c):
     section("6 framing")
-    good = M.frame(m.unit, struct.pack(">BHH", 3, 0x0000, 2))
+    good = M.frame(m.unit, struct.pack(">BHH", 3, 0x0002, 2))      # VFLAG_DWORD: one region, 2 regs
 
     def ok_answer(r):
         return len(r) == 9 and M.crc_ok(r) and r[0] == m.unit and r[1] == 3 and r[2] == 4
 
     r = m.transact_raw(b"\xFF\x05\x00" + good)
     check(ok_answer(r), "3 garbage bytes in front of a valid frame: answered")
-    other = M.frame((m.unit % 247) + 1, struct.pack(">BHH", 3, 0, 2))
+    other = M.frame((m.unit % 247) + 1, struct.pack(">BHH", 3, 0x0002, 2))
     r = m.transact_raw(other + good)
     check(ok_answer(r), "another unit's frame in front, in the same burst: answered")
     bad = bytearray(good)
@@ -248,7 +262,7 @@ def t_framing(m, c):
     while time.monotonic() < t_end and len(got) < 9 + 7 + 7:
         got += m.ser.read(64)
     check(len(got) == 23, f"3 requests in one burst -> 3 answers ({len(got)} bytes, expected 23)")
-    r = m.transact_raw(M.frame((m.unit % 247) + 1, struct.pack(">BHH", 3, 0, 2)), timeout=0.3)
+    r = m.transact_raw(M.frame((m.unit % 247) + 1, struct.pack(">BHH", 3, 0x0002, 2)), timeout=0.3)
     check(r == b"", f"request for unit {(m.unit % 247) + 1}: silence")
     # broadcast
     keep = m.read_holding(0x0020, 2)
@@ -268,7 +282,7 @@ def t_speed(m, c, n):
     for _ in range(n):
         t0 = time.monotonic()
         try:
-            m.read_holding(0x0000, 4)
+            m.read_holding(0x0002, 2)
             ok += 1
             lat.append((time.monotonic() - t0) * 1000)
         except M.ModbusError:

@@ -39,5 +39,6 @@
 
 /*ON MB WRITE*/
 #define SPLC_MBW_ENABLE               1
+#define SPLC_MODBUS_SLAVE_ENABLE      1
 
 #endif /* SPLCOPTS_H */

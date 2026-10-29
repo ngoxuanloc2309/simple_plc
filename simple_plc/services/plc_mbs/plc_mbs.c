@@ -29,7 +29,7 @@ static const char *TAG = "PLC_MBS";
 #define EX_BUSY       0x06U
 
 /* ---- the fixed map ------------------------------------------------------ */
-enum { R_STATUS = 0, R_AI, R_VREG, R_VRET, R_CNT, R_SYS };
+enum { R_DI = 0, R_DO, R_VFLAG, R_AI, R_VREG, R_VRET, R_CNT, R_SYS };
 
 typedef struct {
     uint16_t start;
@@ -39,7 +39,9 @@ typedef struct {
 } hreg_t;
 
 static const hreg_t s_hreg[] = {
-    { 0x0000U,  4U, R_STATUS, false },   /* DI_WORD (RO, handled below), DO_WORD, VFLAG_DWORD */
+    { 0x0000U,  1U, R_DI,     true  },   /* DI_WORD (RO)                       */
+    { 0x0001U,  1U, R_DO,     false },   /* DO_WORD                            */
+    { 0x0002U,  2U, R_VFLAG,  false },   /* VFLAG_DWORD (high word first)      */
     { 0x0010U,  8U, R_AI,     true  },
     { 0x0020U, 64U, R_VREG,   false },
     { 0x0060U, 64U, R_VRET,   false },
@@ -141,16 +143,20 @@ static uint16_t read_hreg(const hreg_t *r, uint16_t addr, const counts_t *c)
     const bool hi = (off % 2U) == 0U;
     uint32_t v = 0U;
     switch (r->kind) {
-    case R_STATUS: {
+    case R_DI: {
         uint16_t w = 0U;
-        if (off == 0U) {
-            for (uint16_t i = 0U; i < 16U; i++) { if (bit_of(tag_di_base_index(), c->di, i)) { w |= (uint16_t)(1U << i); } }
-        } else if (off == 1U) {
-            for (uint16_t i = 0U; i < 16U; i++) { if (bit_of(tag_do_base_index(), c->dout, i)) { w |= (uint16_t)(1U << i); } }
-        } else {
-            const uint16_t first = (off == 2U) ? 16U : 0U;     /* reg 2 = VFLAG 16..31, reg 3 = VFLAG 0..15 */
-            for (uint16_t i = 0U; i < 16U; i++) { if (bit_of(tag_vflag_base_index(), c->vflag, (uint16_t)(first + i))) { w |= (uint16_t)(1U << i); } }
-        }
+        for (uint16_t i = 0U; i < 16U; i++) { if (bit_of(tag_di_base_index(), c->di, i)) { w |= (uint16_t)(1U << i); } }
+        return w;
+    }
+    case R_DO: {
+        uint16_t w = 0U;
+        for (uint16_t i = 0U; i < 16U; i++) { if (bit_of(tag_do_base_index(), c->dout, i)) { w |= (uint16_t)(1U << i); } }
+        return w;
+    }
+    case R_VFLAG: {
+        uint16_t w = 0U;
+        const uint16_t first = (off == 0U) ? 16U : 0U;     /* 0x0002 = VFLAG 16..31, 0x0003 = VFLAG 0..15 */
+        for (uint16_t i = 0U; i < 16U; i++) { if (bit_of(tag_vflag_base_index(), c->vflag, (uint16_t)(first + i))) { w |= (uint16_t)(1U << i); } }
         return w;
     }
     case R_AI:   if (e < c->ai)   { v = ai_bits((uint16_t)(tag_ai_base_index() + e)); } break;
@@ -170,14 +176,14 @@ static void write_hreg(const hreg_t *r, uint16_t addr, uint16_t value, const cou
     const bool hi = (off % 2U) == 0U;
     uint16_t idx = 0U;
     switch (r->kind) {
-    case R_STATUS:
-        if (off == 1U) {
-            for (uint16_t i = 0U; i < 16U; i++) { set_bit(tag_do_base_index(), c->dout, i, ((value >> i) & 1U) != 0U); }
-        } else if (off >= 2U) {
-            const uint16_t first = (off == 2U) ? 16U : 0U;
-            for (uint16_t i = 0U; i < 16U; i++) { set_bit(tag_vflag_base_index(), c->vflag, (uint16_t)(first + i), ((value >> i) & 1U) != 0U); }
-        }
+    case R_DO:
+        for (uint16_t i = 0U; i < 16U; i++) { set_bit(tag_do_base_index(), c->dout, i, ((value >> i) & 1U) != 0U); }
         return;
+    case R_VFLAG: {
+        const uint16_t first = (off == 0U) ? 16U : 0U;
+        for (uint16_t i = 0U; i < 16U; i++) { set_bit(tag_vflag_base_index(), c->vflag, (uint16_t)(first + i), ((value >> i) & 1U) != 0U); }
+        return;
+    }
     case R_VREG: if (e >= c->vreg) { return; } idx = (uint16_t)(tag_vreg_base_index() + e); break;
     case R_VRET: if (e >= c->vret) { return; } idx = (uint16_t)(tag_vreg_retain_base_index() + e); break;
     case R_CNT:  if (e >= c->cnt)  { return; } idx = (uint16_t)(tag_counter_base_index() + e); break;
@@ -272,7 +278,7 @@ uint16_t plc_mbs_execute(const uint8_t *req, uint16_t req_len, uint8_t *rsp, boo
         const uint16_t addr = be16(&req[1]), val = be16(&req[3]);
         const hreg_t *r = find_hreg(addr, 1U);
         if (r == NULL) { return exception(rsp, fc, EX_ADDRESS); }
-        if (r->ro || (r->kind == R_STATUS && addr == 0U)) { return exception(rsp, fc, EX_VALUE); }
+        if (r->ro) { return exception(rsp, fc, EX_VALUE); }
         if (!writes_allowed) { return exception(rsp, fc, EX_BUSY); }
         write_hreg(r, addr, val, &c);
         memcpy(rsp, req, 5U);
@@ -298,7 +304,7 @@ uint16_t plc_mbs_execute(const uint8_t *req, uint16_t req_len, uint8_t *rsp, boo
         if (qty < 1U || qty > 123U || req[5] != qty * 2U || req_len != 6U + 2U * qty) { return exception(rsp, fc, EX_VALUE); }
         const hreg_t *r = find_hreg(addr, qty);
         if (r == NULL) { return exception(rsp, fc, EX_ADDRESS); }
-        if (r->ro || (r->kind == R_STATUS && addr == 0U)) { return exception(rsp, fc, EX_VALUE); }
+        if (r->ro) { return exception(rsp, fc, EX_VALUE); }
         if (!writes_allowed) { return exception(rsp, fc, EX_BUSY); }
         for (uint16_t i = 0U; i < qty; i++) { write_hreg(r, (uint16_t)(addr + i), be16(&req[6U + 2U * i]), &c); }
         memcpy(rsp, req, 5U);

@@ -160,7 +160,7 @@ void plc_mbm_init(void);
 uint16_t plc_mbm_port_count(void);
 
 /* Role of an RS-485 port (SPLC-SPEC-SLAVE-001), set by the App in the port table
- * (bit 9 of +0 and +14 = Slave, +15 = Slave ID). A Slave port is never used as a Master:
+ * (+14 = 1 is Slave, +15 = Slave ID; bit 9 of +0 is deprecated and ignored). A Slave port is never used as a Master:
  * MB_READ / MB_WRITE blocks on it do not send (err_code 1), and COMMIT refuses an enabled
  * block that names it with CONFIG_ERROR_CODE = 7 (SPLC_ERROR_SLAVE_PORT_CONFLICT; the App
  * compiler already blocks this, so it is a second line of defence). Switching the role is done by a COMMIT of the port table. */
