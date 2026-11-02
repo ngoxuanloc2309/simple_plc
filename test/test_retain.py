@@ -38,6 +38,10 @@ What it covers (all through the normal Wire Profile V2 commands):
      NO COMMIT_RETAIN; after the snapshot period the value must have been
      written to Flash by retain_service() (REBOOT restores a non-zero value).
      Takes about 6 minutes.
+  6. REBOOT right after a rule-driven change: the same counting rule, a few seconds
+     (far less than the 5-minute period), then REBOOT with NO COMMIT_RETAIN. The value the
+     counter had reached must come back exactly: plc_system_cmd_service saves the retain
+     tags before it reboots. Fast (~15 s); always runs.
 
 What it does NOT cover:
   * The PVD (low-voltage) emergency write. It needs a supply with hold-up
@@ -292,6 +296,28 @@ def run(d, holder, args):
         check(clear_all(d), "cleanup: CLEAR_RULES and CLEAR_RETAIN DONE")
     else:
         print("\n5. skipped (add --periodic for the ~6 minute safety-net check)")
+
+    # ------------------------------------------------------------------ 6
+    print("\n6. REBOOT right after a rule-driven change (no COMMIT_RETAIN, no period elapsed)")
+    d = reboot(d, holder, args)              # restarts the snapshot period timer
+    if d is None:
+        return
+    check(clear_all(d), "baseline: rules and retain cleared")
+    tr.set_time(d, tr.local_epoch(2026, 1, 15, 12, 0, 0, tr.TZ_VN))
+    check(tr.upload_rules(d, [tr.time_rule(0, 0, 2359, RT0)]), "rule that counts RETAIN0 up committed")
+    time.sleep(3.0)
+    d.run_syscmd(ts.SYS_CLEAR_RULES)           # stop counting so the live value is fixed
+    time.sleep(0.3)
+    live = d.tag(RT0)
+    print(f"  live RETAIN0 just before the REBOOT = {live}")
+    check(live > 0, "RETAIN0 was counting")
+    d = reboot(d, holder, args)
+    if d is None:
+        return
+    got = d.tag(RT0)
+    print(f"  RETAIN0 after the REBOOT = {got}")
+    check(got == live, "the value reached before the REBOOT is restored exactly (saved at REBOOT)")
+    check(clear_all(d), "cleanup: CLEAR_RULES and CLEAR_RETAIN DONE")
 
     print("\nCleanup: board left with an empty rule table and zero retain.")
 

@@ -205,20 +205,25 @@ def run(d, holder, args):
     # are being committed (the window rule would, at the PC's real time).
     set_time(d, local_epoch(2026, 1, 15, 3, 0, 0, TZ_VN))
     check(upload_rules(d, rules), "2 Time Window rules committed")
+    # VREG0/VREG1 are volatile and a commit does not reset them, so a second run on the same
+    # boot starts from the first run's leftovers. Take the baseline here (clock parked at
+    # 03:00, neither rule can fire) and compare deltas, like section 7.
+    base = counters(d, v0)
     set_time(d, local_epoch(2026, 1, 15, 8, 29, 55, TZ_VN))
     time.sleep(0.5)
     c = counters(d, v0)
-    check(c[0] == 0 and c[1] == 0, f"08:29:56 -> both counters 0 (got {c[:2]})")
+    check(c[0] == base[0] and c[1] == base[1],
+          f"08:29:56 -> both counters unchanged (baseline {base[:2]}, got {c[:2]})")
     time.sleep(6.0)                                   # now ~08:30:02
     c = counters(d, v0)
-    print(f"  at ~08:30:02: exact={c[0]} window={c[1]}")
-    check(c[0] == 1, "exact-minute rule fired exactly once")
-    check(c[1] > 50, "window rule counts every scan (level)")
-    w1 = c[1]
+    ex, w1 = c[0] - base[0], c[1] - base[1]
+    print(f"  at ~08:30:02: exact +{ex} window +{w1}")
+    check(ex == 1, "exact-minute rule fired exactly once")
+    check(w1 > 50, "window rule counts every scan (level)")
     time.sleep(3.0)
     c = counters(d, v0)
-    check(c[0] == 1, "exact-minute rule did NOT repeat within the minute")
-    check(c[1] > w1, "window rule still counting")
+    check(c[0] - base[0] == 1, "exact-minute rule did NOT repeat within the minute")
+    check(c[1] - base[1] > w1, "window rule still counting")
 
     # ---- 7. across midnight ----------------------------------------------
     print("\n[7] window across midnight (Lo=2358, Hi=1), clock set to 23:59:58")

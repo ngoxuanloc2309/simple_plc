@@ -8,6 +8,8 @@
 #include "plc_system_cmd.h"
 #include "plc_system_clear.h"
 #include "plc_error.h"
+#include "plc_retain.h"
+#include "splc_log.h"
 #include "sx_system.h"
 #include "sx_time.h"
 
@@ -29,6 +31,8 @@
  * PLC_REBOOT_DELAY_MS is a product option (splcopts.h; default 300 ms in
  * config/splc_opt.h).
  */
+
+static const char *TAG = "PLC_SYS_CMD";
 
 /* SPLC_SYSTEM_CMD_NONE (0) is never a valid "reboot pending" tick value
  * on its own, but 0 IS a legitimate sx_get_tick_ms() reading right after
@@ -63,6 +67,20 @@ void plc_system_cmd_service(void)
             break;
 
         case SPLC_SYSTEM_CMD_REBOOT:
+            /*
+             * Save the retain tags first. Rules (counters, accumulators) change VREG_RETAIN
+             * values between the 5-minute safety-net snapshots and COMMIT_RETAIN only covers
+             * what a Host wrote in diag, so a REBOOT right after a change used to lose it.
+             * Runs here, in the main loop, like the rule COMMIT's Flash write; a record is
+             * only written when a retain tag differs from the newest saved one. A failed
+             * write does not block the reboot: the previous record stays valid in Flash.
+             * Any diag draft was already dropped by write_system_command() (baseline reset).
+             * The grace period starts AFTER the write, so the Flash time never eats into the
+             * time the App needs to receive the FC06 answer.
+             */
+            if (retain_has_unsaved_changes() && !retain_snapshot_write()) {
+                log_warn(TAG, "reboot: retain snapshot not written, the previous record stays");
+            }
             s_reboot_pending  = true;
             s_reboot_due_tick = sx_get_tick_ms() + PLC_REBOOT_DELAY_MS;
             /* SYSTEM_COMMAND_RESULT.status already reads ACCEPTED (set by
