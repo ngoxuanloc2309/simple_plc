@@ -155,3 +155,17 @@ message(STATUS "SimplePLC ADC      : ${SPLC_ADC_BUILTIN} (1 = built-in STM32H5 A
 # peripheral (see config/splc_opt.h and docs/architecture.md section 3.1).
 splc_read_flag(SPLC_PORT_USB_CDC SPLC_PORT_USB_CDC)
 message(STATUS "SimplePLC USB-CDC  : ${SPLC_PORT_USB_CDC} (1 = SimplePLC owns USB: TinyUSB + port/usb, 0 = host's)")
+
+# --- Modbus library -------------------------------------------------------
+# SPLC_MODBUS_LIB (splcopts.h): SPLC_MODBUS_LIB_NANO (default, nanoMODBUS only)
+# or SPLC_MODBUS_LIB_MB (libs/mb_master_slave + port/mb_port adapter). Sets
+# SPLC_MODBUS_LIB_IS_MB to 1/0; nanoMODBUS is always built (CRC for retain/rules).
+splc_read_option(SPLC_MODBUS_LIB "SPLC_MODBUS_LIB_" _splc_mlib_sel)
+if(_splc_mlib_sel STREQUAL "SPLC_MODBUS_LIB_MB")
+    set(SPLC_MODBUS_LIB_IS_MB 1)
+elseif(_splc_mlib_sel STREQUAL "SPLC_MODBUS_LIB_NANO")
+    set(SPLC_MODBUS_LIB_IS_MB 0)
+else()
+    message(FATAL_ERROR "SimplePLC: SPLC_MODBUS_LIB must be SPLC_MODBUS_LIB_NANO or SPLC_MODBUS_LIB_MB, got '${_splc_mlib_sel}'")
+endif()
+message(STATUS "SimplePLC Modbus   : ${_splc_mlib_sel} (NANO = nanoMODBUS, MB = libs/mb_master_slave via port/mb_port)")

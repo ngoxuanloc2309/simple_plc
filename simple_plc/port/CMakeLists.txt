@@ -52,6 +52,13 @@ set(SPLC_PORT_SRC
 # open" list). Left out entirely rather than added as an empty
 # translation unit.
 
+# Modbus library MB (SPLC_MODBUS_LIB = MB): the adapter that implements the
+# library's porting layer on top of modbus_transport_t. Layer 3.5; only
+# plc_modbus_cfg.c includes mb_port.h.
+if(SPLC_MODBUS_LIB_IS_MB)
+    list(APPEND SPLC_PORT_SRC ${CMAKE_CURRENT_SOURCE_DIR}/mb_port/mb_port.c)
+endif()
+
 add_library(splc_port STATIC ${SPLC_PORT_SRC})
 
 # PUBLIC: plc_modbus_cfg.c (Layer 3, services/plc_modbus_cfg/) resolves
@@ -77,6 +84,11 @@ target_link_libraries(splc_port PUBLIC
 target_link_libraries(splc_port PUBLIC
     splc_nanomodbus
 )
+
+if(SPLC_MODBUS_LIB_IS_MB)
+    target_include_directories(splc_port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/mb_port)
+    target_link_libraries(splc_port PUBLIC splc_mbslave)
+endif()
 
 target_compile_features(splc_port PUBLIC c_std_11)
 
