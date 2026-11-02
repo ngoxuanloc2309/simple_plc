@@ -410,7 +410,6 @@ static void board_app_link_init(void)
         .ctx     = NULL,
         .output  = rs485_output,
         .process = rs485_pump,
-        .kind    = MODBUS_TRANSPORT_KIND_RTU,
         .unit_id = MODBUS_UNIT_ID,
     };
     splc_link_err_t err = splc_link_register(&ops);
@@ -604,6 +603,7 @@ modbus_transport_t board_get_modbus_transport(void)
      * App link, so the transport is the link's. */
     modbus_transport_t t;
     if (splc_link_get_transport(&t)) {
+        t.kind = MODBUS_TRANSPORT_KIND_RTU;   /* framing is chosen here, not by the byte link */
         return t;
     }
 

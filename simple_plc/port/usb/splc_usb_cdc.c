@@ -100,7 +100,6 @@ splc_link_err_t splc_usb_cdc_init(void)
         .ctx     = NULL,
         .output  = usb_output,
         .process = usb_process,
-        .kind    = MODBUS_TRANSPORT_KIND_RTU,
         .unit_id = (uint8_t)SPLC_MODBUS_UNIT_ID,
     };
 

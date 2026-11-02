@@ -65,6 +65,7 @@ extern "C" {
  * since it already includes nanomodbus.h for other reasons.
  */
 typedef enum {
+    MODBUS_TRANSPORT_KIND_NONE = 0,   /* not assigned yet: always rejected */
     MODBUS_TRANSPORT_KIND_RTU = 1,
     MODBUS_TRANSPORT_KIND_TCP = 2,
 } modbus_transport_kind_t;
@@ -106,8 +107,11 @@ typedef struct {
     void (*process)(void *ctx);
 
     /*
-     * Which nanoMODBUS transport framing to use (RTU or TCP). Set once
-     * by the factory function that built this value; plc_modbus_cfg_init()
+     * Which Modbus framing to use (RTU or TCP). Chosen by the Modbus layer's
+     * user -- the board that builds this struct -- NOT by the byte link
+     * (splc_link_get_transport() returns MODBUS_TRANSPORT_KIND_NONE).
+     * plc_modbus_cfg_init()/add_transport() reject NONE or an unknown value
+     * with a log line. Set once by the factory function that built this value; plc_modbus_cfg_init()
      * passes it straight through to nmbs_platform_conf.transport instead
      * of hard-coding NMBS_TRANSPORT_RTU as it used to.
      */

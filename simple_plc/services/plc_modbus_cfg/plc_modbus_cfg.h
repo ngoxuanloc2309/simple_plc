@@ -119,8 +119,9 @@ void plc_modbus_cfg_init(const modbus_transport_t *transport);
  * client is connected (a TCP host returns 0 until a socket is accepted).
  *
  * Returns false (and changes nothing) when all SPLC_MODBUS_MAX_TRANSPORTS - 1
- * extra slots are used, the transport has no read/write, or the nanoMODBUS
- * server could not be created (RTU unit_id 0).
+ * extra slots are used, the transport has no read/write, kind is not RTU/TCP
+ * (e.g. left at MODBUS_TRANSPORT_KIND_NONE), an RTU unit_id is outside
+ * 1..247, or the nanoMODBUS server could not be created.
  *
  * Declares the 0x0400 (MODBUS_TCP) bit of HARDWARE_CAPABILITIES 0x0A08 when
  * kind == MODBUS_TRANSPORT_KIND_TCP. Security note: Modbus TCP has no

@@ -1736,6 +1736,26 @@ static nmbs_error cb_write_single_register(uint16_t address, uint16_t value, uin
     return cb_write_multiple_registers(address, 1U, &value, unit_id, arg);
 }
 
+/*
+ * Framing + address check shared by init and add_transport. The byte link
+ * does not know the Modbus framing (modbus_link.h): the board assigns
+ * modbus_transport_t.kind. A board that forgot to is caught here, loudly,
+ * instead of running a device whose App link silently times out.
+ */
+static bool transport_config_ok(const modbus_transport_t *t, const char *who)
+{
+    if (t->kind != MODBUS_TRANSPORT_KIND_RTU && t->kind != MODBUS_TRANSPORT_KIND_TCP) {
+        log_error(TAG, "%s: bad or unset transport kind %d -- the board must set "
+                       "modbus_transport_t.kind (RTU or TCP)", who, (int)t->kind);
+        return false;
+    }
+    if (t->kind == MODBUS_TRANSPORT_KIND_RTU && (t->unit_id < 1U || t->unit_id > 247U)) {
+        log_error(TAG, "%s: RTU unit_id %u not in 1..247", who, (unsigned)t->unit_id);
+        return false;
+    }
+    return true;
+}
+
 /* --- Public API (see plc_modbus_cfg.h for full contracts) --------------- */
 
 void plc_modbus_cfg_init(const modbus_transport_t *transport)
@@ -1743,6 +1763,11 @@ void plc_modbus_cfg_init(const modbus_transport_t *transport)
     s_initialized  = false;
     s_transport    = *transport;
     s_boot_tick_ms = sx_get_tick_ms();
+
+    if (!transport_config_ok(&s_transport, "init")) {
+        log_error(TAG, "Modbus config service DISABLED");
+        return;
+    }
 
     nmbs_platform_conf platform_conf;
     nmbs_platform_conf_create(&platform_conf);
@@ -1838,6 +1863,9 @@ bool plc_modbus_cfg_add_transport(const modbus_transport_t *transport)
 {
     if (transport == NULL || transport->read == NULL || transport->write == NULL) {
         log_error(TAG, "add_transport: NULL transport or read/write");
+        return false;
+    }
+    if (!transport_config_ok(transport, "add_transport")) {
         return false;
     }
     if (s_x_count >= EXTRA_TRANSPORTS) {

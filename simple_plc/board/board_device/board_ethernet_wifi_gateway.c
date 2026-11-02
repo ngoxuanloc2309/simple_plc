@@ -220,6 +220,7 @@ modbus_transport_t board_get_modbus_transport(void)
      * never reach. */
     modbus_transport_t t;
     if (splc_link_get_transport(&t)) {
+        t.kind = MODBUS_TRANSPORT_KIND_RTU;   /* framing is chosen here, not by the byte link */
         return t;
     }
 

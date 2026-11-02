@@ -201,16 +201,6 @@ splc_link_err_t splc_link_register(const splc_link_ops_t *ops)
         log_error(TAG, "register: ops/output is NULL");
         return SPLC_LINK_ERR_ARG;
     }
-    if (ops->kind != MODBUS_TRANSPORT_KIND_RTU &&
-        ops->kind != MODBUS_TRANSPORT_KIND_TCP) {
-        log_error(TAG, "register: bad transport kind %d", (int)ops->kind);
-        return SPLC_LINK_ERR_ARG;
-    }
-    if (ops->kind == MODBUS_TRANSPORT_KIND_RTU &&
-        (ops->unit_id < 1U || ops->unit_id > 247U)) {
-        log_error(TAG, "register: RTU unit_id %u not in 1..247", (unsigned)ops->unit_id);
-        return SPLC_LINK_ERR_ARG;
-    }
     if (atomic_load_explicit(&s_registered, memory_order_acquire)) {
         log_error(TAG, "register: a link is already registered");
         return SPLC_LINK_ERR_REGISTERED;
@@ -222,8 +212,8 @@ splc_link_err_t splc_link_register(const splc_link_ops_t *ops)
     atomic_store_explicit(&s_rx_dropped, 0U, memory_order_relaxed);
     atomic_store_explicit(&s_registered, true, memory_order_release);
 
-    log_info(TAG, "link registered, kind=%d unit_id=%u rx_ring=%u",
-             (int)ops->kind, (unsigned)ops->unit_id, (unsigned)RX_SIZE);
+    log_info(TAG, "link registered, unit_id=%u rx_ring=%u",
+             (unsigned)ops->unit_id, (unsigned)RX_SIZE);
     return SPLC_LINK_OK;
 }
 
@@ -250,7 +240,7 @@ bool splc_link_get_transport(modbus_transport_t *out)
     out->read    = link_read;
     out->write   = link_write;
     out->process = link_process;
-    out->kind    = s_ops.kind;
+    out->kind    = MODBUS_TRANSPORT_KIND_NONE;   /* the board assigns the framing */
     out->unit_id = s_ops.unit_id;
     return true;
 }

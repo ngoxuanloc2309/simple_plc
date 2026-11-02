@@ -53,7 +53,7 @@ extern "C" {
 
 typedef enum {
     SPLC_LINK_OK              =  0,
-    SPLC_LINK_ERR_ARG         = -1,   /* NULL ops / output, bad kind or unit_id */
+    SPLC_LINK_ERR_ARG         = -1,   /* NULL ops or output */
     SPLC_LINK_ERR_REGISTERED  = -2,   /* a link is already registered           */
     SPLC_LINK_ERR_NOT_READY   = -3    /* no link registered                     */
 } splc_link_err_t;
@@ -82,10 +82,15 @@ typedef struct {
      */
     void (*process)(void *ctx);
 
-    /* Modbus framing used on this link. */
-    modbus_transport_kind_t kind;
-
-    /* RTU slave address this device answers to, 1..247 (ignored for TCP). */
+    /*
+     * Modbus slave address this device answers to on the link. The link does
+     * not interpret it: plc_modbus_cfg checks it (1..247 for the serial
+     * kinds, ignored for TCP) once the Modbus framing is known.
+     *
+     * The framing itself (RTU / TCP / ...) is NOT part of the link -- a link
+     * is a plain byte pipe. The board that builds the modbus_transport_t sets
+     * modbus_transport_t.kind (see splc_link_get_transport()).
+     */
     uint8_t unit_id;
 } splc_link_ops_t;
 
@@ -112,6 +117,10 @@ uint32_t splc_link_rx_dropped(void);
  * Build the modbus_transport_t that plc_modbus_cfg_init() consumes.
  * Returns false (and leaves *out untouched) when no link is registered, so
  * the caller can report it instead of running a device that never answers.
+ *
+ * out->kind is set to MODBUS_TRANSPORT_KIND_NONE: the caller (the board) MUST
+ * assign the framing before passing the struct on, otherwise
+ * plc_modbus_cfg_init() / plc_modbus_cfg_add_transport() reject it with a log.
  */
 bool splc_link_get_transport(modbus_transport_t *out);
 
