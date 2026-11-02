@@ -281,7 +281,7 @@ void zigbee_init(ZigbeeMesh_t *zigbee, ZigbeeDriver_t *driver)
     memset(&zigbee->event, 0, sizeof(ZigbeeEvent_t));
     memset(&zigbee->event_tmp, 0, sizeof(ZigbeeEvent_t));
     zigbee->time_reset = 0;
-    cqueue_init_static(&zigbee->event_queue,(void*)zigbee->event_list,sizeof(zigbee->event_list), sizeof(ZigbeeEvent_t));
+    splc_cqueue_init_static(&zigbee->event_queue,(void*)zigbee->event_list,sizeof(zigbee->event_list), sizeof(ZigbeeEvent_t));
     log_info(TAG, "Zigbee Init");
 }
 void zigbee_poll(ZigbeeMesh_t *zigbee, uint32_t timestamp)
@@ -290,7 +290,7 @@ void zigbee_poll(ZigbeeMesh_t *zigbee, uint32_t timestamp)
     {
         if(zigbee->event_queue.count > 0)
         {
-            cqueue_receive(&zigbee->event_queue, &zigbee->event);
+            splc_cqueue_receive(&zigbee->event_queue, &zigbee->event);
         }
         switch (zigbee->event.event)
         {
@@ -401,7 +401,7 @@ void zigbee_connect(ZigbeeMesh_t *zigbee, ZB_Callback_Func cb,void *arg)
     zigbee->event_tmp.tick = 0;
     zigbee->event_tmp.cb = cb;
     zigbee->event_tmp.arg = arg;
-    cqueue_send(&zigbee->event_queue, &zigbee->event_tmp);
+    splc_cqueue_send(&zigbee->event_queue, &zigbee->event_tmp);
 
 }
 void zigbee_reset_module(ZigbeeMesh_t *zigbee, ZB_Callback_Func cb,void *arg)
@@ -412,7 +412,7 @@ void zigbee_reset_module(ZigbeeMesh_t *zigbee, ZB_Callback_Func cb,void *arg)
     zigbee->event_tmp.tick = 0;
     zigbee->event_tmp.cb = cb;
     zigbee->event_tmp.arg = arg;
-    cqueue_send(&zigbee->event_queue, &zigbee->event_tmp);
+    splc_cqueue_send(&zigbee->event_queue, &zigbee->event_tmp);
 }
 void zigbee_read_module(ZigbeeMesh_t *zigbee, ZB_Callback_Func cb,void *arg)
 {
@@ -422,7 +422,7 @@ void zigbee_read_module(ZigbeeMesh_t *zigbee, ZB_Callback_Func cb,void *arg)
     zigbee->event_tmp.tick = 0;
     zigbee->event_tmp.cb = cb;
     zigbee->event_tmp.arg = arg;
-    cqueue_send(&zigbee->event_queue, &zigbee->event_tmp);
+    splc_cqueue_send(&zigbee->event_queue, &zigbee->event_tmp);
 }
 void zigbee_write_module(ZigbeeMesh_t *zigbee, ZB_Callback_Func cb,void *arg)
 {
@@ -449,7 +449,7 @@ void zigbee_write_module(ZigbeeMesh_t *zigbee, ZB_Callback_Func cb,void *arg)
     zigbee->event_tmp.tick = 0;
     zigbee->event_tmp.cb = cb;
     zigbee->event_tmp.arg = arg;
-    cqueue_send(&zigbee->event_queue, &zigbee->event_tmp);
+    splc_cqueue_send(&zigbee->event_queue, &zigbee->event_tmp);
 }
 
 void zigbee_request_signal(ZigbeeMesh_t *zigbee, ZB_Callback_Func cb,void *arg)
@@ -459,7 +459,7 @@ void zigbee_request_signal(ZigbeeMesh_t *zigbee, ZB_Callback_Func cb,void *arg)
     zigbee->event_tmp.tick = 0;
     zigbee->event_tmp.cb = cb;
     zigbee->event_tmp.arg = arg;
-    cqueue_send(&zigbee->event_queue, &zigbee->event_tmp);
+    splc_cqueue_send(&zigbee->event_queue, &zigbee->event_tmp);
 }
 
 void zigbee_query_ed_pos(ZigbeeMesh_t *zigbee, ZB_Callback_Func cb, void *arg)
@@ -473,5 +473,5 @@ void zigbee_query_ed_pos(ZigbeeMesh_t *zigbee, ZB_Callback_Func cb, void *arg)
     zigbee->event_tmp.tick = 0;
     zigbee->event_tmp.cb = cb;
     zigbee->event_tmp.arg = arg;
-    cqueue_send(&zigbee->event_queue, &zigbee->event_tmp);
+    splc_cqueue_send(&zigbee->event_queue, &zigbee->event_tmp);
 }

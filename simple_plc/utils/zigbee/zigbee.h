@@ -18,7 +18,7 @@ extern "C"
 #endif
 
 #include <stdint.h>
-#include "cqueue.h"
+#include "splc_cqueue.h"
 
 #define    sendIns_link             1
 #define    sendIns_reset            2
@@ -148,7 +148,7 @@ extern "C"
         ZigbeeDriver_t *driver;
         ZigbeeEvent_t event;
         ZigbeeEvent_t event_tmp;
-        CQueue_t event_queue;
+        splc_cqueue_t event_queue;
         ZigbeeEvent_t event_list[10];
         uint8_t module_type;
         uint8_t fw_version[2];
