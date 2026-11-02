@@ -1,4 +1,5 @@
 D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rtc/plc_rtc.c:141:6:plc_rtc_read	32	static
 D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rtc/plc_rtc.c:160:24:plc_rtc_write	24	static
 D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rtc/plc_rtc.c:198:6:plc_rtc_get_local_hhmm	24	static
-D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rtc/plc_rtc.c:211:6:plc_rtc_get_epoch	16	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rtc/plc_rtc.c:211:6:plc_rtc_get_local_datetime	24	static
+D:/Synaptix/SynaptiX/strategy/simple_plc/simple_plc/services/plc_rtc/plc_rtc.c:225:6:plc_rtc_get_epoch	16	static

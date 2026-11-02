@@ -2976,7 +2976,7 @@ LOAD D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-
                 0x08000000                g_pfnVectors
                 0x08000254                        . = ALIGN (0x4)
 
-.text           0x08000260    0x16264
+.text           0x08000260    0x16388
                 0x08000260                        . = ALIGN (0x4)
  *(.text)
  .text          0x08000260       0x40 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtbegin.o
@@ -3981,1479 +3981,1485 @@ LOAD D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-
  .text.retain_flash_op_end
                 0x08009ec8       0x14 simple_plc/services/libsplc_services.a(plc_retain.c.obj)
                 0x08009ec8                retain_flash_op_end
+ .text.retain_has_unsaved_changes
+                0x08009edc        0x4 simple_plc/services/libsplc_services.a(plc_retain.c.obj)
+                0x08009edc                retain_has_unsaved_changes
  .text.retain_store_restore
-                0x08009edc      0x124 simple_plc/services/libsplc_services.a(plc_retain.c.obj)
-                0x08009edc                retain_store_restore
+                0x08009ee0      0x124 simple_plc/services/libsplc_services.a(plc_retain.c.obj)
+                0x08009ee0                retain_store_restore
  .text.retain_snapshot_write
-                0x0800a000       0x12 simple_plc/services/libsplc_services.a(plc_retain.c.obj)
-                0x0800a000                retain_snapshot_write
- *fill*         0x0800a012        0x2 
+                0x0800a004       0x12 simple_plc/services/libsplc_services.a(plc_retain.c.obj)
+                0x0800a004                retain_snapshot_write
+ *fill*         0x0800a016        0x2 
  .text.retain_emergency_snapshot
-                0x0800a014       0x70 simple_plc/services/libsplc_services.a(plc_retain.c.obj)
-                0x0800a014                retain_emergency_snapshot
+                0x0800a018       0x70 simple_plc/services/libsplc_services.a(plc_retain.c.obj)
+                0x0800a018                retain_emergency_snapshot
  .text.retain_service
-                0x0800a084       0x4c simple_plc/services/libsplc_services.a(plc_retain.c.obj)
-                0x0800a084                retain_service
+                0x0800a088       0x4c simple_plc/services/libsplc_services.a(plc_retain.c.obj)
+                0x0800a088                retain_service
  .text.read_device_descriptor
-                0x0800a0d0       0x20 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a0d4       0x20 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_device_resource_info
-                0x0800a0f0       0x20 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a0f4       0x20 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_rule_table_info
-                0x0800a110       0x18 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a114       0x18 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_active_rule_table
-                0x0800a128       0xe0 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a12c       0xe0 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_system_command_result
-                0x0800a208       0x20 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a20c       0x20 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_diag_block
-                0x0800a228       0x74 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a22c       0x74 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_config_status
-                0x0800a29c       0x18 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a2a0       0x18 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_config_error_code
-                0x0800a2b4       0x18 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a2b8       0x18 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_rule_count_staged
-                0x0800a2cc       0x18 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a2d0       0x18 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_expected_crc16
-                0x0800a2e4       0x18 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a2e8       0x18 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_active_rule_count
-                0x0800a2fc        0x4 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a300        0x4 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_staging_rule_table
-                0x0800a300       0xe0 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a304       0xe0 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.write_staging_rule_table
-                0x0800a3e0       0xec simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a3e4       0xec simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_active_rule_version
-                0x0800a4cc       0x18 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a4d0       0x18 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.write_expected_crc16
-                0x0800a4e4       0x10 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a4e8       0x10 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.find_block
-                0x0800a4f4       0x2c simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a4f8       0x2c simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.cb_read_holding_registers
-                0x0800a520       0x62 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
- *fill*         0x0800a582        0x2 
+                0x0800a524       0x62 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+ *fill*         0x0800a586        0x2 
  .text.read_hw_capabilities
-                0x0800a584       0x64 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a588       0x64 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.diag_dirty_clear
-                0x0800a5e8       0x10 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a5ec       0x10 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_device_health
-                0x0800a5f8       0x40 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a5fc       0x40 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_runtime_tag_values
-                0x0800a638       0x74 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a63c       0x74 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_rs485_port_count
-                0x0800a6ac       0x18 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a6b0       0x18 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.retain_sync_dirty_flag
-                0x0800a6c4       0x24 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a6c8       0x24 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.write_rule_count_staged
-                0x0800a6e8       0x5c simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a6ec       0x5c simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.write_diag_command
-                0x0800a744      0x1b0 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a748      0x1b0 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.cb_write_multiple_registers
-                0x0800a8f4      0x264 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800a8f8      0x264 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.plc_modbus_cfg_diag_tick
-                0x0800ab58       0x5c simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
-                0x0800ab58                plc_modbus_cfg_diag_tick
+                0x0800ab5c       0x5c simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800ab5c                plc_modbus_cfg_diag_tick
  .text.plc_modbus_cfg_is_rule_engine_suspended
-                0x0800abb4       0x10 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
-                0x0800abb4                plc_modbus_cfg_is_rule_engine_suspended
+                0x0800abb8       0x10 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800abb8                plc_modbus_cfg_is_rule_engine_suspended
  .text.crc16_modbus_update
-                0x0800abc4       0x20 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
-                0x0800abc4                crc16_modbus_update
+                0x0800abc8       0x20 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800abc8                crc16_modbus_update
  .text.rule_record_to_wire
-                0x0800abe4       0x76 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
-                0x0800abe4                rule_record_to_wire
+                0x0800abe8       0x76 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800abe8                rule_record_to_wire
  .text.rule_table_wire_crc16
-                0x0800ac5a       0x40 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
-                0x0800ac5a                rule_table_wire_crc16
- *fill*         0x0800ac9a        0x2 
+                0x0800ac5e       0x40 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800ac5e                rule_table_wire_crc16
+ *fill*         0x0800ac9e        0x2 
  .text.cb_write_single_register
-                0x0800ac9c      0x2f8 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800aca0      0x2f8 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.read_active_rule_crc16
-                0x0800af94       0x2c simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800af98       0x2c simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .text.plc_modbus_cfg_init
-                0x0800afc0       0xc8 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
-                0x0800afc0                plc_modbus_cfg_init
+                0x0800afc4       0xc8 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800afc4                plc_modbus_cfg_init
  .text.modbus_config_service
-                0x0800b088       0x2c simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
-                0x0800b088                modbus_config_service
+                0x0800b08c       0x2c simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800b08c                modbus_config_service
  .text.plc_modbus_cfg_record_scan_time
-                0x0800b0b4       0x14 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
-                0x0800b0b4                plc_modbus_cfg_record_scan_time
+                0x0800b0b8       0x14 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800b0b8                plc_modbus_cfg_record_scan_time
  .text.plc_modbus_cfg_get_pending_system_command
-                0x0800b0c8       0x10 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
-                0x0800b0c8                plc_modbus_cfg_get_pending_system_command
+                0x0800b0cc       0x10 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800b0cc                plc_modbus_cfg_get_pending_system_command
  .text.plc_modbus_cfg_set_system_command_result
-                0x0800b0d8        0xc simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
-                0x0800b0d8                plc_modbus_cfg_set_system_command_result
+                0x0800b0dc        0xc simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0800b0dc                plc_modbus_cfg_set_system_command_result
  .text.plc_rtc_read
-                0x0800b0e4       0x6c simple_plc/services/libsplc_services.a(plc_rtc.c.obj)
-                0x0800b0e4                plc_rtc_read
+                0x0800b0e8       0x6c simple_plc/services/libsplc_services.a(plc_rtc.c.obj)
+                0x0800b0e8                plc_rtc_read
  .text.plc_rtc_write
-                0x0800b150       0xbc simple_plc/services/libsplc_services.a(plc_rtc.c.obj)
-                0x0800b150                plc_rtc_write
+                0x0800b154       0xbc simple_plc/services/libsplc_services.a(plc_rtc.c.obj)
+                0x0800b154                plc_rtc_write
  .text.plc_rtc_get_local_hhmm
-                0x0800b20c       0x44 simple_plc/services/libsplc_services.a(plc_rtc.c.obj)
-                0x0800b20c                plc_rtc_get_local_hhmm
+                0x0800b210       0x44 simple_plc/services/libsplc_services.a(plc_rtc.c.obj)
+                0x0800b210                plc_rtc_get_local_hhmm
+ .text.plc_rtc_get_local_datetime
+                0x0800b254       0x50 simple_plc/services/libsplc_services.a(plc_rtc.c.obj)
+                0x0800b254                plc_rtc_get_local_datetime
  .text.plc_rtc_get_epoch
-                0x0800b250       0x24 simple_plc/services/libsplc_services.a(plc_rtc.c.obj)
-                0x0800b250                plc_rtc_get_epoch
+                0x0800b2a4       0x24 simple_plc/services/libsplc_services.a(plc_rtc.c.obj)
+                0x0800b2a4                plc_rtc_get_epoch
  .text.counters_set_disabled
-                0x0800b274       0x18 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b2c8       0x18 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
  .text.timer_telemetry_clear
-                0x0800b28c       0x24 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b2e0       0x24 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
  .text.running_set_disabled
-                0x0800b2b0       0x24 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b304       0x24 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
  .text.cv_tag_allowed
-                0x0800b2d4       0x2a simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b328       0x2a simple_plc/services/libsplc_services.a(plc_fb.c.obj)
  .text.config_valid
-                0x0800b2fe       0x9c simple_plc/services/libsplc_services.a(plc_fb.c.obj)
- *fill*         0x0800b39a        0x2 
+                0x0800b352       0x9c simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+ *fill*         0x0800b3ee        0x2 
  .text.plc_fb_init
-                0x0800b39c       0x2c simple_plc/services/libsplc_services.a(plc_fb.c.obj)
-                0x0800b39c                plc_fb_init
+                0x0800b3f0       0x2c simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b3f0                plc_fb_init
  .text.plc_fb_read
-                0x0800b3c8      0x184 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
-                0x0800b3c8                plc_fb_read
+                0x0800b41c      0x184 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b41c                plc_fb_read
  .text.plc_fb_write
-                0x0800b54c      0x1b8 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
-                0x0800b54c                plc_fb_write
+                0x0800b5a0      0x1b8 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b5a0                plc_fb_write
  .text.plc_fb_discard_draft
-                0x0800b704       0x28 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
-                0x0800b704                plc_fb_discard_draft
+                0x0800b758       0x28 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b758                plc_fb_discard_draft
  .text.import_image
-                0x0800b72c       0xa0 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b780       0xa0 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
  .text.plc_fb_commit_draft
-                0x0800b7cc       0x90 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
-                0x0800b7cc                plc_fb_commit_draft
+                0x0800b820       0x90 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b820                plc_fb_commit_draft
  .text.plc_fb_clear_all
-                0x0800b85c        0xe simple_plc/services/libsplc_services.a(plc_fb.c.obj)
-                0x0800b85c                plc_fb_clear_all
- *fill*         0x0800b86a        0x2 
+                0x0800b8b0        0xe simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b8b0                plc_fb_clear_all
+ *fill*         0x0800b8be        0x2 
  .text.plc_fb_export
-                0x0800b86c       0x90 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
-                0x0800b86c                plc_fb_export
+                0x0800b8c0       0x90 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b8c0                plc_fb_export
  .text.plc_fb_import
-                0x0800b8fc        0x6 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
-                0x0800b8fc                plc_fb_import
+                0x0800b950        0x6 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b950                plc_fb_import
  .text.plc_fb_import_v1
-                0x0800b902        0x6 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
-                0x0800b902                plc_fb_import_v1
+                0x0800b956        0x6 simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b956                plc_fb_import_v1
  .text.plc_fb_scan
-                0x0800b908       0xec simple_plc/services/libsplc_services.a(plc_fb.c.obj)
-                0x0800b908                plc_fb_scan
+                0x0800b95c       0xec simple_plc/services/libsplc_services.a(plc_fb.c.obj)
+                0x0800b95c                plc_fb_scan
  .text.regs_to_str
-                0x0800b9f4       0x24 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800ba48       0x24 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
  .text.put_regs_be
-                0x0800ba18       0x20 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800ba6c       0x20 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
  .text.get_regs_be
-                0x0800ba38       0x1e simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
- *fill*         0x0800ba56        0x2 
+                0x0800ba8c       0x1e simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+ *fill*         0x0800baaa        0x2 
  .text.rt_prepare
-                0x0800ba58       0xac simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800baac       0xac simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
  .text.rt_prepare_all
-                0x0800bb04       0x1e simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
- *fill*         0x0800bb22        0x2 
+                0x0800bb58       0x1e simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+ *fill*         0x0800bb76        0x2 
  .text.broker_apply
-                0x0800bb24       0x60 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800bb78       0x60 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
  .text.broker_valid.constprop.0
-                0x0800bb84       0x4c simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800bbd8       0x4c simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
  .text.block_valid
-                0x0800bbd0      0x170 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800bc24      0x170 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
  .text.plc_mqtt_init
-                0x0800bd40       0xa4 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
-                0x0800bd40                plc_mqtt_init
+                0x0800bd94       0xa4 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800bd94                plc_mqtt_init
  .text.plc_mqtt_telemetry_read
-                0x0800bde4       0x40 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
-                0x0800bde4                plc_mqtt_telemetry_read
+                0x0800be38       0x40 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800be38                plc_mqtt_telemetry_read
  .text.plc_mqtt_broker_read
-                0x0800be24       0x74 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
-                0x0800be24                plc_mqtt_broker_read
+                0x0800be78       0x74 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800be78                plc_mqtt_broker_read
  .text.plc_mqtt_telemetry_write
-                0x0800be98       0xb4 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
-                0x0800be98                plc_mqtt_telemetry_write
+                0x0800beec       0xb4 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800beec                plc_mqtt_telemetry_write
  .text.plc_mqtt_broker_write
-                0x0800bf4c       0x98 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
-                0x0800bf4c                plc_mqtt_broker_write
+                0x0800bfa0       0x98 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800bfa0                plc_mqtt_broker_write
  .text.plc_mqtt_validate_draft
-                0x0800bfe4       0x44 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
-                0x0800bfe4                plc_mqtt_validate_draft
+                0x0800c038       0x44 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800c038                plc_mqtt_validate_draft
  .text.plc_mqtt_commit_draft
-                0x0800c028       0xa0 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
-                0x0800c028                plc_mqtt_commit_draft
+                0x0800c07c       0xa0 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800c07c                plc_mqtt_commit_draft
  .text.plc_mqtt_discard_draft
-                0x0800c0c8        0xc simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
-                0x0800c0c8                plc_mqtt_discard_draft
+                0x0800c11c        0xc simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800c11c                plc_mqtt_discard_draft
  .text.plc_mqtt_clear_all
-                0x0800c0d4       0x2c simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
-                0x0800c0d4                plc_mqtt_clear_all
+                0x0800c128       0x2c simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800c128                plc_mqtt_clear_all
  .text.plc_mqtt_export
-                0x0800c100       0x30 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
-                0x0800c100                plc_mqtt_export
+                0x0800c154       0x30 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800c154                plc_mqtt_export
  .text.plc_mqtt_import
-                0x0800c130       0xa4 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
-                0x0800c130                plc_mqtt_import
+                0x0800c184       0xa4 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800c184                plc_mqtt_import
  .text.plc_mqtt_scan
-                0x0800c1d4      0x438 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
-                0x0800c1d4                plc_mqtt_scan
+                0x0800c228      0x438 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x0800c228                plc_mqtt_scan
  .text.image_valid
-                0x0800c60c       0x3a simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
- *fill*         0x0800c646        0x2 
+                0x0800c660       0x3a simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
+ *fill*         0x0800c69a        0x2 
  .text.plc_tagtype_clear_all
-                0x0800c648       0x2c simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
-                0x0800c648                plc_tagtype_clear_all
+                0x0800c69c       0x2c simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
+                0x0800c69c                plc_tagtype_clear_all
  .text.plc_tagtype_init
-                0x0800c674        0x4 simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
-                0x0800c674                plc_tagtype_init
+                0x0800c6c8        0x4 simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
+                0x0800c6c8                plc_tagtype_init
  .text.plc_tagtype_get
-                0x0800c678       0x18 simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
-                0x0800c678                plc_tagtype_get
+                0x0800c6cc       0x18 simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
+                0x0800c6cc                plc_tagtype_get
  .text.plc_tagtype_is_real
-                0x0800c690        0xe simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
-                0x0800c690                plc_tagtype_is_real
- *fill*         0x0800c69e        0x2 
+                0x0800c6e4        0xe simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
+                0x0800c6e4                plc_tagtype_is_real
+ *fill*         0x0800c6f2        0x2 
  .text.plc_tagtype_read
-                0x0800c6a0       0x2c simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
-                0x0800c6a0                plc_tagtype_read
+                0x0800c6f4       0x2c simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
+                0x0800c6f4                plc_tagtype_read
  .text.plc_tagtype_write
-                0x0800c6cc       0x5c simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
-                0x0800c6cc                plc_tagtype_write
+                0x0800c720       0x5c simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
+                0x0800c720                plc_tagtype_write
  .text.plc_tagtype_validate_draft
-                0x0800c728       0x18 simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
-                0x0800c728                plc_tagtype_validate_draft
+                0x0800c77c       0x18 simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
+                0x0800c77c                plc_tagtype_validate_draft
  .text.plc_tagtype_commit_draft
-                0x0800c740       0x90 simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
-                0x0800c740                plc_tagtype_commit_draft
+                0x0800c794       0x90 simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
+                0x0800c794                plc_tagtype_commit_draft
  .text.plc_tagtype_discard_draft
-                0x0800c7d0        0xc simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
-                0x0800c7d0                plc_tagtype_discard_draft
+                0x0800c824        0xc simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
+                0x0800c824                plc_tagtype_discard_draft
  .text.plc_tagtype_export
-                0x0800c7dc       0x10 simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
-                0x0800c7dc                plc_tagtype_export
+                0x0800c830       0x10 simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
+                0x0800c830                plc_tagtype_export
  .text.plc_tagtype_import
-                0x0800c7ec       0x28 simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
-                0x0800c7ec                plc_tagtype_import
- .text.f2i      0x0800c814       0x50 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800c840       0x28 simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
+                0x0800c840                plc_tagtype_import
+ .text.f2i      0x0800c868       0x50 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .text.parse_port
-                0x0800c864       0x4e simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800c8b8       0x4e simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .text.put_regs
-                0x0800c8b2       0x20 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800c906       0x20 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .text.get_regs
-                0x0800c8d2       0x1e simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
- .text.word32   0x0800c8f0       0x52 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
- *fill*         0x0800c942        0x2 
+                0x0800c926       0x1e simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+ .text.word32   0x0800c944       0x52 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+ *fill*         0x0800c996        0x2 
  .text.rt_reset
-                0x0800c944       0x30 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800c998       0x30 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .text.apply_port_table
-                0x0800c974       0xf8 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800c9c8       0xf8 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .text.opt_tag_ok
-                0x0800ca6c       0x28 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800cac0       0x28 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .text.block_valid
-                0x0800ca94      0x1e8 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800cae8      0x1e8 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .text.write_status
-                0x0800cc7c        0xe simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
- *fill*         0x0800cc8a        0x2 
+                0x0800ccd0        0xe simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+ *fill*         0x0800ccde        0x2 
  .text.fail_block_no_port
-                0x0800cc8c       0x80 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800cce0       0x80 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .text.port_table_valid
-                0x0800cd0c      0x100 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800cd60      0x100 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .text.plc_mbm_clear_all
-                0x0800ce0c       0x84 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800ce0c                plc_mbm_clear_all
+                0x0800ce60       0x84 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800ce60                plc_mbm_clear_all
  .text.plc_mbm_init
-                0x0800ce90       0x30 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800ce90                plc_mbm_init
+                0x0800cee4       0x30 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800cee4                plc_mbm_init
  .text.plc_mbm_port_count
-                0x0800cec0        0x4 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800cec0                plc_mbm_port_count
+                0x0800cf14        0x4 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800cf14                plc_mbm_port_count
  .text.plc_mbm_port_role
-                0x0800cec4       0x18 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800cec4                plc_mbm_port_role
+                0x0800cf18       0x18 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800cf18                plc_mbm_port_role
  .text.plc_mbm_port_slave_id
-                0x0800cedc       0x24 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800cedc                plc_mbm_port_slave_id
+                0x0800cf30       0x24 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800cf30                plc_mbm_port_slave_id
  .text.plc_mbm_port_serial_port
-                0x0800cf00       0x18 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800cf00                plc_mbm_port_serial_port
+                0x0800cf54       0x18 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800cf54                plc_mbm_port_serial_port
  .text.plc_mbm_port_line
-                0x0800cf18       0x1c simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800cf18                plc_mbm_port_line
+                0x0800cf6c       0x1c simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800cf6c                plc_mbm_port_line
  .text.plc_mbm_port_ready
-                0x0800cf34       0x20 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800cf34                plc_mbm_port_ready
+                0x0800cf88       0x20 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800cf88                plc_mbm_port_ready
  .text.plc_mbm_port_is_slave_after_commit
-                0x0800cf54       0x40 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800cf54                plc_mbm_port_is_slave_after_commit
+                0x0800cfa8       0x40 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800cfa8                plc_mbm_port_is_slave_after_commit
  .text.splc_mbm_set_rs485_port
-                0x0800cf94       0xd0 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800cf94                splc_mbm_set_rs485_port
+                0x0800cfe8       0xd0 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800cfe8                splc_mbm_set_rs485_port
  .text.plc_mbm_read
-                0x0800d064       0x28 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800d064                plc_mbm_read
+                0x0800d0b8       0x28 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800d0b8                plc_mbm_read
  .text.plc_mbm_write
-                0x0800d08c       0x78 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800d08c                plc_mbm_write
+                0x0800d0e0       0x78 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800d0e0                plc_mbm_write
  .text.plc_mbm_ports_read
-                0x0800d104       0x28 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800d104                plc_mbm_ports_read
+                0x0800d158       0x28 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800d158                plc_mbm_ports_read
  .text.plc_mbm_ports_write
-                0x0800d12c       0x5c simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800d12c                plc_mbm_ports_write
+                0x0800d180       0x5c simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800d180                plc_mbm_ports_write
  .text.plc_mbm_draft_slave_conflict
-                0x0800d188        0xc simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800d188                plc_mbm_draft_slave_conflict
+                0x0800d1dc        0xc simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800d1dc                plc_mbm_draft_slave_conflict
  .text.plc_mbm_validate_draft
-                0x0800d194       0xbc simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800d194                plc_mbm_validate_draft
+                0x0800d1e8       0xbc simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800d1e8                plc_mbm_validate_draft
  .text.plc_mbm_commit_draft
-                0x0800d250       0xb4 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800d250                plc_mbm_commit_draft
+                0x0800d2a4       0xb4 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800d2a4                plc_mbm_commit_draft
  .text.plc_mbm_discard_draft
-                0x0800d304       0x14 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800d304                plc_mbm_discard_draft
+                0x0800d358       0x14 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800d358                plc_mbm_discard_draft
  .text.plc_mbm_export
-                0x0800d318       0x40 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800d318                plc_mbm_export
+                0x0800d36c       0x40 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800d36c                plc_mbm_export
  .text.plc_mbm_import
-                0x0800d358       0xa4 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800d358                plc_mbm_import
+                0x0800d3ac       0xa4 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800d3ac                plc_mbm_import
  .text.plc_mbm_scan
-                0x0800d3fc      0x518 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800d3fc                plc_mbm_scan
+                0x0800d450      0x518 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800d450                plc_mbm_scan
  .text.plc_mbm_port_claim
-                0x0800d914       0x68 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800d914                plc_mbm_port_claim
+                0x0800d968       0x68 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800d968                plc_mbm_port_claim
  .text.plc_mbm_port_release
-                0x0800d97c       0x28 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
-                0x0800d97c                plc_mbm_port_release
- .text.f2i      0x0800d9a4       0x50 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
- .text.put32    0x0800d9f4       0x32 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
- *fill*         0x0800da26        0x2 
- .text.rt_reset
-                0x0800da28       0x44 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
- .text.write_status
-                0x0800da6c        0xe simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800d9d0       0x28 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x0800d9d0                plc_mbm_port_release
+ .text.f2i      0x0800d9f8       0x50 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+ .text.put32    0x0800da48       0x32 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
  *fill*         0x0800da7a        0x2 
+ .text.rt_reset
+                0x0800da7c       0x44 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+ .text.write_status
+                0x0800dac0        0xe simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+ *fill*         0x0800dace        0x2 
  .text.finish_err
-                0x0800da7c       0x58 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800dad0       0x58 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
  .text.opt_tag_ok
-                0x0800dad4       0x28 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800db28       0x28 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
  .text.snapshot
-                0x0800dafc       0x7a simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
- *fill*         0x0800db76        0x2 
- .text.quiesce  0x0800db78       0x2c simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800db50       0x7a simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+ *fill*         0x0800dbca        0x2 
+ .text.quiesce  0x0800dbcc       0x2c simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
  .text.get_regs.constprop.0
-                0x0800dba4       0x1e simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800dbf8       0x1e simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
  .text.opt_exists
-                0x0800dbc2       0x22 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800dc16       0x22 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
  .text.block_valid
-                0x0800dbe4      0x2fc simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800dc38      0x2fc simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
  .text.plc_mbw_init
-                0x0800dee0       0x44 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
-                0x0800dee0                plc_mbw_init
+                0x0800df34       0x44 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800df34                plc_mbw_init
  .text.plc_mbw_clear_all
-                0x0800df24       0x60 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
-                0x0800df24                plc_mbw_clear_all
+                0x0800df78       0x60 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800df78                plc_mbw_clear_all
  .text.plc_mbw_read
-                0x0800df84       0x28 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
-                0x0800df84                plc_mbw_read
+                0x0800dfd8       0x28 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800dfd8                plc_mbw_read
  .text.plc_mbw_write
-                0x0800dfac       0x78 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
-                0x0800dfac                plc_mbw_write
+                0x0800e000       0x78 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800e000                plc_mbw_write
  .text.plc_mbw_draft_slave_conflict
-                0x0800e024        0xc simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
-                0x0800e024                plc_mbw_draft_slave_conflict
+                0x0800e078        0xc simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800e078                plc_mbw_draft_slave_conflict
  .text.plc_mbw_validate_draft
-                0x0800e030       0xa8 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
-                0x0800e030                plc_mbw_validate_draft
+                0x0800e084       0xa8 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800e084                plc_mbw_validate_draft
  .text.plc_mbw_commit_draft
-                0x0800e0d8       0x70 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
-                0x0800e0d8                plc_mbw_commit_draft
+                0x0800e12c       0x70 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800e12c                plc_mbw_commit_draft
  .text.plc_mbw_discard_draft
-                0x0800e148        0xc simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
-                0x0800e148                plc_mbw_discard_draft
+                0x0800e19c        0xc simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800e19c                plc_mbw_discard_draft
  .text.plc_mbw_export
-                0x0800e154       0x34 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
-                0x0800e154                plc_mbw_export
+                0x0800e1a8       0x34 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800e1a8                plc_mbw_export
  .text.plc_mbw_import
-                0x0800e188       0x5c simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
-                0x0800e188                plc_mbw_import
+                0x0800e1dc       0x5c simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800e1dc                plc_mbw_import
  .text.plc_mbw_scan
-                0x0800e1e4      0x674 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
-                0x0800e1e4                plc_mbw_scan
+                0x0800e238      0x674 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x0800e238                plc_mbw_scan
  .text.find_hreg
-                0x0800e858       0x34 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
- .text.bit_of   0x0800e88c       0x1a simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
+                0x0800e8ac       0x34 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
+ .text.bit_of   0x0800e8e0       0x1a simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
  .text.drop_front
-                0x0800e8a6       0x2e simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
- .text.crc_ok   0x0800e8d4       0x32 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
+                0x0800e8fa       0x2e simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
+ .text.crc_ok   0x0800e928       0x32 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
  .text.write_hreg.isra.0
-                0x0800e906       0xc6 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
+                0x0800e95a       0xc6 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
  .text.coil_set
-                0x0800e9cc       0x32 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
- *fill*         0x0800e9fe        0x2 
+                0x0800ea20       0x32 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
+ *fill*         0x0800ea52        0x2 
  .text.plc_mbs_execute
-                0x0800ea00      0x5ec simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
-                0x0800ea00                plc_mbs_execute
+                0x0800ea54      0x6bc simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
+                0x0800ea54                plc_mbs_execute
  .text.handle_frame.constprop.0
-                0x0800efec      0x170 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
+                0x0800f110      0x170 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
  .text.plc_mbs_init
-                0x0800f15c       0x3c simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
-                0x0800f15c                plc_mbs_init
+                0x0800f280       0x3c simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
+                0x0800f280                plc_mbs_init
  .text.plc_mbs_scan
-                0x0800f198      0x26c simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
-                0x0800f198                plc_mbs_scan
+                0x0800f2bc      0x26c simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
+                0x0800f2bc                plc_mbs_scan
  .text.rule_flash_write_sector
-                0x0800f404       0x34 simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
+                0x0800f528       0x34 simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
  .text.rule_flash_apply_buffer
-                0x0800f438      0x224 simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
+                0x0800f55c      0x224 simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
  .text.rule_flash_read_header
-                0x0800f65c       0x6c simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
+                0x0800f780       0x6c simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
  .text.rule_flash_read_and_validate
-                0x0800f6c8       0xb0 simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
+                0x0800f7ec       0xb0 simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
  .text.rule_flash_copy_sector
-                0x0800f778       0x5c simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
+                0x0800f89c       0x5c simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
  .text.plc_rule_flash_load
-                0x0800f7d4       0xb8 simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
-                0x0800f7d4                plc_rule_flash_load
+                0x0800f8f8       0xb8 simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
+                0x0800f8f8                plc_rule_flash_load
  .text.plc_rule_flash_save
-                0x0800f88c      0x158 simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
-                0x0800f88c                plc_rule_flash_save
+                0x0800f9b0      0x158 simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
+                0x0800f9b0                plc_rule_flash_save
  .text.tag_fill_range
-                0x0800f9e4       0x34 simple_plc/core/libsplc_core.a(plc_tag.c.obj)
+                0x0800fb08       0x34 simple_plc/core/libsplc_core.a(plc_tag.c.obj)
  .text.tag_table_load_from_flash
-                0x0800fa18       0xec simple_plc/core/libsplc_core.a(plc_tag.c.obj)
-                0x0800fa18                tag_table_load_from_flash
+                0x0800fb3c       0xec simple_plc/core/libsplc_core.a(plc_tag.c.obj)
+                0x0800fb3c                tag_table_load_from_flash
  .text.tag_di_base_index
-                0x0800fb04        0x4 simple_plc/core/libsplc_core.a(plc_tag.c.obj)
-                0x0800fb04                tag_di_base_index
+                0x0800fc28        0x4 simple_plc/core/libsplc_core.a(plc_tag.c.obj)
+                0x0800fc28                tag_di_base_index
  .text.tag_do_base_index
-                0x0800fb08        0xc simple_plc/core/libsplc_core.a(plc_tag.c.obj)
-                0x0800fb08                tag_do_base_index
+                0x0800fc2c        0xc simple_plc/core/libsplc_core.a(plc_tag.c.obj)
+                0x0800fc2c                tag_do_base_index
  .text.tag_ai_base_index
-                0x0800fb14        0xc simple_plc/core/libsplc_core.a(plc_tag.c.obj)
-                0x0800fb14                tag_ai_base_index
+                0x0800fc38        0xc simple_plc/core/libsplc_core.a(plc_tag.c.obj)
+                0x0800fc38                tag_ai_base_index
  .text.tag_vflag_base_index
-                0x0800fb20        0xc simple_plc/core/libsplc_core.a(plc_tag.c.obj)
-                0x0800fb20                tag_vflag_base_index
+                0x0800fc44        0xc simple_plc/core/libsplc_core.a(plc_tag.c.obj)
+                0x0800fc44                tag_vflag_base_index
  .text.tag_vreg_base_index
-                0x0800fb2c        0xc simple_plc/core/libsplc_core.a(plc_tag.c.obj)
-                0x0800fb2c                tag_vreg_base_index
+                0x0800fc50        0xc simple_plc/core/libsplc_core.a(plc_tag.c.obj)
+                0x0800fc50                tag_vreg_base_index
  .text.tag_vreg_retain_base_index
-                0x0800fb38        0xc simple_plc/core/libsplc_core.a(plc_tag.c.obj)
-                0x0800fb38                tag_vreg_retain_base_index
+                0x0800fc5c        0xc simple_plc/core/libsplc_core.a(plc_tag.c.obj)
+                0x0800fc5c                tag_vreg_retain_base_index
  .text.tag_counter_base_index
-                0x0800fb44        0xc simple_plc/core/libsplc_core.a(plc_tag.c.obj)
-                0x0800fb44                tag_counter_base_index
+                0x0800fc68        0xc simple_plc/core/libsplc_core.a(plc_tag.c.obj)
+                0x0800fc68                tag_counter_base_index
  .text.tag_read
-                0x0800fb50       0x14 simple_plc/core/libsplc_core.a(plc_tag.c.obj)
-                0x0800fb50                tag_read
+                0x0800fc74       0x14 simple_plc/core/libsplc_core.a(plc_tag.c.obj)
+                0x0800fc74                tag_read
  .text.tag_write
-                0x0800fb64       0x10 simple_plc/core/libsplc_core.a(plc_tag.c.obj)
-                0x0800fb64                tag_write
+                0x0800fc88       0x10 simple_plc/core/libsplc_core.a(plc_tag.c.obj)
+                0x0800fc88                tag_write
  .text.tag_get_kind
-                0x0800fb74       0x14 simple_plc/core/libsplc_core.a(plc_tag.c.obj)
-                0x0800fb74                tag_get_kind
+                0x0800fc98       0x14 simple_plc/core/libsplc_core.a(plc_tag.c.obj)
+                0x0800fc98                tag_get_kind
  .text.rule_compare
-                0x0800fb88       0x20 simple_plc/core/libsplc_core.a(plc_rule.c.obj)
+                0x0800fcac       0x20 simple_plc/core/libsplc_core.a(plc_rule.c.obj)
  .text.rule_table_load_from_flash
-                0x0800fba8       0x3c simple_plc/core/libsplc_core.a(plc_rule.c.obj)
-                0x0800fba8                rule_table_load_from_flash
+                0x0800fccc       0x3c simple_plc/core/libsplc_core.a(plc_rule.c.obj)
+                0x0800fccc                rule_table_load_from_flash
  .text.rule_runtime_reset
-                0x0800fbe4       0x24 simple_plc/core/libsplc_core.a(plc_rule.c.obj)
-                0x0800fbe4                rule_runtime_reset
+                0x0800fd08       0x24 simple_plc/core/libsplc_core.a(plc_rule.c.obj)
+                0x0800fd08                rule_runtime_reset
  .text.rule_table_commit
-                0x0800fc08       0x70 simple_plc/core/libsplc_core.a(plc_rule.c.obj)
-                0x0800fc08                rule_table_commit
+                0x0800fd2c       0x70 simple_plc/core/libsplc_core.a(plc_rule.c.obj)
+                0x0800fd2c                rule_table_commit
  .text.rule_state_machine_step
-                0x0800fc78      0x188 simple_plc/core/libsplc_core.a(plc_rule.c.obj)
-                0x0800fc78                rule_state_machine_step
+                0x0800fd9c      0x188 simple_plc/core/libsplc_core.a(plc_rule.c.obj)
+                0x0800fd9c                rule_state_machine_step
  .text.rule_scan
-                0x0800fe00       0x48 simple_plc/core/libsplc_core.a(plc_rule.c.obj)
-                0x0800fe00                rule_scan
+                0x0800ff24       0x48 simple_plc/core/libsplc_core.a(plc_rule.c.obj)
+                0x0800ff24                rule_scan
  .text.check_trigger_edge
-                0x0800fe48       0x3c simple_plc/core/libsplc_core.a(plc_rule_eval.c.obj)
-                0x0800fe48                check_trigger_edge
+                0x0800ff6c       0x3c simple_plc/core/libsplc_core.a(plc_rule_eval.c.obj)
+                0x0800ff6c                check_trigger_edge
  .text.trigger_timing_ok
-                0x0800fe84       0x4e simple_plc/core/libsplc_core.a(plc_rule_eval.c.obj)
-                0x0800fe84                trigger_timing_ok
+                0x0800ffa8       0x4e simple_plc/core/libsplc_core.a(plc_rule_eval.c.obj)
+                0x0800ffa8                trigger_timing_ok
  .text.compare_ok
-                0x0800fed2       0x62 simple_plc/core/libsplc_core.a(plc_rule_eval.c.obj)
-                0x0800fed2                compare_ok
+                0x0800fff6       0x62 simple_plc/core/libsplc_core.a(plc_rule_eval.c.obj)
+                0x0800fff6                compare_ok
  .text.splc_bits_to_f32
-                0x0800ff34        0x6 simple_plc/core/libsplc_core.a(plc_rule_eval.c.obj)
-                0x0800ff34                splc_bits_to_f32
+                0x08010058        0x6 simple_plc/core/libsplc_core.a(plc_rule_eval.c.obj)
+                0x08010058                splc_bits_to_f32
  .text.splc_f32_to_bits
-                0x0800ff3a        0xc simple_plc/core/libsplc_core.a(plc_rule_eval.c.obj)
-                0x0800ff3a                splc_f32_to_bits
- *fill*         0x0800ff46        0x2 
+                0x0801005e        0xc simple_plc/core/libsplc_core.a(plc_rule_eval.c.obj)
+                0x0801005e                splc_f32_to_bits
+ *fill*         0x0801006a        0x2 
  .text.compare_ok_f
-                0x0800ff48       0xb0 simple_plc/core/libsplc_core.a(plc_rule_eval.c.obj)
-                0x0800ff48                compare_ok_f
+                0x0801006c       0xb0 simple_plc/core/libsplc_core.a(plc_rule_eval.c.obj)
+                0x0801006c                compare_ok_f
  .text.execute_action
-                0x0800fff8       0xba simple_plc/core/libsplc_core.a(plc_rule_action.c.obj)
-                0x0800fff8                execute_action
+                0x0801011c       0xba simple_plc/core/libsplc_core.a(plc_rule_action.c.obj)
+                0x0801011c                execute_action
  .text.sx_gpio_init
-                0x080100b2       0x52 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_gpio.c.obj)
-                0x080100b2                sx_gpio_init
+                0x080101d6       0x52 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_gpio.c.obj)
+                0x080101d6                sx_gpio_init
  .text.sx_gpio_read
-                0x08010104       0x12 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_gpio.c.obj)
-                0x08010104                sx_gpio_read
+                0x08010228       0x12 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_gpio.c.obj)
+                0x08010228                sx_gpio_read
  .text.sx_gpio_write
-                0x08010116        0xe simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_gpio.c.obj)
-                0x08010116                sx_gpio_write
+                0x0801023a        0xe simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_gpio.c.obj)
+                0x0801023a                sx_gpio_write
  .text.sx_flash_clear_error_flags
-                0x08010124       0x28 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
+                0x08010248       0x28 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
  .text.sx_flash_program
-                0x0801014c       0xa0 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
+                0x08010270       0xa0 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
  .text.sx_flash_lock
-                0x080101ec        0x4 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
-                0x080101ec                sx_flash_lock
+                0x08010310        0x4 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
+                0x08010310                sx_flash_lock
  .text.sx_flash_unlock
-                0x080101f0        0x4 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
-                0x080101f0                sx_flash_unlock
+                0x08010314        0x4 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
+                0x08010314                sx_flash_unlock
  .text.sx_flash_read
-                0x080101f4        0xa simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
-                0x080101f4                sx_flash_read
+                0x08010318        0xa simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
+                0x08010318                sx_flash_read
  .text.sx_flash_write
-                0x080101fe        0x6 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
-                0x080101fe                sx_flash_write
+                0x08010322        0x6 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
+                0x08010322                sx_flash_write
  .text.sx_flash_write_quiet
-                0x08010204        0x6 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
-                0x08010204                sx_flash_write_quiet
- *fill*         0x0801020a        0x2 
+                0x08010328        0x6 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
+                0x08010328                sx_flash_write_quiet
+ *fill*         0x0801032e        0x2 
  .text.sx_flash_erase
-                0x0801020c       0xb0 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
-                0x0801020c                sx_flash_erase
+                0x08010330       0xb0 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
+                0x08010330                sx_flash_erase
  .text.find_binding
-                0x080102bc       0x30 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
+                0x080103e0       0x30 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
  .text.arm_rx_byte
-                0x080102ec        0xc simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
+                0x08010410        0xc simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
  .text.sx_uart_init
-                0x080102f8       0x48 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
-                0x080102f8                sx_uart_init
+                0x0801041c       0x48 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
+                0x0801041c                sx_uart_init
  .text.sx_uart_read
-                0x08010340       0x3c simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
-                0x08010340                sx_uart_read
+                0x08010464       0x3c simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
+                0x08010464                sx_uart_read
  .text.sx_uart_write
-                0x0801037c       0x16 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
-                0x0801037c                sx_uart_write
+                0x080104a0       0x16 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
+                0x080104a0                sx_uart_write
  .text.sx_uart_set_rx_enabled
-                0x08010392       0x38 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
-                0x08010392                sx_uart_set_rx_enabled
+                0x080104b6       0x38 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
+                0x080104b6                sx_uart_set_rx_enabled
  .text.sx_uart_reconfigure
-                0x080103ca       0xb6 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
-                0x080103ca                sx_uart_reconfigure
+                0x080104ee       0xb6 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
+                0x080104ee                sx_uart_reconfigure
  .text.HAL_UART_RxCpltCallback
-                0x08010480       0x22 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
-                0x08010480                HAL_UART_RxCpltCallback
+                0x080105a4       0x22 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
+                0x080105a4                HAL_UART_RxCpltCallback
  .text.HAL_UART_TxCpltCallback
-                0x080104a2       0x1a simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
-                0x080104a2                HAL_UART_TxCpltCallback
+                0x080105c6       0x1a simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
+                0x080105c6                HAL_UART_TxCpltCallback
  .text.HAL_UART_ErrorCallback
-                0x080104bc       0x12 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
-                0x080104bc                HAL_UART_ErrorCallback
+                0x080105e0       0x12 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_uart.c.obj)
+                0x080105e0                HAL_UART_ErrorCallback
  .text.sx_get_tick_ms
-                0x080104ce        0x4 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_time.c.obj)
-                0x080104ce                sx_get_tick_ms
- *fill*         0x080104d2        0x2 
+                0x080105f2        0x4 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_time.c.obj)
+                0x080105f2                sx_get_tick_ms
+ *fill*         0x080105f6        0x2 
  .text.sx_system_reset
-                0x080104d4       0x24 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_system.c.obj)
-                0x080104d4                sx_system_reset
+                0x080105f8       0x24 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_system.c.obj)
+                0x080105f8                sx_system_reset
  .text.sx_power_register_low_voltage_callback
-                0x080104f8       0x40 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_pwd.c.obj)
-                0x080104f8                sx_power_register_low_voltage_callback
+                0x0801061c       0x40 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_pwd.c.obj)
+                0x0801061c                sx_power_register_low_voltage_callback
  .text.PVD_AVD_IRQHandler
-                0x08010538        0x4 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_pwd.c.obj)
-                0x08010538                PVD_AVD_IRQHandler
+                0x0801065c        0x4 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_pwd.c.obj)
+                0x0801065c                PVD_AVD_IRQHandler
  .text.HAL_PWR_PVDCallback
-                0x0801053c       0x10 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_pwd.c.obj)
-                0x0801053c                HAL_PWR_PVDCallback
+                0x08010660       0x10 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_pwd.c.obj)
+                0x08010660                HAL_PWR_PVDCallback
  .text.sx_adc_read
-                0x0801054c       0x2e simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_adc.c.obj)
-                0x0801054c                sx_adc_read
+                0x08010670       0x2e simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_adc.c.obj)
+                0x08010670                sx_adc_read
  .text.usb_output
-                0x0801057a       0x2a simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x0801069e       0x2a simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
  .text.splc_usb_cdc_process
-                0x080105a4       0x5c simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
-                0x080105a4                splc_usb_cdc_process
+                0x080106c8       0x5c simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x080106c8                splc_usb_cdc_process
  .text.usb_process
-                0x08010600        0x4 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x08010724        0x4 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
  .text.splc_usb_cdc_init
-                0x08010604       0x74 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
-                0x08010604                splc_usb_cdc_init
+                0x08010728       0x74 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x08010728                splc_usb_cdc_init
  .text.splc_usb_irq
-                0x08010678        0x6 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
-                0x08010678                splc_usb_irq
- *fill*         0x0801067e        0x2 
+                0x0801079c        0x6 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x0801079c                splc_usb_irq
+ *fill*         0x080107a2        0x2 
  .text.tud_mount_cb
-                0x08010680       0x14 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
-                0x08010680                tud_mount_cb
+                0x080107a4       0x14 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x080107a4                tud_mount_cb
  .text.tud_umount_cb
-                0x08010694       0x14 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
-                0x08010694                tud_umount_cb
+                0x080107b8       0x14 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x080107b8                tud_umount_cb
  .text.tud_suspend_cb
-                0x080106a8       0x14 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
-                0x080106a8                tud_suspend_cb
+                0x080107cc       0x14 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x080107cc                tud_suspend_cb
  .text.tud_resume_cb
-                0x080106bc       0x14 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
-                0x080106bc                tud_resume_cb
+                0x080107e0       0x14 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x080107e0                tud_resume_cb
  .text.drain_rx
-                0x080106d0       0x1e simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
- .text.finish   0x080106ee       0x32 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
- .text.put_crc  0x08010720       0x16 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+                0x080107f4       0x1e simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+ .text.finish   0x08010812       0x32 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+ .text.put_crc  0x08010844       0x16 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
  .text.can_start
-                0x08010736       0x34 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+                0x0801085a       0x34 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
  .text.send_frame.isra.0
-                0x0801076a       0xe4 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+                0x0801088e       0xe4 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
  .text.modbus_rtu_master_init
-                0x0801084e       0x4e simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
-                0x0801084e                modbus_rtu_master_init
+                0x08010972       0x4e simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+                0x08010972                modbus_rtu_master_init
  .text.modbus_rtu_master_read_fc
-                0x0801089c       0x6e simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
-                0x0801089c                modbus_rtu_master_read_fc
+                0x080109c0       0x6e simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+                0x080109c0                modbus_rtu_master_read_fc
  .text.modbus_rtu_master_read
-                0x0801090a       0x14 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
-                0x0801090a                modbus_rtu_master_read
+                0x08010a2e       0x14 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+                0x08010a2e                modbus_rtu_master_read
  .text.modbus_rtu_master_write
-                0x0801091e       0xa8 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
-                0x0801091e                modbus_rtu_master_write
+                0x08010a42       0xa8 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+                0x08010a42                modbus_rtu_master_write
  .text.modbus_rtu_master_write_fc
-                0x080109c6      0x116 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
-                0x080109c6                modbus_rtu_master_write_fc
+                0x08010aea      0x116 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+                0x08010aea                modbus_rtu_master_write_fc
  .text.modbus_rtu_master_poll
-                0x08010adc      0x1d6 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
-                0x08010adc                modbus_rtu_master_poll
+                0x08010c00      0x1d6 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+                0x08010c00                modbus_rtu_master_poll
  .text.modbus_rtu_master_regs
-                0x08010cb2        0x6 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
-                0x08010cb2                modbus_rtu_master_regs
+                0x08010dd6        0x6 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+                0x08010dd6                modbus_rtu_master_regs
  .text.modbus_rtu_master_error
-                0x08010cb8        0x6 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
-                0x08010cb8                modbus_rtu_master_error
+                0x08010ddc        0x6 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+                0x08010ddc                modbus_rtu_master_error
  .text.modbus_rtu_master_exception
-                0x08010cbe        0x6 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
-                0x08010cbe                modbus_rtu_master_exception
+                0x08010de2        0x6 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+                0x08010de2                modbus_rtu_master_exception
  .text.modbus_rtu_master_set_min_gap_ms
-                0x08010cc4        0x4 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
-                0x08010cc4                modbus_rtu_master_set_min_gap_ms
+                0x08010de8        0x4 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+                0x08010de8                modbus_rtu_master_set_min_gap_ms
  .text.modbus_rtu_master_is_busy
-                0x08010cc8       0x12 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
-                0x08010cc8                modbus_rtu_master_is_busy
- *fill*         0x08010cda        0x2 
+                0x08010dec       0x12 simple_plc/port/libsplc_port.a(modbus_serial.c.obj)
+                0x08010dec                modbus_rtu_master_is_busy
+ *fill*         0x08010dfe        0x2 
  .text.link_pump
-                0x08010cdc       0x10 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
+                0x08010e00       0x10 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
  .text.link_process
-                0x08010cec       0x14 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
+                0x08010e10       0x14 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
  .text.link_write
-                0x08010d00       0x78 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
+                0x08010e24       0x78 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
  .text.link_read
-                0x08010d78       0xa4 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
+                0x08010e9c       0xa4 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
  .text.splc_link_input
-                0x08010e1c       0x88 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
-                0x08010e1c                splc_link_input
+                0x08010f40       0x88 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
+                0x08010f40                splc_link_input
  .text.splc_link_register
-                0x08010ea4       0xc4 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
-                0x08010ea4                splc_link_register
+                0x08010fc8       0xc4 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
+                0x08010fc8                splc_link_register
  .text.splc_link_unregister
-                0x08010f68       0x28 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
-                0x08010f68                splc_link_unregister
+                0x0801108c       0x28 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
+                0x0801108c                splc_link_unregister
  .text.splc_link_get_transport
-                0x08010f90       0x40 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
-                0x08010f90                splc_link_get_transport
+                0x080110b4       0x40 simple_plc/port/libsplc_port.a(modbus_link.c.obj)
+                0x080110b4                splc_link_get_transport
  .text.splc_cqueue_init_static
-                0x08010fd0       0x26 simple_plc/utils/libsplc_utils.a(splc_cqueue.c.obj)
-                0x08010fd0                splc_cqueue_init_static
+                0x080110f4       0x26 simple_plc/utils/libsplc_utils.a(splc_cqueue.c.obj)
+                0x080110f4                splc_cqueue_init_static
  .text.splc_cqueue_receive
-                0x08010ff6       0x36 simple_plc/utils/libsplc_utils.a(splc_cqueue.c.obj)
-                0x08010ff6                splc_cqueue_receive
+                0x0801111a       0x36 simple_plc/utils/libsplc_utils.a(splc_cqueue.c.obj)
+                0x0801111a                splc_cqueue_receive
  .text.splc_cqueue_send
-                0x0801102c       0x38 simple_plc/utils/libsplc_utils.a(splc_cqueue.c.obj)
-                0x0801102c                splc_cqueue_send
+                0x08011150       0x38 simple_plc/utils/libsplc_utils.a(splc_cqueue.c.obj)
+                0x08011150                splc_cqueue_send
  .text.splc_epoch_to_datetime
-                0x08011064       0xfc simple_plc/utils/libsplc_utils.a(splc_epoch.c.obj)
-                0x08011064                splc_epoch_to_datetime
+                0x08011188       0xfc simple_plc/utils/libsplc_utils.a(splc_epoch.c.obj)
+                0x08011188                splc_epoch_to_datetime
  .text.splc_datetime_to_epoch
-                0x08011160      0x14c simple_plc/utils/libsplc_utils.a(splc_epoch.c.obj)
-                0x08011160                splc_datetime_to_epoch
+                0x08011284      0x14c simple_plc/utils/libsplc_utils.a(splc_epoch.c.obj)
+                0x08011284                splc_datetime_to_epoch
  .text.splc_epoch_to_hhmm
-                0x080112ac       0x58 simple_plc/utils/libsplc_utils.a(splc_epoch.c.obj)
-                0x080112ac                splc_epoch_to_hhmm
- .text.w_ch     0x08011304       0x1c simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
- .text.w_str    0x08011320       0x12 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
- .text.w_u32    0x08011332       0x40 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
- *fill*         0x08011372        0x2 
- .text.w_num    0x08011374       0x64 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
- .text.w_done   0x080113d8       0x1c simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+                0x080113d0       0x58 simple_plc/utils/libsplc_utils.a(splc_epoch.c.obj)
+                0x080113d0                splc_epoch_to_hhmm
+ .text.w_ch     0x08011428       0x1c simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+ .text.w_str    0x08011444       0x12 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+ .text.w_u32    0x08011456       0x40 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+ *fill*         0x08011496        0x2 
+ .text.w_num    0x08011498       0x64 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+ .text.w_done   0x080114fc       0x1c simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
  .text.real_mul_small
-                0x080113f4       0x42 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
- *fill*         0x08011436        0x2 
- .text.w_real   0x08011438      0x278 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
- .text.w_val    0x080116b0       0x3a simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+                0x08011518       0x42 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+ *fill*         0x0801155a        0x2 
+ .text.w_real   0x0801155c      0x278 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+ .text.w_val    0x080117d4       0x3a simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
  .text.in_valid
-                0x080116ea       0x10 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
- *fill*         0x080116fa        0x2 
+                0x0801180e       0x10 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+ *fill*         0x0801181e        0x2 
  .text.parse_at
-                0x080116fc      0x120 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+                0x08011820      0x120 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
  .text.splc_mqtt_fmt_deadband_threshold
-                0x0801181c       0x98 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
-                0x0801181c                splc_mqtt_fmt_deadband_threshold
+                0x08011940       0x98 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+                0x08011940                splc_mqtt_fmt_deadband_threshold
  .text.splc_mqtt_fmt_compact
-                0x080118b4       0xb0 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
-                0x080118b4                splc_mqtt_fmt_compact
+                0x080119d8       0xb0 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+                0x080119d8                splc_mqtt_fmt_compact
  .text.splc_mqtt_fmt_raw
-                0x08011964       0x38 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
-                0x08011964                splc_mqtt_fmt_raw
+                0x08011a88       0x38 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+                0x08011a88                splc_mqtt_fmt_raw
  .text.splc_mqtt_fmt_check_template
-                0x0801199c       0xb4 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
-                0x0801199c                splc_mqtt_fmt_check_template
+                0x08011ac0       0xb4 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+                0x08011ac0                splc_mqtt_fmt_check_template
  .text.splc_mqtt_fmt_custom
-                0x08011a50      0x12a simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
-                0x08011a50                splc_mqtt_fmt_custom
- .text.get_1    0x08011b7a       0x10 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
- .text.put_1    0x08011b8a        0xe simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
- .text.get_2    0x08011b98       0x16 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
- .text.put_2    0x08011bae       0x14 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08011b74      0x12a simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+                0x08011b74                splc_mqtt_fmt_custom
+ .text.get_1    0x08011c9e       0x10 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+ .text.put_1    0x08011cae        0xe simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+ .text.get_2    0x08011cbc       0x16 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+ .text.put_2    0x08011cd2       0x14 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .text.swap_regs
-                0x08011bc2       0x1a simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
- .text.recv     0x08011bdc       0x34 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
- .text.flush    0x08011c10       0x18 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08011ce6       0x1a simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+ .text.recv     0x08011d00       0x34 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+ .text.flush    0x08011d34       0x18 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .text.splc_nmbs_crc_calc
-                0x08011c28       0x32 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
-                0x08011c28                splc_nmbs_crc_calc
+                0x08011d4c       0x32 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08011d4c                splc_nmbs_crc_calc
  .text.recv_msg_footer
-                0x08011c5a       0x3a simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08011d7e       0x3a simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .text.recv_msg_header
-                0x08011c94       0xde simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08011db8       0xde simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .text.send_msg
-                0x08011d72       0x4e simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08011e96       0x4e simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .text.recv_res_header
-                0x08011dc0       0x82 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08011ee4       0x82 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .text.recv_read_discrete_res
-                0x08011e42       0x4e simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08011f66       0x4e simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .text.recv_read_registers_res
-                0x08011e90       0x5c simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08011fb4       0x5c simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .text.put_msg_header
-                0x08011eec       0x52 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08012010       0x52 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .text.send_exception_msg
-                0x08011f3e       0x30 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08012062       0x30 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .text.handle_read_discrete
-                0x08011f6e       0xe8 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08012092       0xe8 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .text.handle_read_registers
-                0x08012056       0xea simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x0801217a       0xea simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .text.splc_nmbs_create
-                0x08012140       0x58 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
-                0x08012140                splc_nmbs_create
+                0x08012264       0x58 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08012264                splc_nmbs_create
  .text.splc_nmbs_set_read_timeout
-                0x08012198        0x6 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
-                0x08012198                splc_nmbs_set_read_timeout
+                0x080122bc        0x6 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x080122bc                splc_nmbs_set_read_timeout
  .text.splc_nmbs_set_byte_timeout
-                0x0801219e        0x6 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
-                0x0801219e                splc_nmbs_set_byte_timeout
+                0x080122c2        0x6 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x080122c2                splc_nmbs_set_byte_timeout
  .text.splc_nmbs_platform_conf_create
-                0x080121a4       0x28 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
-                0x080121a4                splc_nmbs_platform_conf_create
+                0x080122c8       0x28 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x080122c8                splc_nmbs_platform_conf_create
  .text.splc_recv_write_single_coil_res
-                0x080121cc       0x48 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
-                0x080121cc                splc_recv_write_single_coil_res
+                0x080122f0       0x48 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x080122f0                splc_recv_write_single_coil_res
  .text.splc_recv_read_file_record_res
-                0x08012214       0x94 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
-                0x08012214                splc_recv_read_file_record_res
+                0x08012338       0x94 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08012338                splc_recv_read_file_record_res
  .text.splc_recv_write_file_record_res
-                0x080122a8       0xbe simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
-                0x080122a8                splc_recv_write_file_record_res
+                0x080123cc       0xbe simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x080123cc                splc_recv_write_file_record_res
  .text.splc_recv_read_device_identification_res
-                0x08012366      0x128 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
-                0x08012366                splc_recv_read_device_identification_res
- *fill*         0x0801248e        0x2 
+                0x0801248a      0x128 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x0801248a                splc_recv_read_device_identification_res
+ *fill*         0x080125b2        0x2 
  .text.splc_nmbs_callbacks_create
-                0x08012490       0x18 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
-                0x08012490                splc_nmbs_callbacks_create
+                0x080125b4       0x18 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x080125b4                splc_nmbs_callbacks_create
  .text.splc_nmbs_server_create
-                0x080124a8       0x54 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
-                0x080124a8                splc_nmbs_server_create
+                0x080125cc       0x54 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x080125cc                splc_nmbs_server_create
  .text.splc_nmbs_server_poll
-                0x080124fc      0xad6 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
-                0x080124fc                splc_nmbs_server_poll
- *fill*         0x08012fd2        0x2 
+                0x08012620      0xad6 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x08012620                splc_nmbs_server_poll
+ *fill*         0x080130f6        0x2 
  .text.splc_nmbs_strerror
-                0x08012fd4       0x1c simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
-                0x08012fd4                splc_nmbs_strerror
+                0x080130f8       0x1c simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x080130f8                splc_nmbs_strerror
  .text.stream_claim
-                0x08012ff0       0x12 simple_plc/libs/libtinyusb.a(tusb.c.obj)
+                0x08013114       0x12 simple_plc/libs/libtinyusb.a(tusb.c.obj)
  .text.stream_xfer
-                0x08013002       0x32 simple_plc/libs/libtinyusb.a(tusb.c.obj)
+                0x08013126       0x32 simple_plc/libs/libtinyusb.a(tusb.c.obj)
  .text.stream_release.isra.0
-                0x08013034        0xe simple_plc/libs/libtinyusb.a(tusb.c.obj)
- *fill*         0x08013042        0x2 
+                0x08013158        0xe simple_plc/libs/libtinyusb.a(tusb.c.obj)
+ *fill*         0x08013166        0x2 
  .text.tusb_rhport_init
-                0x08013044       0x64 simple_plc/libs/libtinyusb.a(tusb.c.obj)
-                0x08013044                tusb_rhport_init
+                0x08013168       0x64 simple_plc/libs/libtinyusb.a(tusb.c.obj)
+                0x08013168                tusb_rhport_init
  .text.tu_edpt_claim
-                0x080130a8       0x22 simple_plc/libs/libtinyusb.a(tusb.c.obj)
-                0x080130a8                tu_edpt_claim
+                0x080131cc       0x22 simple_plc/libs/libtinyusb.a(tusb.c.obj)
+                0x080131cc                tu_edpt_claim
  .text.tu_edpt_release
-                0x080130ca       0x1c simple_plc/libs/libtinyusb.a(tusb.c.obj)
-                0x080130ca                tu_edpt_release
+                0x080131ee       0x1c simple_plc/libs/libtinyusb.a(tusb.c.obj)
+                0x080131ee                tu_edpt_release
  .text.tu_bind_driver_to_ep_itf
-                0x080130e6       0x64 simple_plc/libs/libtinyusb.a(tusb.c.obj)
-                0x080130e6                tu_bind_driver_to_ep_itf
+                0x0801320a       0x64 simple_plc/libs/libtinyusb.a(tusb.c.obj)
+                0x0801320a                tu_bind_driver_to_ep_itf
  .text.tu_edpt_stream_init
-                0x0801314a       0x2a simple_plc/libs/libtinyusb.a(tusb.c.obj)
-                0x0801314a                tu_edpt_stream_init
+                0x0801326e       0x2a simple_plc/libs/libtinyusb.a(tusb.c.obj)
+                0x0801326e                tu_edpt_stream_init
  .text.tu_edpt_stream_write_zlp_if_needed
-                0x08013174       0x46 simple_plc/libs/libtinyusb.a(tusb.c.obj)
-                0x08013174                tu_edpt_stream_write_zlp_if_needed
+                0x08013298       0x46 simple_plc/libs/libtinyusb.a(tusb.c.obj)
+                0x08013298                tu_edpt_stream_write_zlp_if_needed
  .text.tu_edpt_stream_write_xfer
-                0x080131ba       0x86 simple_plc/libs/libtinyusb.a(tusb.c.obj)
-                0x080131ba                tu_edpt_stream_write_xfer
+                0x080132de       0x86 simple_plc/libs/libtinyusb.a(tusb.c.obj)
+                0x080132de                tu_edpt_stream_write_xfer
  .text.tu_edpt_stream_write
-                0x08013240       0x48 simple_plc/libs/libtinyusb.a(tusb.c.obj)
-                0x08013240                tu_edpt_stream_write
+                0x08013364       0x48 simple_plc/libs/libtinyusb.a(tusb.c.obj)
+                0x08013364                tu_edpt_stream_write
  .text.tu_edpt_stream_read_xfer
-                0x08013288       0x94 simple_plc/libs/libtinyusb.a(tusb.c.obj)
-                0x08013288                tu_edpt_stream_read_xfer
+                0x080133ac       0x94 simple_plc/libs/libtinyusb.a(tusb.c.obj)
+                0x080133ac                tu_edpt_stream_read_xfer
  .text.tu_edpt_stream_read
-                0x0801331c       0x1a simple_plc/libs/libtinyusb.a(tusb.c.obj)
-                0x0801331c                tu_edpt_stream_read
+                0x08013440       0x1a simple_plc/libs/libtinyusb.a(tusb.c.obj)
+                0x08013440                tu_edpt_stream_read
  .text.advance_index
-                0x08013336       0x18 simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
+                0x0801345a       0x18 simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
  .text.tu_fifo_config
-                0x0801334e       0x1c simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
-                0x0801334e                tu_fifo_config
+                0x08013472       0x1c simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
+                0x08013472                tu_fifo_config
  .text.tu_fifo_clear
-                0x0801336a        0x8 simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
-                0x0801336a                tu_fifo_clear
+                0x0801348e        0x8 simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
+                0x0801348e                tu_fifo_clear
  .text.tu_fifo_set_overwritable
-                0x08013372        0xa simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
-                0x08013372                tu_fifo_set_overwritable
+                0x08013496        0xa simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
+                0x08013496                tu_fifo_set_overwritable
  .text.tu_hwfifo_write
-                0x0801337c       0x32 simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
-                0x0801337c                tu_hwfifo_write
+                0x080134a0       0x32 simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
+                0x080134a0                tu_hwfifo_write
  .text.tu_hwfifo_read
-                0x080133ae       0x30 simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
-                0x080133ae                tu_hwfifo_read
+                0x080134d2       0x30 simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
+                0x080134d2                tu_hwfifo_read
  .text.tu_fifo_peek_n_access_mode
-                0x080133de      0x12c simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
-                0x080133de                tu_fifo_peek_n_access_mode
+                0x08013502      0x12c simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
+                0x08013502                tu_fifo_peek_n_access_mode
  .text.tu_fifo_read_n_access_mode
-                0x0801350a       0x2a simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
-                0x0801350a                tu_fifo_read_n_access_mode
+                0x0801362e       0x2a simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
+                0x0801362e                tu_fifo_read_n_access_mode
  .text.tu_fifo_write_n_access_mode
-                0x08013534      0x18e simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
-                0x08013534                tu_fifo_write_n_access_mode
+                0x08013658      0x18e simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
+                0x08013658                tu_fifo_write_n_access_mode
  .text.tu_fifo_get_read_info
-                0x080136c2       0x74 simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
-                0x080136c2                tu_fifo_get_read_info
+                0x080137e6       0x74 simple_plc/libs/libtinyusb.a(tusb_fifo.c.obj)
+                0x080137e6                tu_fifo_get_read_info
  .text.tud_vendor_control_xfer_cb
-                0x08013736        0x4 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013736                tud_vendor_control_xfer_cb
- *fill*         0x0801373a        0x2 
+                0x0801385a        0x4 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x0801385a                tud_vendor_control_xfer_cb
+ *fill*         0x0801385e        0x2 
  .text.configuration_reset
-                0x0801373c       0x88 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013860       0x88 simple_plc/libs/libtinyusb.a(usbd.c.obj)
  .text.usbd_int_set
-                0x080137c4       0x14 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x080137c4                usbd_int_set
+                0x080138e8       0x14 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x080138e8                usbd_int_set
  .text.invoke_class_control.constprop.0.isra.0
-                0x080137d8       0x10 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x080138fc       0x10 simple_plc/libs/libtinyusb.a(usbd.c.obj)
  .text.tud_event_hook_cb
-                0x080137e8        0x2 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x080137e8                tud_event_hook_cb
+                0x0801390c        0x2 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x0801390c                tud_event_hook_cb
  .text.tud_sof_cb
-                0x080137ea        0x2 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x080137ea                tud_sof_cb
+                0x0801390e        0x2 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x0801390e                tud_sof_cb
  .text.tud_descriptor_bos_cb
-                0x080137ec        0x4 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x080137ec                tud_descriptor_bos_cb
+                0x08013910        0x4 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013910                tud_descriptor_bos_cb
  .text.tud_descriptor_device_qualifier_cb
-                0x080137f0        0x4 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x080137f0                tud_descriptor_device_qualifier_cb
+                0x08013914        0x4 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013914                tud_descriptor_device_qualifier_cb
  .text.tud_descriptor_other_speed_configuration_cb
-                0x080137f4        0x4 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x080137f4                tud_descriptor_other_speed_configuration_cb
+                0x08013918        0x4 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013918                tud_descriptor_other_speed_configuration_cb
  .text.usbd_app_driver_get_cb
-                0x080137f8        0x8 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x080137f8                usbd_app_driver_get_cb
+                0x0801391c        0x8 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x0801391c                usbd_app_driver_get_cb
  .text.tud_mounted
-                0x08013800       0x10 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013800                tud_mounted
+                0x08013924       0x10 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013924                tud_mounted
  .text.tud_suspended
-                0x08013810       0x10 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013810                tud_suspended
+                0x08013934       0x10 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013934                tud_suspended
  .text.tud_rhport_init
-                0x08013820       0xd0 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013820                tud_rhport_init
+                0x08013944       0xd0 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013944                tud_rhport_init
  .text.dcd_event_handler
-                0x080138f0      0x26c simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x080138f0                dcd_event_handler
+                0x08013a14      0x26c simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013a14                dcd_event_handler
  .text.usbd_edpt_open
-                0x08013b5c       0x30 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013b5c                usbd_edpt_open
+                0x08013c80       0x30 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013c80                usbd_edpt_open
  .text.usbd_edpt_claim
-                0x08013b8c       0x1c simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013b8c                usbd_edpt_claim
+                0x08013cb0       0x1c simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013cb0                usbd_edpt_claim
  .text.usbd_edpt_release
-                0x08013ba8       0x1c simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013ba8                usbd_edpt_release
+                0x08013ccc       0x1c simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013ccc                usbd_edpt_release
  .text.usbd_edpt_xfer
-                0x08013bc4       0x60 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013bc4                usbd_edpt_xfer
+                0x08013ce8       0x60 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013ce8                usbd_edpt_xfer
  .text.tud_control_status
-                0x08013c24       0x28 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013c24                tud_control_status
+                0x08013d48       0x28 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013d48                tud_control_status
  .text.data_stage_xact
-                0x08013c4c       0x64 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013d70       0x64 simple_plc/libs/libtinyusb.a(usbd.c.obj)
  .text.tud_control_xfer
-                0x08013cb0       0x4c simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013cb0                tud_control_xfer
+                0x08013dd4       0x4c simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013dd4                tud_control_xfer
  .text.usbd_edpt_xfer_fifo
-                0x08013cfc       0x60 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013cfc                usbd_edpt_xfer_fifo
+                0x08013e20       0x60 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013e20                usbd_edpt_xfer_fifo
  .text.usbd_edpt_stall
-                0x08013d5c       0x30 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013d5c                usbd_edpt_stall
+                0x08013e80       0x30 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013e80                usbd_edpt_stall
  .text.usbd_edpt_clear_stall
-                0x08013d8c       0x40 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013d8c                usbd_edpt_clear_stall
+                0x08013eb0       0x40 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013eb0                usbd_edpt_clear_stall
  .text.usbd_edpt_stalled
-                0x08013dcc       0x1c simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013dcc                usbd_edpt_stalled
+                0x08013ef0       0x1c simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013ef0                usbd_edpt_stalled
  .text.tud_task_ext
-                0x08013de8      0x670 simple_plc/libs/libtinyusb.a(usbd.c.obj)
-                0x08013de8                tud_task_ext
+                0x08013f0c      0x670 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08013f0c                tud_task_ext
  .text.tud_cdc_rx_cb
-                0x08014458        0x2 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x08014458                tud_cdc_rx_cb
+                0x0801457c        0x2 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x0801457c                tud_cdc_rx_cb
  .text.tud_cdc_rx_wanted_cb
-                0x0801445a        0x2 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x0801445a                tud_cdc_rx_wanted_cb
+                0x0801457e        0x2 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x0801457e                tud_cdc_rx_wanted_cb
  .text.tud_cdc_tx_complete_cb
-                0x0801445c        0x2 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x0801445c                tud_cdc_tx_complete_cb
+                0x08014580        0x2 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x08014580                tud_cdc_tx_complete_cb
  .text.tud_cdc_notify_complete_cb
-                0x0801445e        0x2 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x0801445e                tud_cdc_notify_complete_cb
+                0x08014582        0x2 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x08014582                tud_cdc_notify_complete_cb
  .text.tud_cdc_line_state_cb
-                0x08014460        0x2 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x08014460                tud_cdc_line_state_cb
+                0x08014584        0x2 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x08014584                tud_cdc_line_state_cb
  .text.tud_cdc_line_coding_cb
-                0x08014462        0x2 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x08014462                tud_cdc_line_coding_cb
+                0x08014586        0x2 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x08014586                tud_cdc_line_coding_cb
  .text.tud_cdc_send_break_cb
-                0x08014464        0x2 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x08014464                tud_cdc_send_break_cb
- *fill*         0x08014466        0x2 
+                0x08014588        0x2 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x08014588                tud_cdc_send_break_cb
+ *fill*         0x0801458a        0x2 
  .text.tud_cdc_n_connected
-                0x08014468       0x28 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x08014468                tud_cdc_n_connected
+                0x0801458c       0x28 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x0801458c                tud_cdc_n_connected
  .text.tud_cdc_n_available
-                0x08014490       0x2c simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x08014490                tud_cdc_n_available
+                0x080145b4       0x2c simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x080145b4                tud_cdc_n_available
  .text.tud_cdc_n_read
-                0x080144bc       0x10 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x080144bc                tud_cdc_n_read
+                0x080145e0       0x10 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x080145e0                tud_cdc_n_read
  .text.tud_cdc_n_write
-                0x080144cc       0x10 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x080144cc                tud_cdc_n_write
+                0x080145f0       0x10 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x080145f0                tud_cdc_n_write
  .text.tud_cdc_n_write_flush
-                0x080144dc       0x10 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x080144dc                tud_cdc_n_write_flush
+                0x08014600       0x10 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x08014600                tud_cdc_n_write_flush
  .text.cdcd_init
-                0x080144ec       0x58 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x080144ec                cdcd_init
+                0x08014610       0x58 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x08014610                cdcd_init
  .text.cdcd_deinit
-                0x08014544        0x4 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x08014544                cdcd_deinit
+                0x08014668        0x4 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x08014668                cdcd_deinit
  .text.cdcd_reset
-                0x08014548       0x20 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x08014548                cdcd_reset
+                0x0801466c       0x20 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x0801466c                cdcd_reset
  .text.cdcd_open
-                0x08014568      0x130 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x08014568                cdcd_open
+                0x0801468c      0x130 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x0801468c                cdcd_open
  .text.cdcd_control_xfer_cb
-                0x08014698       0xac simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x08014698                cdcd_control_xfer_cb
+                0x080147bc       0xac simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x080147bc                cdcd_control_xfer_cb
  .text.cdcd_xfer_cb
-                0x08014744      0x100 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
-                0x08014744                cdcd_xfer_cb
+                0x08014868      0x100 simple_plc/libs/libtinyusb.a(cdc_device.c.obj)
+                0x08014868                cdcd_xfer_cb
  .text.tud_descriptor_device_cb
-                0x08014844        0x8 simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
-                0x08014844                tud_descriptor_device_cb
+                0x08014968        0x8 simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
+                0x08014968                tud_descriptor_device_cb
  .text.tud_descriptor_configuration_cb
-                0x0801484c        0x8 simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
-                0x0801484c                tud_descriptor_configuration_cb
+                0x08014970        0x8 simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
+                0x08014970                tud_descriptor_configuration_cb
  .text.tud_descriptor_string_cb
-                0x08014854       0x74 simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
-                0x08014854                tud_descriptor_string_cb
+                0x08014978       0x74 simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
+                0x08014978                tud_descriptor_string_cb
  .text.dcd_ep_alloc
-                0x080148c8       0x80 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x080149ec       0x80 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
  .text.dcd_pma_alloc
-                0x08014948       0x48 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x08014a6c       0x48 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
  .text.__NVIC_DisableIRQ.constprop.0
-                0x08014990       0x18 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x08014ab4       0x18 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
  .text.__NVIC_EnableIRQ.constprop.0
-                0x080149a8       0x10 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x08014acc       0x10 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
  .text.dcd_transmit_packet
-                0x080149b8       0xd4 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x08014adc       0xd4 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
  .text.edpt_xfer.isra.0
-                0x08014a8c       0x8c simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x08014bb0       0x8c simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
  .text.handle_bus_reset.isra.0
-                0x08014b18       0xac simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x08014c3c       0xac simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
  .text.dcd_sof_enable
-                0x08014bc4       0x18 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
-                0x08014bc4                dcd_sof_enable
+                0x08014ce8       0x18 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x08014ce8                dcd_sof_enable
  .text.dcd_int_handler
-                0x08014bdc      0x34c simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
-                0x08014bdc                dcd_int_handler
+                0x08014d00      0x34c simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x08014d00                dcd_int_handler
  .text.dcd_edpt0_status_complete
-                0x08014f28       0x20 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
-                0x08014f28                dcd_edpt0_status_complete
+                0x0801504c       0x20 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x0801504c                dcd_edpt0_status_complete
  .text.dcd_edpt_open
-                0x08014f48       0xe4 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
-                0x08014f48                dcd_edpt_open
+                0x0801506c       0xe4 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x0801506c                dcd_edpt_open
  .text.dcd_edpt_xfer
-                0x0801502c       0x2c simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
-                0x0801502c                dcd_edpt_xfer
+                0x08015150       0x2c simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x08015150                dcd_edpt_xfer
  .text.dcd_set_address
-                0x08015058       0x12 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
-                0x08015058                dcd_set_address
- *fill*         0x0801506a        0x2 
+                0x0801517c       0x12 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x0801517c                dcd_set_address
+ *fill*         0x0801518e        0x2 
  .text.dcd_edpt_xfer_fifo
-                0x0801506c       0x2c simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
-                0x0801506c                dcd_edpt_xfer_fifo
+                0x08015190       0x2c simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x08015190                dcd_edpt_xfer_fifo
  .text.dcd_edpt_stall
-                0x08015098       0x64 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
-                0x08015098                dcd_edpt_stall
+                0x080151bc       0x64 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x080151bc                dcd_edpt_stall
  .text.dcd_edpt_clear_stall
-                0x080150fc       0xa0 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
-                0x080150fc                dcd_edpt_clear_stall
+                0x08015220       0xa0 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x08015220                dcd_edpt_clear_stall
  .text.dcd_int_enable
-                0x0801519c        0xc simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
-                0x0801519c                dcd_int_enable
+                0x080152c0        0xc simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x080152c0                dcd_int_enable
  .text.dcd_edpt_close_all
-                0x080151a8       0x40 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
-                0x080151a8                dcd_edpt_close_all
+                0x080152cc       0x40 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x080152cc                dcd_edpt_close_all
  .text.dcd_int_disable
-                0x080151e8        0x4 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
-                0x080151e8                dcd_int_disable
+                0x0801530c        0x4 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x0801530c                dcd_int_disable
  .text.dcd_connect
-                0x080151ec       0x10 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
-                0x080151ec                dcd_connect
+                0x08015310       0x10 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x08015310                dcd_connect
  .text.dcd_init
-                0x080151fc       0x28 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
-                0x080151fc                dcd_init
+                0x08015320       0x28 simple_plc/libs/libtinyusb.a(dcd_stm32_fsdev.c.obj)
+                0x08015320                dcd_init
  .text.fsdev_core_reset
-                0x08015224       0x44 simple_plc/libs/libtinyusb.a(fsdev_common.c.obj)
-                0x08015224                fsdev_core_reset
+                0x08015348       0x44 simple_plc/libs/libtinyusb.a(fsdev_common.c.obj)
+                0x08015348                fsdev_core_reset
  .text.pma_align_buffer_size
-                0x08015268       0x24 simple_plc/libs/libtinyusb.a(fsdev_common.c.obj)
-                0x08015268                pma_align_buffer_size
+                0x0801538c       0x24 simple_plc/libs/libtinyusb.a(fsdev_common.c.obj)
+                0x0801538c                pma_align_buffer_size
  .text.btable_set_rx_bufsize
-                0x0801528c       0x4c simple_plc/libs/libtinyusb.a(fsdev_common.c.obj)
-                0x0801528c                btable_set_rx_bufsize
- .text.std      0x080152d8       0x6c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-findfp.o)
+                0x080153b0       0x4c simple_plc/libs/libtinyusb.a(fsdev_common.c.obj)
+                0x080153b0                btable_set_rx_bufsize
+ .text.std      0x080153fc       0x6c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-findfp.o)
  .text.stdio_exit_handler
-                0x08015344       0x18 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-findfp.o)
+                0x08015468       0x18 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-findfp.o)
  .text.cleanup_stdio
-                0x0801535c       0x40 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-findfp.o)
+                0x08015480       0x40 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-findfp.o)
  .text.global_stdio_init.part.0
-                0x0801539c       0x40 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-findfp.o)
+                0x080154c0       0x40 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-findfp.o)
  .text.__sfp_lock_acquire
-                0x080153dc        0xc D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-findfp.o)
-                0x080153dc                __sfp_lock_acquire
+                0x08015500        0xc D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-findfp.o)
+                0x08015500                __sfp_lock_acquire
  .text.__sfp_lock_release
-                0x080153e8        0xc D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-findfp.o)
-                0x080153e8                __sfp_lock_release
- .text.__sinit  0x080153f4       0x30 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-findfp.o)
-                0x080153f4                __sinit
+                0x0801550c        0xc D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-findfp.o)
+                0x0801550c                __sfp_lock_release
+ .text.__sinit  0x08015518       0x30 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-findfp.o)
+                0x08015518                __sinit
  .text._fputs_r
-                0x08015424       0xa0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-fputs.o)
-                0x08015424                _fputs_r
- .text.fputs    0x080154c4       0x10 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-fputs.o)
-                0x080154c4                fputs
+                0x08015548       0xa0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-fputs.o)
+                0x08015548                _fputs_r
+ .text.fputs    0x080155e8       0x10 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-fputs.o)
+                0x080155e8                fputs
  .text._fwalk_sglue
-                0x080154d4       0x3c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-fwalk.o)
-                0x080154d4                _fwalk_sglue
+                0x080155f8       0x3c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-fwalk.o)
+                0x080155f8                _fwalk_sglue
  .text.snprintf
-                0x08015510       0x6c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-snprintf.o)
-                0x08015510                sniprintf
-                0x08015510                snprintf
- .text.__sread  0x0801557c       0x22 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-stdio.o)
-                0x0801557c                __sread
+                0x08015634       0x6c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-snprintf.o)
+                0x08015634                sniprintf
+                0x08015634                snprintf
+ .text.__sread  0x080156a0       0x22 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-stdio.o)
+                0x080156a0                __sread
  .text.__swrite
-                0x0801559e       0x38 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-stdio.o)
-                0x0801559e                __swrite
- .text.__sseek  0x080155d6       0x26 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-stdio.o)
-                0x080155d6                __sseek
+                0x080156c2       0x38 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-stdio.o)
+                0x080156c2                __swrite
+ .text.__sseek  0x080156fa       0x26 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-stdio.o)
+                0x080156fa                __sseek
  .text.__sclose
-                0x080155fc        0x8 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-stdio.o)
-                0x080155fc                __sclose
+                0x08015720        0x8 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-stdio.o)
+                0x08015720                __sclose
  .text._vsnprintf_r
-                0x08015604       0x5c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-vsnprintf.o)
-                0x08015604                _vsniprintf_r
-                0x08015604                _vsnprintf_r
+                0x08015728       0x5c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-vsnprintf.o)
+                0x08015728                _vsniprintf_r
+                0x08015728                _vsnprintf_r
  .text.vsnprintf
-                0x08015660       0x1c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-vsnprintf.o)
-                0x08015660                vsniprintf
-                0x08015660                vsnprintf
+                0x08015784       0x1c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-vsnprintf.o)
+                0x08015784                vsniprintf
+                0x08015784                vsnprintf
  .text.__swbuf_r
-                0x0801567c       0x7c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-wbuf.o)
-                0x0801567c                __swbuf_r
+                0x080157a0       0x7c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-wbuf.o)
+                0x080157a0                __swbuf_r
  .text.__swsetup_r
-                0x080156f8       0xa8 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-wsetup.o)
-                0x080156f8                __swsetup_r
- .text.memcmp   0x080157a0       0x20 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-memcmp.o)
-                0x080157a0                memcmp
- .text.memmove  0x080157c0       0x32 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-memmove.o)
-                0x080157c0                memmove
- .text.memset   0x080157f2       0x10 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-memset.o)
-                0x080157f2                memset
- .text.strncpy  0x08015802       0x26 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-strncpy.o)
-                0x08015802                strncpy
+                0x0801581c       0xa8 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-wsetup.o)
+                0x0801581c                __swsetup_r
+ .text.memcmp   0x080158c4       0x20 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-memcmp.o)
+                0x080158c4                memcmp
+ .text.memmove  0x080158e4       0x32 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-memmove.o)
+                0x080158e4                memmove
+ .text.memset   0x08015916       0x10 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-memset.o)
+                0x08015916                memset
+ .text.strncpy  0x08015926       0x26 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-strncpy.o)
+                0x08015926                strncpy
  .text._close_r
-                0x08015828       0x20 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-closer.o)
-                0x08015828                _close_r
+                0x0801594c       0x20 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-closer.o)
+                0x0801594c                _close_r
  .text._reclaim_reent
-                0x08015848       0xbc D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-reent.o)
-                0x08015848                _reclaim_reent
+                0x0801596c       0xbc D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-reent.o)
+                0x0801596c                _reclaim_reent
  .text._lseek_r
-                0x08015904       0x24 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-lseekr.o)
-                0x08015904                _lseek_r
- .text._read_r  0x08015928       0x24 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-readr.o)
-                0x08015928                _read_r
+                0x08015a28       0x24 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-lseekr.o)
+                0x08015a28                _lseek_r
+ .text._read_r  0x08015a4c       0x24 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-readr.o)
+                0x08015a4c                _read_r
  .text._write_r
-                0x0801594c       0x24 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-writer.o)
-                0x0801594c                _write_r
- .text.__errno  0x08015970        0xc D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-errno.o)
-                0x08015970                __errno
+                0x08015a70       0x24 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-writer.o)
+                0x08015a70                _write_r
+ .text.__errno  0x08015a94        0xc D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-errno.o)
+                0x08015a94                __errno
  .text.__libc_init_array
-                0x0801597c       0x48 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-init.o)
-                0x0801597c                __libc_init_array
+                0x08015aa0       0x48 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-init.o)
+                0x08015aa0                __libc_init_array
  .text.__retarget_lock_init_recursive
-                0x080159c4        0x2 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-lock.o)
-                0x080159c4                __retarget_lock_init_recursive
+                0x08015ae8        0x2 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-lock.o)
+                0x08015ae8                __retarget_lock_init_recursive
  .text.__retarget_lock_acquire_recursive
-                0x080159c6        0x2 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-lock.o)
-                0x080159c6                __retarget_lock_acquire_recursive
+                0x08015aea        0x2 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-lock.o)
+                0x08015aea                __retarget_lock_acquire_recursive
  .text.__retarget_lock_release_recursive
-                0x080159c8        0x2 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-lock.o)
-                0x080159c8                __retarget_lock_release_recursive
- .text.memcpy   0x080159ca       0x1a D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-memcpy-stub.o)
-                0x080159ca                memcpy
- .text._free_r  0x080159e4       0x94 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-freer.o)
-                0x080159e4                _free_r
+                0x08015aec        0x2 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-lock.o)
+                0x08015aec                __retarget_lock_release_recursive
+ .text.memcpy   0x08015aee       0x1a D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-memcpy-stub.o)
+                0x08015aee                memcpy
+ .text._free_r  0x08015b08       0x94 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-freer.o)
+                0x08015b08                _free_r
  .text.sbrk_aligned
-                0x08015a78       0x44 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-mallocr.o)
+                0x08015b9c       0x44 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-mallocr.o)
  .text._malloc_r
-                0x08015abc      0x100 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-mallocr.o)
-                0x08015abc                _malloc_r
+                0x08015be0      0x100 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-mallocr.o)
+                0x08015be0                _malloc_r
  .text.__malloc_lock
-                0x08015bbc        0xc D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-mlock.o)
-                0x08015bbc                __malloc_lock
+                0x08015ce0        0xc D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-mlock.o)
+                0x08015ce0                __malloc_lock
  .text.__malloc_unlock
-                0x08015bc8        0xc D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-mlock.o)
-                0x08015bc8                __malloc_unlock
+                0x08015cec        0xc D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-mlock.o)
+                0x08015cec                __malloc_unlock
  .text.__ssputs_r
-                0x08015bd4       0xc0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-nano-svfprintf.o)
-                0x08015bd4                __ssputs_r
+                0x08015cf8       0xc0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-nano-svfprintf.o)
+                0x08015cf8                __ssputs_r
  .text._svfprintf_r
-                0x08015c94      0x1f0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-nano-svfprintf.o)
-                0x08015c94                _svfiprintf_r
-                0x08015c94                _svfprintf_r
+                0x08015db8      0x1f0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-nano-svfprintf.o)
+                0x08015db8                _svfiprintf_r
+                0x08015db8                _svfprintf_r
  .text._printf_common
-                0x08015e84       0xe4 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-nano-vfprintf_i.o)
-                0x08015e84                _printf_common
+                0x08015fa8       0xe4 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-nano-vfprintf_i.o)
+                0x08015fa8                _printf_common
  .text._printf_i
-                0x08015f68      0x24c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-nano-vfprintf_i.o)
-                0x08015f68                _printf_i
+                0x0801608c      0x24c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-nano-vfprintf_i.o)
+                0x0801608c                _printf_i
  .text.__sflush_r
-                0x080161b4      0x100 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-fflush.o)
-                0x080161b4                __sflush_r
+                0x080162d8      0x100 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-fflush.o)
+                0x080162d8                __sflush_r
  .text._fflush_r
-                0x080162b4       0x50 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-fflush.o)
-                0x080162b4                _fflush_r
+                0x080163d8       0x50 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-fflush.o)
+                0x080163d8                _fflush_r
  .text.__swhatbuf_r
-                0x08016304       0x48 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-makebuf.o)
-                0x08016304                __swhatbuf_r
+                0x08016428       0x48 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-makebuf.o)
+                0x08016428                __swhatbuf_r
  .text.__smakebuf_r
-                0x0801634c       0x72 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-makebuf.o)
-                0x0801634c                __smakebuf_r
- *fill*         0x080163be        0x2 
+                0x08016470       0x72 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-makebuf.o)
+                0x08016470                __smakebuf_r
+ *fill*         0x080164e2        0x2 
  .text._fstat_r
-                0x080163c0       0x24 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-fstatr.o)
-                0x080163c0                _fstat_r
+                0x080164e4       0x24 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-fstatr.o)
+                0x080164e4                _fstat_r
  .text._isatty_r
-                0x080163e4       0x20 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-isattyr.o)
-                0x080163e4                _isatty_r
- .text._sbrk_r  0x08016404       0x20 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-sbrkr.o)
-                0x08016404                _sbrk_r
- .text.memchr   0x08016424       0x1c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-memchr-stub.o)
-                0x08016424                memchr
+                0x08016508       0x20 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-isattyr.o)
+                0x08016508                _isatty_r
+ .text._sbrk_r  0x08016528       0x20 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-sbrkr.o)
+                0x08016528                _sbrk_r
+ .text.memchr   0x08016548       0x1c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-memchr-stub.o)
+                0x08016548                memchr
  .text._realloc_r
-                0x08016440       0x5c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-reallocr.o)
-                0x08016440                _realloc_r
+                0x08016564       0x5c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-reallocr.o)
+                0x08016564                _realloc_r
  .text._malloc_usable_size_r
-                0x0801649c       0x10 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-msizer.o)
-                0x0801649c                _malloc_usable_size_r
+                0x080165c0       0x10 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-msizer.o)
+                0x080165c0                _malloc_usable_size_r
  *(.glue_7)
- .glue_7        0x080164ac        0x0 linker stubs
+ .glue_7        0x080165d0        0x0 linker stubs
  *(.glue_7t)
- .glue_7t       0x080164ac        0x0 linker stubs
+ .glue_7t       0x080165d0        0x0 linker stubs
  *(.eh_frame)
- .eh_frame      0x080164ac        0x0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtbegin.o
+ .eh_frame      0x080165d0        0x0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtbegin.o
  *(.init)
- .init          0x080164ac        0x4 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crti.o
-                0x080164ac                _init
- .init          0x080164b0        0x8 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtn.o
+ .init          0x080165d0        0x4 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crti.o
+                0x080165d0                _init
+ .init          0x080165d4        0x8 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtn.o
  *(.fini)
- .fini          0x080164b8        0x4 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crti.o
-                0x080164b8                _fini
- .fini          0x080164bc        0x8 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtn.o
-                0x080164c4                        . = ALIGN (0x4)
-                0x080164c4                        _etext = .
+ .fini          0x080165dc        0x4 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crti.o
+                0x080165dc                _fini
+ .fini          0x080165e0        0x8 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtn.o
+                0x080165e8                        . = ALIGN (0x4)
+                0x080165e8                        _etext = .
 
-.vfp11_veneer   0x080164c4        0x0
- .vfp11_veneer  0x080164c4        0x0 linker stubs
+.vfp11_veneer   0x080165e8        0x0
+ .vfp11_veneer  0x080165e8        0x0 linker stubs
 
-.v4_bx          0x080164c4        0x0
- .v4_bx         0x080164c4        0x0 linker stubs
+.v4_bx          0x080165e8        0x0
+ .v4_bx         0x080165e8        0x0 linker stubs
 
-.iplt           0x080164c4        0x0
- .iplt          0x080164c4        0x0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtbegin.o
+.iplt           0x080165e8        0x0
+ .iplt          0x080165e8        0x0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtbegin.o
 
-.rodata         0x080164c4     0x2fb8
-                0x080164c4                        . = ALIGN (0x4)
+.rodata         0x080165e8     0x2fb8
+                0x080165e8                        . = ALIGN (0x4)
  *(.rodata)
- .rodata        0x080164c4       0x40 simple_plc/board/libsplc_board.a(board_zigbee_io.c.obj)
- .rodata        0x08016504       0x10 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+ .rodata        0x080165e8       0x40 simple_plc/board/libsplc_board.a(board_zigbee_io.c.obj)
+ .rodata        0x08016628       0x10 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
  *(.rodata*)
  .rodata.APBPrescTable
-                0x08016514        0x8 cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Core/Src/system_stm32h5xx.c.obj
-                0x08016514                APBPrescTable
+                0x08016638        0x8 cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Core/Src/system_stm32h5xx.c.obj
+                0x08016638                APBPrescTable
  .rodata.AHBPrescTable
-                0x0801651c       0x10 cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Core/Src/system_stm32h5xx.c.obj
-                0x0801651c                AHBPrescTable
+                0x08016640       0x10 cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Core/Src/system_stm32h5xx.c.obj
+                0x08016640                AHBPrescTable
  .rodata.UARTPrescTable
-                0x0801652c       0x18 cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_uart.c.obj
-                0x0801652c                UARTPrescTable
+                0x08016650       0x18 cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_uart.c.obj
+                0x08016650                UARTPrescTable
  .rodata.denominator.0
-                0x08016544        0x8 cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_uart_ex.c.obj
+                0x08016668        0x8 cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_uart_ex.c.obj
  .rodata.numerator.1
-                0x0801654c        0x8 cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_uart_ex.c.obj
+                0x08016670        0x8 cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal_uart_ex.c.obj
  .rodata.vTaskStartScheduler.str1.1
-                0x08016554     0x2b58 cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/tasks.c.obj
+                0x08016678     0x2b58 cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/tasks.c.obj
                                   0x5 (size before relaxing)
  .rodata.uxTopUsedPriority
-                0x080190ac        0x4 cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/tasks.c.obj
-                0x080190ac                uxTopUsedPriority
+                0x080191d0        0x4 cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/tasks.c.obj
+                0x080191d0                uxTopUsedPriority
  .rodata.prvCheckForValidListAndQueue.str1.1
-                0x080190b0        0x5 cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/timers.c.obj
+                0x080191d4        0x5 cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/timers.c.obj
  .rodata.xTimerCreateTimerTask.str1.1
-                0x080190b0        0x8 cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/timers.c.obj
+                0x080191d4        0x8 cmake/stm32cubemx/CMakeFiles/RTOS2.dir/__/__/Middlewares/Third_Party/FreeRTOS/Source/timers.c.obj
  .rodata.main.str1.1
-                0x080190b0        0x4 CMakeFiles/RS485_IO_RF_V2.dir/Core/Src/main.c.obj
+                0x080191d4        0x4 CMakeFiles/RS485_IO_RF_V2.dir/Core/Src/main.c.obj
  .rodata.str1.1
-                0x080190b0        0xc CMakeFiles/RS485_IO_RF_V2.dir/Core/Src/app_freertos.c.obj
+                0x080191d4        0xc CMakeFiles/RS485_IO_RF_V2.dir/Core/Src/app_freertos.c.obj
  .rodata.defaultTask_attributes
-                0x080190b0       0x24 CMakeFiles/RS485_IO_RF_V2.dir/Core/Src/app_freertos.c.obj
-                0x080190b0                defaultTask_attributes
+                0x080191d4       0x24 CMakeFiles/RS485_IO_RF_V2.dir/Core/Src/app_freertos.c.obj
+                0x080191d4                defaultTask_attributes
  .rodata.plc_clear_rules.str1.1
-                0x080190d4       0xf2 simple_plc/app/libsplc_app.a(plc_system_clear.c.obj)
+                0x080191f8       0xf2 simple_plc/app/libsplc_app.a(plc_system_clear.c.obj)
  .rodata.plc_clear_retain.str1.1
-                0x080190d4       0x91 simple_plc/app/libsplc_app.a(plc_system_clear.c.obj)
+                0x080191f8       0x91 simple_plc/app/libsplc_app.a(plc_system_clear.c.obj)
  .rodata.plc_factory_reset.str1.1
-                0x080190d4       0x64 simple_plc/app/libsplc_app.a(plc_system_clear.c.obj)
+                0x080191f8       0x64 simple_plc/app/libsplc_app.a(plc_system_clear.c.obj)
  .rodata.board_hw_init.str1.1
-                0x080190d4      0x1c8 simple_plc/board/libsplc_board.a(board_zigbee_io.c.obj)
+                0x080191f8      0x1c8 simple_plc/board/libsplc_board.a(board_zigbee_io.c.obj)
  .rodata.board_get_modbus_transport.str1.1
-                0x080190d4       0x3a simple_plc/board/libsplc_board.a(board_zigbee_io.c.obj)
+                0x080191f8       0x3a simple_plc/board/libsplc_board.a(board_zigbee_io.c.obj)
  .rodata.port.0
-                0x080190d4       0x20 simple_plc/board/libsplc_board.a(board_zigbee_io.c.obj)
+                0x080191f8       0x20 simple_plc/board/libsplc_board.a(board_zigbee_io.c.obj)
  .rodata.s_tag_layout
-                0x080190f4        0xe simple_plc/board/libsplc_board.a(board_zigbee_io.c.obj)
+                0x08019218        0xe simple_plc/board/libsplc_board.a(board_zigbee_io.c.obj)
  .rodata.log_func.str1.1
-                0x08019102        0xf simple_plc/board/libsplc_board.a(logger.c.obj)
+                0x08019226        0xf simple_plc/board/libsplc_board.a(logger.c.obj)
  .rodata.logger_init.str1.1
-                0x08019102      0x3ce simple_plc/board/libsplc_board.a(logger.c.obj)
+                0x08019226      0x3ce simple_plc/board/libsplc_board.a(logger.c.obj)
  .rodata.str1.1
-                0x08019102       0x44 simple_plc/board/libsplc_board.a(logger.c.obj)
- *fill*         0x08019102        0x2 
+                0x08019226       0x44 simple_plc/board/libsplc_board.a(logger.c.obj)
+ *fill*         0x08019226        0x2 
  .rodata.log_level_strings
-                0x08019104       0x14 simple_plc/board/libsplc_board.a(logger.c.obj)
+                0x08019228       0x14 simple_plc/board/libsplc_board.a(logger.c.obj)
  .rodata.plc_io_remote_add_node.str1.1
-                0x08019118       0x70 simple_plc/services/libsplc_services.a(plc_io_remote.c.obj)
+                0x0801923c       0x70 simple_plc/services/libsplc_services.a(plc_io_remote.c.obj)
  .rodata.plc_io_remote_output_scan.str1.1
-                0x08019118       0xd6 simple_plc/services/libsplc_services.a(plc_io_remote.c.obj)
+                0x0801923c       0xd6 simple_plc/services/libsplc_services.a(plc_io_remote.c.obj)
  .rodata.read_hw_capabilities.str1.1
-                0x08019118       0x48 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0801923c       0x48 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .rodata.write_rule_count_staged.str1.1
-                0x08019118       0x59 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0801923c       0x59 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .rodata.write_diag_command.str1.1
-                0x08019118       0xf4 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0801923c       0xf4 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .rodata.cb_write_multiple_registers.str1.1
-                0x08019118      0x160 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0801923c      0x160 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .rodata.plc_modbus_cfg_diag_tick.str1.1
-                0x08019118       0x26 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0801923c       0x26 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .rodata.cb_write_single_register.str1.1
-                0x08019118      0x3a7 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0801923c      0x3a7 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .rodata.plc_modbus_cfg_init.str1.1
-                0x08019118       0x8d simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0801923c       0x8d simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .rodata.s_blocks
-                0x08019118      0x1a0 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
+                0x0801923c      0x1a0 simple_plc/services/libsplc_services.a(plc_modbus_cfg.c.obj)
  .rodata.plc_rtc_write.str1.1
-                0x080192b8       0xf8 simple_plc/services/libsplc_services.a(plc_rtc.c.obj)
+                0x080193dc       0xf8 simple_plc/services/libsplc_services.a(plc_rtc.c.obj)
  .rodata.broker_valid.constprop.0.str1.1
-                0x080192b8       0xd2 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x080193dc       0xd2 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
  .rodata.block_valid.str1.1
-                0x080192b8      0x1ad simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x080193dc      0x1ad simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
  .rodata.plc_mqtt_telemetry_write.str1.1
-                0x080192b8       0x68 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x080193dc       0x68 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
  .rodata.plc_mqtt_broker_write.str1.1
-                0x080192b8       0x62 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x080193dc       0x62 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
  .rodata.plc_mqtt_commit_draft.str1.1
-                0x080192b8       0x85 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x080193dc       0x85 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
  .rodata.plc_mqtt_import.str1.1
-                0x080192b8       0x41 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x080193dc       0x41 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
  .rodata.plc_mqtt_scan.str1.1
-                0x080192b8       0x79 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x080193dc       0x79 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
  .rodata.zero_brk.0
-                0x080192b8       0xa8 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
+                0x080193dc       0xa8 simple_plc/services/libsplc_services.a(plc_mqtt.c.obj)
  .rodata.plc_tagtype_commit_draft.str1.1
-                0x08019360       0x51 simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
+                0x08019484       0x51 simple_plc/services/libsplc_services.a(plc_tagtype.c.obj)
  .rodata.block_valid.str1.1
-                0x08019360      0x1ca simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x08019484      0x1ca simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .rodata.fail_block_no_port.str1.1
-                0x08019360       0x33 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x08019484       0x33 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .rodata.port_table_valid.str1.1
-                0x08019360       0xd5 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x08019484       0xd5 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .rodata.splc_mbm_set_rs485_port.str1.1
-                0x08019360       0xd7 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x08019484       0xd7 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .rodata.plc_mbm_validate_draft.str1.1
-                0x08019360       0x2f simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x08019484       0x2f simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .rodata.plc_mbm_commit_draft.str1.1
-                0x08019360       0x42 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x08019484       0x42 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .rodata.plc_mbm_scan.str1.1
-                0x08019360      0x186 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x08019484      0x186 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .rodata.CSWTCH.121
-                0x08019360        0x3 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
+                0x08019484        0x3 simple_plc/services/libsplc_services.a(plc_mbm.c.obj)
  .rodata.block_valid.str1.1
-                0x08019363      0x387 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x08019487      0x387 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
  .rodata.plc_mbw_validate_draft.str1.1
-                0x08019363       0x38 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x08019487       0x38 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
  .rodata.plc_mbw_commit_draft.str1.1
-                0x08019363       0x2f simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x08019487       0x2f simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
  .rodata.plc_mbw_scan.str1.1
-                0x08019363       0xa9 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
+                0x08019487       0xa9 simple_plc/services/libsplc_services.a(plc_mbw.c.obj)
  .rodata.handle_frame.constprop.0.str1.1
-                0x08019363       0x40 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
+                0x08019487       0x40 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
  .rodata.plc_mbs_scan.str1.1
-                0x08019363       0x41 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
- *fill*         0x08019363        0x1 
+                0x08019487       0x41 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
+ *fill*         0x08019487        0x1 
  .rodata.s_hreg
-                0x08019364       0x30 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
+                0x08019488       0x30 simple_plc/services/libsplc_services.a(plc_mbs.c.obj)
  .rodata.rule_flash_apply_buffer.str1.1
-                0x08019394      0x379 simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
+                0x080194b8      0x379 simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
  .rodata.plc_rule_flash_load.str1.1
-                0x08019394      0x101 simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
+                0x080194b8      0x101 simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
  .rodata.plc_rule_flash_save.str1.1
-                0x08019394      0x15e simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
+                0x080194b8      0x15e simple_plc/services/libsplc_services.a(plc_rule_flash.c.obj)
  .rodata.rule_table_commit.str1.1
-                0x08019394       0x8b simple_plc/core/libsplc_core.a(plc_rule.c.obj)
+                0x080194b8       0x8b simple_plc/core/libsplc_core.a(plc_rule.c.obj)
  .rodata.rule_state_machine_step.str1.1
-                0x08019394       0x4d simple_plc/core/libsplc_core.a(plc_rule.c.obj)
+                0x080194b8       0x4d simple_plc/core/libsplc_core.a(plc_rule.c.obj)
  .rodata.sx_flash_program.str1.1
-                0x08019394       0x56 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
+                0x080194b8       0x56 simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
  .rodata.sx_flash_erase.str1.1
-                0x08019394       0x9e simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
+                0x080194b8       0x9e simple_plc/platforms/stm32/stm32h5/libsplc_platform_stm32h5.a(stm32h5_flash.c.obj)
  .rodata.splc_usb_cdc_process.str1.1
-                0x08019394       0x2e simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x080194b8       0x2e simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
  .rodata.splc_usb_cdc_init.str1.1
-                0x08019394       0x8e simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x080194b8       0x8e simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
  .rodata.tud_mount_cb.str1.1
-                0x08019394        0xf simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x080194b8        0xf simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
  .rodata.tud_umount_cb.str1.1
-                0x08019394       0x11 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x080194b8       0x11 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
  .rodata.tud_suspend_cb.str1.1
-                0x08019394       0x10 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x080194b8       0x10 simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
  .rodata.tud_resume_cb.str1.1
-                0x08019394        0xe simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
+                0x080194b8        0xe simple_plc/port/usb/libsplc_port_usb_cdc.a(splc_usb_cdc.c.obj)
  .rodata.splc_link_register.str1.1
-                0x08019394       0xbf simple_plc/port/libsplc_port.a(modbus_link.c.obj)
- .rodata.dim.0  0x08019394        0xc simple_plc/utils/libsplc_utils.a(splc_epoch.c.obj)
+                0x080194b8       0xbf simple_plc/port/libsplc_port.a(modbus_link.c.obj)
+ .rodata.dim.0  0x080194b8        0xc simple_plc/utils/libsplc_utils.a(splc_epoch.c.obj)
  .rodata.w_real.str1.1
-                0x080193a0       0x10 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+                0x080194c4       0x10 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
  .rodata.parse_at.str1.1
-                0x080193a0        0xa simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+                0x080194c4        0xa simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
  .rodata.splc_mqtt_fmt_compact.str1.1
-                0x080193a0       0x1e simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
- .rodata.tbl.0  0x080193a0       0x10 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+                0x080194c4       0x1e simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
+ .rodata.tbl.0  0x080194c4       0x10 simple_plc/utils/libsplc_utils.a(splc_mqtt_fmt.c.obj)
  .rodata.splc_nmbs_strerror.str1.1
-                0x080193b0        0xe simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x080194d4        0xe simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .rodata.str1.1
-                0x080193b0      0x14d simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x080194d4      0x14d simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .rodata.CSWTCH.148
-                0x080193b0       0x34 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
+                0x080194d4       0x34 simple_plc/libs/libsplc_nanomodbus.a(splc_nmbs.c.obj)
  .rodata._usbd_driver
-                0x080193e4       0x24 simple_plc/libs/libtinyusb.a(usbd.c.obj)
+                0x08019508       0x24 simple_plc/libs/libtinyusb.a(usbd.c.obj)
  .rodata.tud_descriptor_string_cb.str1.1
-                0x08019408        0xc simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
+                0x0801952c        0xc simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
  .rodata.str1.1
-                0x08019408       0x35 simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
+                0x0801952c       0x35 simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
  .rodata.string_desc_arr
-                0x08019408       0x14 simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
+                0x0801952c       0x14 simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
  .rodata.__compound_literal.0
-                0x0801941c        0x2 simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
+                0x08019540        0x2 simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
  .rodata.desc_fs_configuration
-                0x0801941e       0x4b simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
+                0x08019542       0x4b simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
  .rodata.desc_device
-                0x08019469       0x12 simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
+                0x0801958d       0x12 simple_plc/libs/libtinyusb.a(usb_descriptors.c.obj)
  .rodata._svfprintf_r.str1.1
-                0x0801947b       0x11 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-nano-svfprintf.o)
+                0x0801959f       0x11 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-nano-svfprintf.o)
  .rodata._printf_i.str1.1
-                0x0801947b       0x22 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-nano-vfprintf_i.o)
-                0x08019710                        . = ALIGN (0x4)
- *fill*         0x0801947b        0x1 
+                0x0801959f       0x22 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-nano-vfprintf_i.o)
+                0x08019834                        . = ALIGN (0x4)
+ *fill*         0x0801959f        0x1 
 
-.ARM.extab      0x0801947c        0x0
-                0x0801947c                        . = ALIGN (0x4)
+.ARM.extab      0x080195a0        0x0
+                0x080195a0                        . = ALIGN (0x4)
  *(.ARM.extab* .gnu.linkonce.armextab.*)
-                0x0801947c                        . = ALIGN (0x4)
+                0x080195a0                        . = ALIGN (0x4)
 
-.ARM            0x0801947c        0x8
-                0x0801947c                        . = ALIGN (0x4)
-                0x0801947c                        __exidx_start = .
+.ARM            0x080195a0        0x8
+                0x080195a0                        . = ALIGN (0x4)
+                0x080195a0                        __exidx_start = .
  *(.ARM.exidx*)
- .ARM.exidx     0x0801947c        0x8 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard\libgcc.a(_udivmoddi4.o)
- .ARM.exidx     0x08019484        0x0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-strlen.o)
+ .ARM.exidx     0x080195a0        0x8 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard\libgcc.a(_udivmoddi4.o)
+ .ARM.exidx     0x080195a8        0x0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/../../../../arm-none-eabi/lib/thumb/v8-m.main+fp/hard\libg_nano.a(libc_a-strlen.o)
                                   0x8 (size before relaxing)
-                0x08019484                        __exidx_end = .
-                0x08019484                        . = ALIGN (0x4)
+                0x080195a8                        __exidx_end = .
+                0x080195a8                        . = ALIGN (0x4)
 
-.preinit_array  0x08019484        0x0
-                0x08019484                        . = ALIGN (0x4)
-                0x08019484                        PROVIDE (__preinit_array_start = .)
+.preinit_array  0x080195a8        0x0
+                0x080195a8                        . = ALIGN (0x4)
+                0x080195a8                        PROVIDE (__preinit_array_start = .)
  *(.preinit_array*)
-                0x08019484                        PROVIDE (__preinit_array_end = .)
-                0x08019484                        . = ALIGN (0x4)
+                0x080195a8                        PROVIDE (__preinit_array_end = .)
+                0x080195a8                        . = ALIGN (0x4)
 
-.init_array     0x08019484        0x4
-                0x08019484                        . = ALIGN (0x4)
-                0x08019484                        PROVIDE (__init_array_start = .)
+.init_array     0x080195a8        0x4
+                0x080195a8                        . = ALIGN (0x4)
+                0x080195a8                        PROVIDE (__init_array_start = .)
  *(SORT_BY_NAME(.init_array.*))
  *(.init_array*)
- .init_array    0x08019484        0x4 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtbegin.o
-                0x08019488                        PROVIDE (__init_array_end = .)
-                0x08019488                        . = ALIGN (0x4)
+ .init_array    0x080195a8        0x4 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtbegin.o
+                0x080195ac                        PROVIDE (__init_array_end = .)
+                0x080195ac                        . = ALIGN (0x4)
 
-.fini_array     0x08019488        0x4
-                0x08019488                        . = ALIGN (0x4)
+.fini_array     0x080195ac        0x4
+                0x080195ac                        . = ALIGN (0x4)
                 [!provide]                        PROVIDE (__fini_array_start = .)
  *(SORT_BY_NAME(.fini_array.*))
  *(.fini_array*)
- .fini_array    0x08019488        0x4 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtbegin.o
+ .fini_array    0x080195ac        0x4 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtbegin.o
                 [!provide]                        PROVIDE (__fini_array_end = .)
-                0x0801948c                        . = ALIGN (0x4)
-                0x0801948c                        _sidata = LOADADDR (.data)
+                0x080195b0                        . = ALIGN (0x4)
+                0x080195b0                        _sidata = LOADADDR (.data)
 
-.rel.dyn        0x0801948c        0x0
- .rel.iplt      0x0801948c        0x0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtbegin.o
+.rel.dyn        0x080195b0        0x0
+ .rel.iplt      0x080195b0        0x0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtbegin.o
 
-.data           0x20000000       0xd4 load address 0x0801948c
+.data           0x20000000       0xd4 load address 0x080195b0
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _sdata = .
  *(.data)
@@ -5503,10 +5509,10 @@ LOAD D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-
  *(.RamFunc*)
                 0x200000d4                        . = ALIGN (0x4)
 
-.igot.plt       0x200000d4        0x0 load address 0x08019560
+.igot.plt       0x200000d4        0x0 load address 0x08019684
  .igot.plt      0x200000d4        0x0 D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtbegin.o
 
-.tdata          0x200000d4        0x0 load address 0x08019560
+.tdata          0x200000d4        0x0 load address 0x08019684
  *(.tdata .tdata.* .gnu.linkonce.td.*)
                 0x200000d4                        . = ALIGN (0x4)
                 0x200000d4                        _edata = .
@@ -5523,7 +5529,7 @@ LOAD D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-
                 [!provide]                        PROVIDE (__data_source_end = __tdata_source_end)
                 [!provide]                        PROVIDE (__data_source_size = (__data_source_end - __data_source))
 
-.tbss           0x200000d4        0x0 load address 0x08019560
+.tbss           0x200000d4        0x0 load address 0x08019684
                 0x200000d4                        _sbss = .
                 0x200000d4                        __bss_start__ = _sbss
  *(.tbss .tbss.*)
@@ -5540,7 +5546,7 @@ LOAD D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-
                 [!provide]                        PROVIDE (__arm32_tls_tcb_offset = MAX (0x8, __tls_align))
                 [!provide]                        PROVIDE (__arm64_tls_tcb_offset = MAX (0x10, __tls_align))
 
-.bss            0x200000d8    0x13a28 load address 0x08019560
+.bss            0x200000d8    0x13a28 load address 0x08019684
  *(.bss)
  .bss           0x200000d8       0x1c D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/14.3.1/thumb/v8-m.main+fp/hard/crtbegin.o
  *(.bss*)
@@ -6041,7 +6047,7 @@ LOAD D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-
                 [!provide]                        PROVIDE (__bss_size = (__bss_end - __bss_start))
 
 ._user_heap_stack
-                0x20013b00     0x2000 load address 0x08019560
+                0x20013b00     0x2000 load address 0x08019684
                 0x20013b00                        . = ALIGN (0x8)
                 [!provide]                        PROVIDE (end = .)
                 0x20013b00                        PROVIDE (_end = .)
