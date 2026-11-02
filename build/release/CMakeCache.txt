@@ -111,9 +111,6 @@ CMAKE_EXE_LINKER_FLAGS_RELEASE:STRING=
 //Flags used by the linker during RELWITHDEBINFO builds.
 CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO:STRING=
 
-//No help, variable specified on the command line.
-CMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE
-
 //Value Computed by CMake.
 CMAKE_FIND_PACKAGE_REDIRECTS_DIR:STATIC=D:/Synaptix/SynaptiX/strategy/simple_plc/build/release/CMakeFiles/pkgRedirects
 
@@ -217,8 +214,8 @@ CMAKE_STRIP:FILEPATH=D:/stm32cubeclt/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin
 //Path to a program.
 CMAKE_TAPI:FILEPATH=CMAKE_TAPI-NOTFOUND
 
-//No help, variable specified on the command line.
-CMAKE_TOOLCHAIN_FILE:UNINITIALIZED=D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/gcc-arm-none-eabi.cmake
+//The CMake toolchain file
+CMAKE_TOOLCHAIN_FILE:FILEPATH=D:/Synaptix/SynaptiX/strategy/simple_plc/cmake/gcc-arm-none-eabi.cmake
 
 //If this value is on, makefiles will be generated without the
 // .SILENT directive, and all commands will be echoed to the console
@@ -240,9 +237,6 @@ SPLC_AS_LIBRARY:BOOL=OFF
 
 //Directory containing the product's splcopts.h (see config/splcopts_template.h)
 SPLC_OPTS_DIR:PATH=D:/Synaptix/SynaptiX/strategy/simple_plc/splc_config
-
-//Include dirs of the host RTOS (FreeRTOS.h, task.h, FreeRTOSConfig.h)
-SPLC_OS_INCLUDE_DIRS:STRING=
 
 
 ########################
@@ -354,7 +348,7 @@ CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_NM
 CMAKE_NM-ADVANCED:INTERNAL=1
 //number of local generators
-CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=15
+CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=3
 //ADVANCED property for variable: CMAKE_OBJDUMP
 CMAKE_OBJDUMP-ADVANCED:INTERNAL=1
 //Platform information initialized

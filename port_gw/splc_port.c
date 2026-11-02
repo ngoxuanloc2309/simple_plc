@@ -255,7 +255,6 @@ bool splc_host_start(void)
         .ctx     = NULL,
         .output  = cdc_output,
         .process = cdc_process,
-        .kind    = MODBUS_TRANSPORT_KIND_RTU,
         .unit_id = (uint8_t)SPLC_MODBUS_UNIT_ID,
     };
     if (splc_link_register(&ops) != SPLC_LINK_OK) {
