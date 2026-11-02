@@ -22,6 +22,10 @@
 #include "sx_time.h"
 #include "splc_log.h"
 
+#if SPLC_MODBUS_LIB == SPLC_MODBUS_LIB_MB
+#error "SPLC_MODBUS_LIB_MB: adapter (mb_port) not written yet -- build with SPLC_MODBUS_LIB_NANO"
+#endif
+
 static const char *TAG = "PLC_MODBUS_CFG";
 
 /*
@@ -1744,12 +1748,26 @@ static nmbs_error cb_write_single_register(uint16_t address, uint16_t value, uin
  */
 static bool transport_config_ok(const modbus_transport_t *t, const char *who)
 {
-    if (t->kind != MODBUS_TRANSPORT_KIND_RTU && t->kind != MODBUS_TRANSPORT_KIND_TCP) {
+#if SPLC_MODBUS_LIB == SPLC_MODBUS_LIB_MB
+    /* The MB library also frames ASCII. */
+    const bool kind_ok = (t->kind == MODBUS_TRANSPORT_KIND_RTU)   ||
+                         (t->kind == MODBUS_TRANSPORT_KIND_TCP)   ||
+                         (t->kind == MODBUS_TRANSPORT_KIND_ASCII);
+    const bool serial  = (t->kind == MODBUS_TRANSPORT_KIND_RTU) ||
+                         (t->kind == MODBUS_TRANSPORT_KIND_ASCII);
+#else
+    /* nanoMODBUS: RTU + TCP only. ASCII (needs SPLC_MODBUS_LIB_MB) lands in the
+     * "bad kind" branch below, like any other unsupported value. */
+    const bool kind_ok = (t->kind == MODBUS_TRANSPORT_KIND_RTU) ||
+                         (t->kind == MODBUS_TRANSPORT_KIND_TCP);
+    const bool serial  = (t->kind == MODBUS_TRANSPORT_KIND_RTU);
+#endif
+    if (!kind_ok) {
         log_error(TAG, "%s: bad or unset transport kind %d -- the board must set "
                        "modbus_transport_t.kind (RTU or TCP)", who, (int)t->kind);
         return false;
     }
-    if (t->kind == MODBUS_TRANSPORT_KIND_RTU && (t->unit_id < 1U || t->unit_id > 247U)) {
+    if (serial && (t->unit_id < 1U || t->unit_id > 247U)) {
         log_error(TAG, "%s: RTU unit_id %u not in 1..247", who, (unsigned)t->unit_id);
         return false;
     }

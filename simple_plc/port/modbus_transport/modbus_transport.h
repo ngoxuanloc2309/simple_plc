@@ -68,6 +68,7 @@ typedef enum {
     MODBUS_TRANSPORT_KIND_NONE = 0,   /* not assigned yet: always rejected */
     MODBUS_TRANSPORT_KIND_RTU = 1,
     MODBUS_TRANSPORT_KIND_TCP = 2,
+    MODBUS_TRANSPORT_KIND_ASCII = 3,  /* needs SPLC_MODBUS_LIB == SPLC_MODBUS_LIB_MB */
 } modbus_transport_kind_t;
 
 typedef struct {
@@ -121,7 +122,7 @@ typedef struct {
      * RTU unit ID (slave address) this server answers to. Set by the
      * factory function that built this value.
      *
-     * MUST be in 1..247 when kind == MODBUS_TRANSPORT_KIND_RTU:
+     * MUST be in 1..247 when kind == MODBUS_TRANSPORT_KIND_RTU (or ASCII):
      * nanoMODBUS's nmbs_server_create() rejects 0 outright (0 is the RTU
      * broadcast address, which never gets a reply) and returns
      * NMBS_ERROR_INVALID_ARGUMENT before nmbs_create() ever runs. It also

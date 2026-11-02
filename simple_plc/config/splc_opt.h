@@ -49,6 +49,10 @@
 #define SPLC_BOARD_GATEWAY               4
 #define SPLC_BOARD_WIFI_IO               5
 
+/* Modbus protocol library behind the App link (plc_modbus_cfg). */
+#define SPLC_MODBUS_LIB_NANO             1   /* nanoMODBUS (libs/nanomodbus): RTU + TCP */
+#define SPLC_MODBUS_LIB_MB               2   /* mb_master_slave (libs/mb_master_slave): RTU + ASCII + TCP + UDP */
+
 /* ======================================================================
  * Target
  * ==================================================================== */
@@ -163,6 +167,25 @@
  * splcopts.h. */
 #ifndef SPLC_PORT_USB_CDC
 #define SPLC_PORT_USB_CDC                0
+#endif
+
+/* Which Modbus library serves the App link. Both sit behind the same public
+ * API (plc_modbus_cfg_init / plc_modbus_cfg_add_transport / modbus_config_service)
+ * and the same register-map logic; only the thin adapter at the bottom of
+ * plc_modbus_cfg.c differs. Default NANO = behaviour (and binary) unchanged.
+ * MB is not wired up yet: building with it stops at a clear #error until its
+ * adapter (mb_port) lands. ASCII framing (MODBUS_TRANSPORT_KIND_ASCII) needs MB. */
+#ifndef SPLC_MODBUS_LIB
+#define SPLC_MODBUS_LIB                  SPLC_MODBUS_LIB_NANO
+#endif
+
+/* SPLC_MODBUS_LIB_MB, RTU only: floor (ms) for the end-of-frame (T3.5) timer.
+ * The timer is max(library T3.5, this). 0 = exactly the library's T3.5
+ * (2 ms above 19200 baud, else 38500/baud ms). A master whose bytes arrive in
+ * bursts (e.g. a USB-RS485 dongle) can need ~15 ms; the cost is the same
+ * amount of extra reply latency. Ignored by SPLC_MODBUS_LIB_NANO. */
+#ifndef SPLC_MODBUS_RTU_GAP_MS
+#define SPLC_MODBUS_RTU_GAP_MS           0
 #endif
 
 /* Modbus slave address the device answers to (1..247). */
@@ -459,6 +482,12 @@
 #endif
 #if SPLC_MBM_ENABLE && ((SPLC_MBM_PORT_COUNT < 1) || (SPLC_MBM_PORT_COUNT > 4))
 #error "SPLC_MBM_PORT_COUNT must be 1..4 (the wire and the Flash image carry 4 port records)"
+#endif
+#if (SPLC_MODBUS_LIB != SPLC_MODBUS_LIB_NANO) && (SPLC_MODBUS_LIB != SPLC_MODBUS_LIB_MB)
+#error "SPLC_MODBUS_LIB must be SPLC_MODBUS_LIB_NANO or SPLC_MODBUS_LIB_MB"
+#endif
+#if (SPLC_MODBUS_RTU_GAP_MS < 0) || (SPLC_MODBUS_RTU_GAP_MS > 1000)
+#error "SPLC_MODBUS_RTU_GAP_MS must be 0..1000"
 #endif
 #if (SPLC_MODBUS_MAX_TRANSPORTS < 1) || (SPLC_MODBUS_MAX_TRANSPORTS > 3)
 #error "SPLC_MODBUS_MAX_TRANSPORTS must be 1..3"
