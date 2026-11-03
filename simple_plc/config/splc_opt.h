@@ -51,7 +51,7 @@
 
 /* Modbus protocol library behind the App link (plc_modbus_cfg). */
 #define SPLC_MODBUS_LIB_NANO             1   /* nanoMODBUS (libs/nanomodbus): RTU + TCP */
-#define SPLC_MODBUS_LIB_MB               2   /* mb_master_slave (libs/mb_master_slave): RTU + ASCII + TCP + UDP */
+#define SPLC_MODBUS_LIB_MB               2   /* mb_master_slave (libs/mb_master_slave): RTU + ASCII + TCP (UDP not written) */
 
 /* ======================================================================
  * Target

@@ -1927,7 +1927,7 @@ void plc_modbus_cfg_init(const modbus_transport_t *transport)
 
 #else
     /* MB library: the adapter creates the server on this transport (slot 0) and
-     * logs the reason itself when it cannot (bad kind, TCP not written yet, ...). */
+     * logs the reason itself when it cannot (bad kind, UDP not written, ...). */
     if (!mb_port_server_create(0U, &s_transport, mb_holding_cb)) {
         log_error(TAG, "Modbus config service DISABLED");
         return;
