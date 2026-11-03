@@ -158,9 +158,21 @@ typedef struct {
     uint32_t  tx_deadline_ms;         /* give up on a transmit that never completes */
     uint16_t  min_gap_ms;             /* configured inter-frame delay (3.5 chars always kept) */
 #endif
+#if SPLC_MODBUS_LIB == SPLC_MODBUS_LIB_MB
+    /* SPLC_MODBUS_LIB_MB: the request runs on libs/mb_master_slave (modbus_serial_mb.c).
+     * The library owns the frame buffers, so rx[] does not exist. regs[] also holds the
+     * values of a FC16 request. */
+    void     *mb_hdl;          /* xMBMHandle, NULL = no library instance yet */
+    int       mb_ch;           /* mb_port RS-485 channel, -1 = none */
+    uint32_t  mb_baud;         /* baud the instance was opened with (it sets T3.5) */
+    uint32_t  mb_timeout_ms;   /* answer timeout asked for (without the transmit time) */
+    uint8_t   mb_qstate;       /* eMBMQueryState of the request in flight */
+    uint8_t   mb_bits[32];     /* packed bits: FC01/FC02 answer, FC15 request (<= 256 coils) */
+#else
     /* While a frame goes out asynchronously rx[] holds that frame; receiving starts after. */
     uint8_t   rx[MODBUS_MASTER_FRAME_MAX];
     uint16_t  rx_len;
+#endif
     uint16_t  regs[MODBUS_MASTER_MAX_REGS];   /* read answer, valid after DONE_OK */
 } modbus_rtu_master_t;
 

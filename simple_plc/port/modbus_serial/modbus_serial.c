@@ -1,5 +1,8 @@
 #include "modbus_serial.h"
 
+/* SPLC_MODBUS_LIB_MB implements this API on libs/mb_master_slave: modbus_serial_mb.c */
+#if SPLC_MODBUS_LIB != SPLC_MODBUS_LIB_MB
+
 #include <string.h>
 
 #include "splc_nmbs.h"   /* nmbs_crc_calc() only (renamed splc_nmbs_crc_calc) */
@@ -456,3 +459,5 @@ bool modbus_rtu_master_is_busy(const modbus_rtu_master_t *m)
     return m->state == MODBUS_MASTER_BUSY || m->state == MODBUS_MASTER_SENDING;
 }
 #endif
+
+#endif /* SPLC_MODBUS_LIB != SPLC_MODBUS_LIB_MB */

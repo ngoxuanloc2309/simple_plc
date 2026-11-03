@@ -30,6 +30,7 @@
 #include <stdint.h>
 #include "splc_opt.h"
 #include "modbus_transport.h"
+#include "modbus_serial.h"      /* modbus_serial_port_t */
 
 /* Declarations are NOT conditional on SPLC_MODBUS_LIB: a prototype costs nothing
  * and a stale/odd macro state must never turn the calls into implicit
@@ -61,6 +62,17 @@ bool mb_port_server_create(uint8_t slot, const modbus_transport_t *t,
 /* One tick of slot `slot` (steps 2..5 above). Does nothing if the slot has no
  * server. Never blocks (transport->read is called with timeout 0). */
 void mb_port_server_poll(uint8_t slot);
+
+/* --- RS-485 channels: Modbus MASTER over a modbus_serial_port_t ---
+ * Used by port/modbus_serial/modbus_serial_mb.c only (LIB == MB). Same eMBP* layer as the
+ * App link; a channel is bound to a port and the library gets its index as `ucPort`.
+ * Order per tick (86): pump (RX bytes, then timers) -> library poll -> flush (frame out). */
+int  mb_port_serial_attach(const modbus_serial_port_t *port, uint32_t baud);   /* channel, or -1 */
+void mb_port_serial_set_baud(int ch, uint32_t baud);
+void mb_port_serial_detach(int ch);
+void mb_port_serial_pump(int ch);
+void mb_port_serial_flush(int ch);
+void mb_port_serial_drain(int ch);
 
 #ifdef __cplusplus
 }

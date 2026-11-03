@@ -28,8 +28,19 @@ static const char *TAG = "MB_PORT";
 #endif
 
 #define MB_PORT_SLOTS        (SPLC_MODBUS_MAX_TRANSPORTS)
-#define MB_PORT_MAX_TIMERS   (3U * MB_PORT_SLOTS)   /* RTU/ASCII use <= 2 per server */
-#define MB_PORT_MAX_EVENTS   (2U * MB_PORT_SLOTS)
+/* RS-485 channels (Modbus master over a modbus_serial_port_t): one per Modbus master
+ * port plus one for the Gateway's Remote I/O master. Channel index = MB_PORT_SLOTS + n,
+ * so the library's `ucPort` selects either kind of byte pipe. */
+#if SPLC_MBM_ENABLE
+#define MB_PORT_RS485_CH     (SPLC_MBM_PORT_COUNT + 1U)
+#else
+#define MB_PORT_RS485_CH     (1U)
+#endif
+#define MB_PORT_CHANNELS     (MB_PORT_SLOTS + MB_PORT_RS485_CH)
+#define MB_PORT_MAX_TIMERS   (3U * MB_PORT_CHANNELS)   /* RTU/ASCII use <= 3 per instance */
+#define MB_PORT_MAX_EVENTS   (2U * MB_PORT_CHANNELS)
+#define MB_PORT_SER_TX_MAX   256U   /* RTU ADU maximum */
+#define MB_PORT_ECHO_DRAIN   16U    /* bounded RX drain after a blocking transmit (echo) */
 #define MB_PORT_TX_MAX       520U   /* ASCII frame: ':' + 2*(addr+PDU+LRC) + CRLF */
 #define MB_PORT_RX_CHUNK     32U
 #define MB_PORT_RX_MAX_ITER  16U    /* bounds one tick to 512 bytes */
@@ -40,6 +51,12 @@ static const char *TAG = "MB_PORT";
 
 typedef struct {
     const modbus_transport_t     *t;         /* not owned; NULL = slot free */
+    /* RS-485 channel (t == NULL): the port of the Modbus master, not owned */
+    const modbus_serial_port_t   *sp;
+    uint32_t                      sp_baud;   /* for the transmit-time estimate */
+    uint8_t                       sp_tx[MB_PORT_SER_TX_MAX]; /* frame kept alive for an asynchronous send */
+    bool                          sp_async;     /* write_start() issued, tx_done() not seen yet */
+    uint32_t                      sp_async_dl;  /* give-up tick for that transfer */
     xMBSHandle                    server;    /* eMBSSerialInit() result */
     xMBHandle                     lib_hdl;   /* handle the library passes to callbacks */
     pvMBPSerialReceiverCB         rx_cb;     /* NULL = receiver disabled */
@@ -73,7 +90,7 @@ typedef struct {
     xMBPEventType ev;
 } mb_event_t;
 
-static mb_slot_t            s_slot[MB_PORT_SLOTS];
+static mb_slot_t            s_slot[MB_PORT_CHANNELS];
 static mb_timer_t           s_timer[MB_PORT_MAX_TIMERS];
 static mb_event_t           s_event[MB_PORT_MAX_EVENTS];
 static uint8_t              s_tx_buf[MB_PORT_TX_MAX];   /* one flush at a time */
@@ -238,11 +255,12 @@ eMBErrorCode eMBPSerialInit(xMBPSerialHandle *pxSerialHdl, UCHAR ucPort, ULONG u
                             xMBHandle xMBHdl)
 {
     (void)ulBaudRate; (void)ucDataBits; (void)eParity; (void)ucStopBits; /* link owns the UART */
-    if (pxSerialHdl == NULL || ucPort >= MB_PORT_SLOTS || xMBHdl == MBP_HDL_INVALID) {
+    if (pxSerialHdl == NULL || ucPort >= MB_PORT_CHANNELS || xMBHdl == MBP_HDL_INVALID) {
         return MB_EINVAL;
     }
     mb_slot_t *sl = &s_slot[ucPort];
-    if (sl->t == NULL || sl->open) {      /* slot must be bound by mb_port_server_create() */
+    /* bound by mb_port_server_create() (transport) or mb_port_serial_attach() (RS-485) */
+    if ((sl->t == NULL && sl->sp == NULL) || sl->open) {
         return MB_EINVAL;
     }
     sl->lib_hdl    = xMBHdl;
@@ -410,6 +428,15 @@ void vMBPLibraryUnload(void) { }
 
 /* --- Per-tick pump ------------------------------------------------------- */
 
+/* Byte pipe of a channel: a transport slot or an RS-485 port. Never blocks. */
+static int32_t chan_read(const mb_slot_t *sl, uint8_t *buf, uint16_t max)
+{
+    if (sl->t != NULL) {
+        return sl->t->read(buf, max, 0, sl->t->ctx);
+    }
+    return (int32_t)sl->sp->read(sl->sp->ctx, buf, max);
+}
+
 static void rx_feed(mb_slot_t *sl)
 {
     uint8_t chunk[MB_PORT_RX_CHUNK];
@@ -417,7 +444,7 @@ static void rx_feed(mb_slot_t *sl)
         if (sl->rx_cb == NULL) {
             return;                      /* leave the bytes in the link until RX is on again */
         }
-        const int32_t n = sl->t->read(chunk, (uint16_t)sizeof chunk, 0, sl->t->ctx);
+        const int32_t n = chan_read(sl, chunk, (uint16_t)sizeof chunk);
         if (n <= 0) {
             return;
         }
@@ -430,33 +457,92 @@ static void rx_feed(mb_slot_t *sl)
     }
 }
 
-static void tx_flush(mb_slot_t *sl)
+/* RS-485 transmit of one frame (already in sl->sp_tx): blocking write() (returns after
+ * the last bit; the echo of a transceiver that keeps RX open is then dropped) or
+ * asynchronous write_start()/tx_done() (the port keeps the echo out itself and
+ * ser_progress() ends the transmit). */
+static void ser_send(mb_slot_t *sl, uint16_t n)
 {
-    if (!sl->tx_pending || sl->tx_cb == NULL) {
+    const modbus_serial_port_t *p = sl->sp;
+#if SPLC_MBM_ENABLE
+    if (p->write_start != NULL && p->tx_done != NULL) {
+        if (p->set_tx != NULL) { p->set_tx(p->ctx, true); }
+        if (p->write_start(p->ctx, sl->sp_tx, n) != 0) {
+            if (p->set_tx != NULL) { p->set_tx(p->ctx, false); }
+            log_warn(TAG, "rs485 write_start refused (%u bytes)", (unsigned)n);
+            return;
+        }
+        uint32_t ms = 50U;
+        if (sl->sp_baud != 0U) { ms = 2U * (((uint32_t)n * 11000U) / sl->sp_baud) + 50U; }
+        sl->sp_async    = true;
+        sl->sp_async_dl = sx_get_tick_ms() + ms;
         return;
     }
+#endif
+    if (p->write == NULL) {
+        log_error(TAG, "rs485 port has neither write() nor write_start()/tx_done()");
+        return;
+    }
+    uint32_t tx_ms = 50U;
+    if (sl->sp_baud != 0U) {
+        const uint32_t need = ((uint32_t)n * 11000U) / sl->sp_baud + 20U;
+        if (need > tx_ms) { tx_ms = need; }
+    }
+    if (p->set_tx != NULL) { p->set_tx(p->ctx, true); }
+    const int rc = p->write(p->ctx, sl->sp_tx, n, tx_ms);
+    if (p->set_tx != NULL) { p->set_tx(p->ctx, false); }
+    uint8_t scratch[16];
+    for (uint32_t i = 0; i < MB_PORT_ECHO_DRAIN; i++) {   /* echo of our own frame */
+        if (p->read(p->ctx, scratch, (uint16_t)sizeof scratch) <= 0) { break; }
+    }
+    if (rc != 0) { log_warn(TAG, "rs485 write failed (%d), %u bytes", rc, (unsigned)n); }
+}
+
+/* Ends an asynchronous transmit (direction back to receive) once tx_done(), or gives up. */
+static void ser_progress(mb_slot_t *sl)
+{
+#if SPLC_MBM_ENABLE
+    if (!sl->sp_async) { return; }
+    const modbus_serial_port_t *p = sl->sp;
+    if (p->tx_done(p->ctx)) {
+        sl->sp_async = false;
+        if (p->set_tx != NULL) { p->set_tx(p->ctx, false); }
+    } else if ((int32_t)(sx_get_tick_ms() - sl->sp_async_dl) >= 0) {
+        sl->sp_async = false;
+        if (p->write_abort != NULL) { p->write_abort(p->ctx); }
+        if (p->set_tx != NULL) { p->set_tx(p->ctx, false); }
+        log_warn(TAG, "rs485 transmit never completed, aborted");
+    }
+#else
+    (void)sl;      /* the port has blocking write() only */
+#endif
+}
+
+static void tx_flush(mb_slot_t *sl)
+{
+    if (!sl->tx_pending || sl->tx_cb == NULL) { return; }
     sl->tx_pending = false;
     const pbMBPSerialTransmitterEmptyCB cb = sl->tx_cb;
+    const bool      ser = (sl->sp != NULL);
+    uint8_t        *buf = ser ? sl->sp_tx : s_tx_buf;
+    const uint32_t  cap = ser ? MB_PORT_SER_TX_MAX : MB_PORT_TX_MAX;
     uint32_t n = 0;
     UBYTE    b = 0;
     /* The library hands out one byte per call and returns FALSE after the last
      * one (it re-enables its receiver on that call). A length-0 "dummy
      * transmission" returns FALSE at once: nothing is written. */
-    while (n < MB_PORT_TX_MAX && cb(sl->lib_hdl, &b)) {
-        s_tx_buf[n++] = b;
-    }
-    if (n >= MB_PORT_TX_MAX) {
-        log_error(TAG, "reply longer than %u bytes dropped", (unsigned)MB_PORT_TX_MAX);
+    while (n < cap && cb(sl->lib_hdl, &b)) { buf[n++] = b; }
+    if (n >= cap) {
+        log_error(TAG, "frame longer than %u bytes dropped", (unsigned)cap);
         return;
     }
-    if (n > 0U) {
-        const int32_t w = sl->t->write(s_tx_buf, (uint16_t)n, MB_PORT_WRITE_TIMEOUT_MS, sl->t->ctx);
-        if (w != (int32_t)n) {
-            log_warn(TAG, "reply write: %ld of %u bytes", (long)w, (unsigned)n);
-        }
+    if (n == 0U) { return; }
+    if (ser) { ser_send(sl, (uint16_t)n); return; }
+    const int32_t w = sl->t->write(buf, (uint16_t)n, MB_PORT_WRITE_TIMEOUT_MS, sl->t->ctx);
+    if (w != (int32_t)n) {
+        log_warn(TAG, "reply write: %ld of %u bytes", (long)w, (unsigned)n);
     }
 }
-
 
 /* One tick of a TCP slot: (re)register the virtual client, drop a stale partial
  * frame, let the library take what the pipe has, then run it. The reply goes
@@ -566,6 +652,68 @@ void mb_port_server_poll(uint8_t slot)
     timers_run(sl->lib_hdl);        /* 3. ... then timers (order matters: 86)   */
     (void)eMBSPoll(sl->server);     /* 4. MBS_POLL_SINGLE_CYCLE=1: runs to idle */
     tx_flush(sl);                   /* 5. reply out, library re-enables RX      */
+}
+
+
+/* --- RS-485 channels (Modbus master over a modbus_serial_port_t) ---------- */
+
+int mb_port_serial_attach(const modbus_serial_port_t *port, uint32_t baud)
+{
+    if (port == NULL || port->read == NULL) { return -1; }
+    for (uint32_t i = MB_PORT_SLOTS; i < MB_PORT_CHANNELS; i++) {
+        mb_slot_t *sl = &s_slot[i];
+        if (sl->t == NULL && sl->sp == NULL && !sl->open) {
+            memset(sl, 0, sizeof *sl);
+            sl->sp      = port;
+            sl->sp_baud = baud;
+            return (int)i;
+        }
+    }
+    log_error(TAG, "no free RS-485 channel (%u)", (unsigned)MB_PORT_RS485_CH);
+    return -1;
+}
+
+void mb_port_serial_set_baud(int ch, uint32_t baud)
+{
+    if (ch >= (int)MB_PORT_SLOTS && ch < (int)MB_PORT_CHANNELS) { s_slot[ch].sp_baud = baud; }
+}
+
+void mb_port_serial_detach(int ch)
+{
+    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_CHANNELS) { return; }
+    mb_slot_t *sl = &s_slot[ch];
+#if SPLC_MBM_ENABLE
+    if (sl->sp != NULL && sl->sp_async && sl->sp->write_abort != NULL) {
+        sl->sp->write_abort(sl->sp->ctx);
+    }
+#endif
+    memset(sl, 0, sizeof *sl);
+}
+
+void mb_port_serial_pump(int ch)
+{
+    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_CHANNELS) { return; }
+    mb_slot_t *sl = &s_slot[ch];
+    if (sl->sp == NULL || !sl->open) { return; }
+    ser_progress(sl);
+    rx_feed(sl);                    /* bytes first ...  (order matters: 86) */
+    timers_run(sl->lib_hdl);        /* ... then this channel's timers       */
+}
+
+void mb_port_serial_flush(int ch)
+{
+    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_CHANNELS) { return; }
+    mb_slot_t *sl = &s_slot[ch];
+    if (sl->sp != NULL && sl->open) { tx_flush(sl); }
+}
+
+void mb_port_serial_drain(int ch)
+{
+    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_CHANNELS || s_slot[ch].sp == NULL) { return; }
+    uint8_t scratch[16];
+    for (uint32_t i = 0; i < MB_PORT_ECHO_DRAIN; i++) {
+        if (s_slot[ch].sp->read(s_slot[ch].sp->ctx, scratch, (uint16_t)sizeof scratch) <= 0) { break; }
+    }
 }
 
 #endif /* SPLC_MODBUS_LIB == SPLC_MODBUS_LIB_MB */
