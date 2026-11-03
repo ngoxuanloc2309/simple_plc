@@ -24,6 +24,8 @@ CLEAR_RULES. Dev board only. Firmware: SPLC_MBM_ENABLE=1, SPLC_REAL_ENABLE=1.
         crc       -> error 1, err_code 2      sim: --fault crc
         exception -> error 1, err_code 3      sim: --fault exception
         short     -> error 1, err_code 4 or 1 sim: --fault short
+                     (--lib mb: err_code 2 -- mbmaster reports every bad frame as
+                      EIO = CRC, handoff 92d; nano: 4 or 1)
         late      -> error 1, err_code 1      sim: --delay-ms 500 (answer after the
                                                   300 ms timeout; it must be dropped;
                                                   the block interval is 1500 ms here)
@@ -221,10 +223,12 @@ def deploy_off(d):
     dep(d, rule_holder[0], {}, set(), "Disable all blocks")
 
 
-def run_fault(d, vr0, expect, timeout_ms):
+def run_fault(d, vr0, expect, timeout_ms, lib="nano"):
     T0 = vr0 + 1
     v, e, c = vr0 + 20, vr0 + 21, vr0 + 22
     codes = {"timeout": (1,), "crc": (2,), "exception": (3,), "short": (4, 1), "late": (1,)}[expect]
+    if lib == "mb" and expect == "short":
+        codes = (2,)          # SPLC_MODBUS_LIB_MB: short frame / wrong unit arrive as MB_EIO
     print(f"\nFault '{expect}': block 0 polls slave {SLAVE}; expect error=1, err_code in {codes}")
     before = TT.tag_value(d, T0)
     # late: the answer comes 500 ms after the 300 ms timeout. With a short interval the next
@@ -237,16 +241,25 @@ def run_fault(d, vr0, expect, timeout_ms):
     if not dep(d, rule_holder[0], {0: b}, set(), "Deploy block 0"):
         return
     seen_valid, last = False, None
-    t_end = time.time() + (5.0 if expect == "late" else 3.0)
+    t_start = time.time()
+    t_end = t_start + (5.0 if expect == "late" else 3.0)
+    # error stays 1 once the first poll has failed (timeout 300 ms + retry < 1 s). A sample with
+    # error = 0 after that means some answer was accepted (e.g. a late one): the 50 ms sampling
+    # can miss the one-scan 'valid' pulse and the sim's data (1234) equals the old tag value, so
+    # this is the check that catches an accepted late answer.
+    seen_ok_after = False
     while time.time() < t_end:
         vals = [TT.tag_value(d, t) for t in (v, e, c, T0)]
         seen_valid = seen_valid or vals[0] == 1
+        if time.time() - t_start > 1.2 and vals[1] == 0:
+            seen_ok_after = True
         last = vals
         time.sleep(0.05)
     ok_v, err_v, code_v, val = last
     info(f"last status: valid={ok_v} error={err_v} err_code={code_v} value={val}; valid pulse seen: {seen_valid}")
     check(err_v == 1 and code_v in codes, f"error={err_v}, err_code={code_v} (expect 1 / {codes})")
     check(not seen_valid, "valid never pulsed on a failed poll")
+    check(not seen_ok_after, "error never went back to 0 while polling (no answer accepted)")
     check(val == before, f"a failed poll does not write the target tag ({before} -> {val})")
     deploy_off(d)
 
@@ -261,7 +274,7 @@ def run(d, args):
         if args.expect == "none":
             run_none(d, vr0, args.timeout)
         else:
-            run_fault(d, vr0, args.expect, args.timeout)
+            run_fault(d, vr0, args.expect, args.timeout, args.lib)
     finally:
         print("\nCleanup (CLEAR_RULES)")
         s, e = T.run_syscmd(d, T.SYS_CLEAR_RULES)
@@ -276,6 +289,8 @@ def main():
     p.add_argument("--chunk", type=int, default=48)
     p.add_argument("--expect", choices=["none", "timeout", "crc", "exception", "short", "late"], default="none",
                    help="which fault the sim was started with (default none)")
+    p.add_argument("--lib", choices=["nano", "mb"], default="nano",
+                   help="SPLC_MODBUS_LIB of the firmware under test; only changes the err_code accepted by --expect short")
     p.add_argument("--timeout", type=int, default=300, help="block timeout in ms (default 300)")
     p.add_argument("--rs485-port", type=int, choices=[1, 2, 3, 4], default=3,
                    help="RS485 port the blocks poll on (default 3 = USART3 of the wg_ue gateway)")
