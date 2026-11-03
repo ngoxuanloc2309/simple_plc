@@ -32,11 +32,16 @@ What it checks
             answer, next request still fine), a stale partial frame, 3 requests in ONE burst
             (3 answers), another Slave ID (silence), broadcast write (executes, silent).
   7 speed   N back-to-back reads: all answered, latency figures printed (info only).
+--lib mb (firmware built with SPLC_MODBUS_LIB_MB: the Slave runs on libs/mb_master_slave):
+  the library ends a frame by 3.5 characters of silence and does NOT resync byte by byte, so the
+  three "glued" cases of section 6 (garbage in front, another unit's frame in front, 3 requests in
+  one burst) are only REPORTED (info); the same cases WITH a quiet gap in between must pass.
+
 What it does NOT check: exception 0x06 while a diag session holds the tags (needs the App link);
 the 3.5-character idle rule at the byte level (OS timing is too coarse); a REAL tag in an AI slot.
 
 Usage:
-    python test_mbs.py COM35 --unit 5 --baudrate 115200 [--parity N] [--di 4 --do 4 --ai 0
+    python test_mbs.py COM35 --unit 5 --baudrate 115200 [--lib nano|mb] [--parity N] [--di 4 --do 4 --ai 0
         --vflag 32 --vreg 32 --vret 32 --counter 8] [--speed-n 200] [--trace]
 The counts default to the Zigbee-IO board (4 DI, 4 DO, 0 AI, 32 VFLAG, 32 VREG, 32 VREG_R, 8 COUNTER).
 
@@ -52,6 +57,7 @@ from mbs_master import RtuMaster, ModbusException, NoAnswer
 
 _fail = 0
 _checks = 0
+LIB = "nano"      # --lib: Modbus library of the firmware Slave (handoff 93)
 
 
 def check(cond, msg):
@@ -270,13 +276,29 @@ def t_framing(m, c):
     def ok_answer(r):
         return len(r) == 9 and M.crc_ok(r) and r[0] == m.unit and r[1] == 3 and r[2] == 4
 
-    r = m.transact_raw(b"\xFF\x05\x00" + good)
-    check(ok_answer(r), "3 garbage bytes in front of a valid frame: answered")
     other = M.frame((m.unit % 247) + 1, struct.pack(">BHH", 3, 0x0002, 2))
-    r = m.transact_raw(other + good)
-    check(ok_answer(r), "another unit's frame in front, in the same burst: answered")
     bad = bytearray(good)
     bad[-1] ^= 0xFF
+    three = (good + M.frame(m.unit, struct.pack(">BHH", 3, 0x0001, 1)) +
+             M.frame(m.unit, struct.pack(">BHH", 3, 0x0010, 1)))
+    if LIB == "nano":
+        r = m.transact_raw(b"\xFF\x05\x00" + good)
+        check(ok_answer(r), "3 garbage bytes in front of a valid frame: answered")
+        r = m.transact_raw(other + good)
+        check(ok_answer(r), "another unit's frame in front, in the same burst: answered")
+    else:
+        r = m.transact_raw(b"\xFF\x05\x00" + good, timeout=0.3)
+        info("garbage glued in front (no gap): " + ("answered" if ok_answer(r) else "dropped, as expected of the library"))
+        m.flush()
+        m.send_raw(b"\xFF\x05\x00")
+        time.sleep(0.05)
+        check(ok_answer(m.transact_raw(good)), "3 garbage bytes, a quiet gap, then a valid frame: answered")
+        r = m.transact_raw(other + good, timeout=0.3)
+        info("another unit's frame glued in front (no gap): " + ("answered" if ok_answer(r) else "dropped, as expected of the library"))
+        m.flush()
+        m.send_raw(other)
+        time.sleep(0.05)
+        check(ok_answer(m.transact_raw(good)), "another unit's frame, a quiet gap, then ours: answered")
     r = m.transact_raw(bytes(bad), timeout=0.3)
     check(r == b"", "bad CRC: no answer")
     check(ok_answer(m.transact_raw(good)), "valid request right after the bad one: answered")
@@ -286,13 +308,28 @@ def t_framing(m, c):
     r = m.transact_raw(good)
     check(ok_answer(r), "stale partial frame (150 ms old) does not spoil the next request")
     m.flush()
-    three = good + M.frame(m.unit, struct.pack(">BHH", 3, 0x0001, 1)) + M.frame(m.unit, struct.pack(">BHH", 3, 0x0010, 1))
-    m.send_raw(three)
     got = bytearray()
-    t_end = time.monotonic() + 1.0
-    while time.monotonic() < t_end and len(got) < 9 + 7 + 7:
-        got += m.ser.read(64)
-    check(len(got) == 23, f"3 requests in one burst -> 3 answers ({len(got)} bytes, expected 23)")
+    if LIB == "nano":
+        m.send_raw(three)
+        t_end = time.monotonic() + 1.0
+        while time.monotonic() < t_end and len(got) < 9 + 7 + 7:
+            got += m.ser.read(64)
+        check(len(got) == 23, f"3 requests in one burst -> 3 answers ({len(got)} bytes, expected 23)")
+    else:
+        m.send_raw(three)                 # no gap: the library sees one long frame
+        t_end = time.monotonic() + 0.5
+        while time.monotonic() < t_end:
+            got += m.ser.read(64)
+        info(f"3 requests in one burst (no gaps): {len(got)} bytes back (23 = all answered, 0 = dropped as one bad frame)")
+        m.flush()
+        got = bytearray()
+        for f in (good, M.frame(m.unit, struct.pack(">BHH", 3, 0x0001, 1)), M.frame(m.unit, struct.pack(">BHH", 3, 0x0010, 1))):
+            m.send_raw(f)
+            time.sleep(0.05)
+        t_end = time.monotonic() + 1.0
+        while time.monotonic() < t_end and len(got) < 9 + 7 + 7:
+            got += m.ser.read(64)
+        check(len(got) == 23, f"3 requests with a gap between them -> 3 answers ({len(got)} bytes, expected 23)")
     r = m.transact_raw(M.frame((m.unit % 247) + 1, struct.pack(">BHH", 3, 0x0002, 2)), timeout=0.3)
     check(r == b"", f"request for unit {(m.unit % 247) + 1}: silence")
     # broadcast
@@ -334,9 +371,14 @@ def main():
     ap.add_argument("--stopbits", type=int, choices=(1, 2), default=1)
     for n, v in (("di", 4), ("do", 4), ("ai", 0), ("vflag", 32), ("vreg", 32), ("vret", 32), ("counter", 8)):
         ap.add_argument(f"--{n}", type=int, default=v, help=f"tags of that kind on the board (default {v})")
+    ap.add_argument("--lib", choices=("nano", "mb"), default="nano",
+                    help="Modbus library of the firmware Slave: nano = plc_mbs own framing (default), "
+                         "mb = libs/mb_master_slave (SPLC_MODBUS_LIB_MB)")
     ap.add_argument("--speed-n", type=int, default=200)
     ap.add_argument("--trace", action="store_true")
     a = ap.parse_args()
+    global LIB
+    LIB = a.lib
     c = Ctx()
     c.di, c.do, c.ai, c.vflag, c.vreg, c.vret, c.counter = a.di, a.do, a.ai, a.vflag, a.vreg, a.vret, a.counter
     try:

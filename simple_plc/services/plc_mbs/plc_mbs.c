@@ -13,7 +13,11 @@
 #include "plc_rtc.h"
 #include "plc_retain.h"
 #include "splc_epoch.h"
+#if SPLC_MODBUS_LIB == SPLC_MODBUS_LIB_MB
+#include "mb_port.h"          /* mb_port_slave_*: Slave stack of libs/mb_master_slave */
+#else
 #include "splc_nmbs.h"        /* nmbs_crc_calc() only */
+#endif
 #include "splc_log.h"
 #include "sx_time.h"
 #if SPLC_REAL_ENABLE
@@ -362,6 +366,9 @@ uint16_t plc_mbs_execute(const uint8_t *req, uint16_t req_len, uint8_t *rsp, boo
     }
 }
 
+#if SPLC_MODBUS_LIB != SPLC_MODBUS_LIB_MB
+/* ======== LIB = NANO: own RTU framing (this file) ======== */
+
 /* ---- RTU framing, per port ---------------------------------------------------- */
 typedef struct {
     bool     listening;
@@ -566,5 +573,158 @@ void plc_mbs_scan(uint32_t now_ms, bool rule_engine_suspended)
         if (s_tx_port >= 0) { break; }
     }
 }
+
+#else
+/* ======== LIB = MB: the Slave stack of libs/mb_master_slave ========
+ *
+ * The map above (plc_mbs_execute) is unchanged. Only the framing changes: for each port in the
+ * Slave role the library runs an RTU slave server on the port's byte pipe (port/mb_port): T3.5
+ * frame end, CRC, unit-id match, broadcast (executed, never answered) and exception frames are
+ * the library's. The bridges below turn its holding / coil / discrete requests back into PDUs
+ * for plc_mbs_execute(), so data and exception codes (0x01/0x02/0x03/0x06) equal the NANO build.
+ *
+ * Differences a master can see against LIB = NANO (handoff 93):
+ *  - the reply leaves one T3.5 (>= 2 ms, at least one scan) after the request's last byte;
+ *  - no byte-wise resync: a request glued to foreign bytes inside one T3.5 window, or cut by a
+ *    gap longer than T3.5, is lost (the master retries);
+ *  - plc_mbs_stat_dropped() stays 0 (the library does not report dropped frames). */
+
+#define PDU_MAX  256U
+
+typedef struct {
+    bool     open;          /* a server is open on this port */
+    int      ch;            /* its mb_port channel (valid only while `open`) */
+    uint8_t  id;            /* Slave ID it was opened with */
+    uint32_t baud;          /* baud it was opened with (sets T3.5) */
+    uint32_t retry_ms;      /* after a failed open: not before this tick */
+    bool     failed;        /* open failed (logged once) */
+} mbport_t;
+
+static mbport_t s_mp[PORTS];
+static bool     s_writes_allowed;
+static uint32_t s_ok, s_exc, s_drop;
+
+uint32_t plc_mbs_stat_ok(void)        { return s_ok; }
+uint32_t plc_mbs_stat_exception(void) { return s_exc; }
+uint32_t plc_mbs_stat_dropped(void)   { return s_drop; }
+
+static uint8_t count_result(uint8_t ex) { if (ex == 0U) { s_ok++; } else { s_exc++; } return ex; }
+
+/* Run a PDU through the map. 0 = OK (`rsp`/`rl` hold the response PDU), else the exception. */
+static uint8_t run_pdu(const uint8_t *req, uint16_t req_len, uint8_t *rsp, uint16_t *rl, bool writes)
+{
+    *rl = plc_mbs_execute(req, req_len, rsp, writes);
+    if (*rl < 2U) { return 4U; }                       /* device failure: cannot happen */
+    return ((rsp[0] & 0x80U) != 0U) ? rsp[1] : 0U;
+}
+
+static uint8_t bridge_holding(uint8_t *buf, uint16_t addr, uint16_t n, bool write)
+{
+    uint8_t req[PDU_MAX], rsp[PDU_MAX];
+    uint16_t rl;
+    if (n < 1U || n > 125U) { return count_result(EX_VALUE); }
+    put16(&req[1], addr); put16(&req[3], n);
+    if (!write) {
+        req[0] = 0x03U;
+        const uint8_t ex = run_pdu(req, 5U, rsp, &rl, true);
+        if (ex != 0U) { return count_result(ex); }
+        if (rl != (uint16_t)(2U + 2U * n)) { return count_result(4U); }
+        memcpy(buf, &rsp[2], 2U * n);
+        return count_result(0U);
+    }
+    /* FC06 and FC16 arrive the same way; FC16 of n registers has the same effect. */
+    req[0] = 0x10U; req[5] = (uint8_t)(2U * n);
+    memcpy(&req[6], buf, 2U * n);
+    return count_result(run_pdu(req, (uint16_t)(6U + 2U * n), rsp, &rl, s_writes_allowed));
+}
+
+/* Coils (FC01/05/15) and discrete inputs (FC02): bits LSB first, like the PDU. */
+static uint8_t bridge_bits(bool discrete, uint8_t *buf, uint16_t addr, uint16_t n, bool write)
+{
+    uint8_t req[PDU_MAX], rsp[PDU_MAX];
+    uint16_t rl;
+    const uint16_t nb = (uint16_t)((n + 7U) / 8U);
+    if (n < 1U || nb > 246U) { return count_result(EX_VALUE); }
+    put16(&req[1], addr); put16(&req[3], n);
+    if (!write) {
+        req[0] = discrete ? 0x02U : 0x01U;
+        const uint8_t ex = run_pdu(req, 5U, rsp, &rl, true);
+        if (ex != 0U) { return count_result(ex); }
+        if (rl != (uint16_t)(2U + nb)) { return count_result(4U); }
+        memcpy(buf, &rsp[2], nb);
+        return count_result(0U);
+    }
+    req[0] = 0x0FU;                                    /* FC05 arrives as one coil */
+    req[5] = (uint8_t)nb;
+    memcpy(&req[6], buf, nb);
+    return count_result(run_pdu(req, (uint16_t)(6U + nb), rsp, &rl, s_writes_allowed));
+}
+static uint8_t bridge_coils(uint8_t *buf, uint16_t addr, uint16_t n, bool write)
+{ return bridge_bits(false, buf, addr, n, write); }
+static uint8_t bridge_discrete(uint8_t *buf, uint16_t addr, uint16_t n, bool write)
+{ (void)write; return bridge_bits(true, buf, addr, n, false); }
+
+static const mb_port_slave_ops_t s_ops = { bridge_holding, bridge_coils, bridge_discrete };
+
+static void stop_port(unsigned pi)
+{
+    mbport_t *m = &s_mp[pi];
+    if (m->open) { mb_port_slave_close(m->ch); m->open = false; m->ch = -1; }
+}
+
+void plc_mbs_init(void)
+{
+    for (unsigned i = 0U; i < PORTS; i++) {
+        stop_port(i);
+        s_mp[i].id = 0U; s_mp[i].baud = 0U; s_mp[i].retry_ms = 0U; s_mp[i].failed = false;
+    }
+    s_writes_allowed = false;
+    s_ok = s_exc = s_drop = 0U;
+}
+
+static void service_port(unsigned pi, uint32_t now_ms)
+{
+    mbport_t *m = &s_mp[pi];
+    const uint8_t id = plc_mbm_port_slave_id(pi);
+    const modbus_serial_port_t *port = plc_mbm_port_serial_port(pi);
+    plc_mbm_serial_t ln;
+    const uint32_t baud = (plc_mbm_port_line(pi, &ln) && ln.baud != 0U) ? ln.baud : 9600U;
+    const bool want = plc_mbm_port_role(pi) == PLC_MBM_ROLE_SLAVE && id != 0U &&
+                      port != NULL && port->read != NULL && plc_mbm_port_ready(pi);
+
+    /* Stopped, new Slave ID or new baud (T3.5 depends on it): close; reopen below if wanted. */
+    if (m->open && (!want || m->id != id || m->baud != baud)) {
+        stop_port(pi);
+        log_info(TAG, "port %u: Slave server closed", pi + 1U);
+    }
+    if (!want) { m->failed = false; return; }
+
+    if (!m->open) {
+        if (m->failed && (int32_t)(now_ms - m->retry_ms) < 0) { return; }
+        {   /* bytes that piled up while the port was a Master (or idle) belong to nobody */
+            uint8_t scratch[32]; int dn, guard = 64;
+            do { dn = port->read(port->ctx, scratch, (uint16_t)sizeof(scratch)); }
+            while (dn > 0 && --guard > 0);
+        }
+        const int ch = mb_port_slave_open(port, baud, id, &s_ops);
+        if (ch < 0) {
+            if (!m->failed) { log_error(TAG, "port %u: cannot open the Slave server (ID %u)", pi + 1U, (unsigned)id); }
+            m->failed = true; m->retry_ms = now_ms + 1000U;
+            return;
+        }
+        m->open = true; m->ch = ch; m->failed = false; m->id = id; m->baud = baud;
+        log_info(TAG, "port %u: Slave ID %u listening (mb_master_slave, %lu baud)",
+                 pi + 1U, (unsigned)id, (unsigned long)baud);
+    }
+    mb_port_slave_poll(m->ch);
+}
+
+void plc_mbs_scan(uint32_t now_ms, bool rule_engine_suspended)
+{
+    s_writes_allowed = !rule_engine_suspended;
+    for (unsigned i = 0U; i < PORTS; i++) { service_port(i, now_ms); }
+}
+
+#endif /* SPLC_MODBUS_LIB */
 
 #endif /* SPLC_MODBUS_SLAVE_ENABLE */

@@ -31,11 +31,18 @@ static const char *TAG = "MB_PORT";
 /* RS-485 channels (Modbus master over a modbus_serial_port_t): one per Modbus master
  * port plus one for the Gateway's Remote I/O master. Channel index = MB_PORT_SLOTS + n,
  * so the library's `ucPort` selects either kind of byte pipe. */
+/* Slave serving (plc_mbs): one more channel per port that can take the Slave role. */
 #if SPLC_MBM_ENABLE
-#define MB_PORT_RS485_CH     (SPLC_MBM_PORT_COUNT + 1U)
+#define MB_PORT_RS485_MASTER_CH (SPLC_MBM_PORT_COUNT + 1U)
 #else
-#define MB_PORT_RS485_CH     (1U)
+#define MB_PORT_RS485_MASTER_CH (1U)
 #endif
+#if SPLC_MODBUS_SLAVE_ENABLE
+#define MB_PORT_RS485_SLAVE_CH  (SPLC_MBM_PORT_COUNT)
+#else
+#define MB_PORT_RS485_SLAVE_CH  (0U)
+#endif
+#define MB_PORT_RS485_CH     (MB_PORT_RS485_MASTER_CH + MB_PORT_RS485_SLAVE_CH)
 #define MB_PORT_CHANNELS     (MB_PORT_SLOTS + MB_PORT_RS485_CH)
 #define MB_PORT_MAX_TIMERS   (3U * MB_PORT_CHANNELS)   /* RTU/ASCII use <= 3 per instance */
 #define MB_PORT_MAX_EVENTS   (2U * MB_PORT_CHANNELS)
@@ -95,6 +102,9 @@ static mb_timer_t           s_timer[MB_PORT_MAX_TIMERS];
 static mb_event_t           s_event[MB_PORT_MAX_EVENTS];
 static uint8_t              s_tx_buf[MB_PORT_TX_MAX];   /* one flush at a time */
 static mb_port_holding_cb_t s_holding_cb;
+#if SPLC_MODBUS_SLAVE_ENABLE
+static mb_port_slave_ops_t  s_slave_ops;                /* plc_mbs callbacks (one map, all ports) */
+#endif
 static uint8_t              s_tcp_pending = 0xFFU;      /* slot inside eMBSTCPInit(), else 0xFF */
 
 /* --- Library callback: holding registers -> product register map -------- */
@@ -113,6 +123,37 @@ static eMBException holding_tramp(UBYTE *buf, USHORT addr, USHORT nregs, eMBSReg
     default: return MB_PDU_EX_SLAVE_DEVICE_FAILURE;
     }
 }
+
+#if SPLC_MODBUS_SLAVE_ENABLE
+/* App link: coils / discrete inputs are not served. A callback that says "illegal function"
+ * keeps the answer 0x01 (with no callback the library answers 0x02). */
+static eMBException applink_coil_tramp(UBYTE *buf, USHORT addr, USHORT n, eMBSRegisterMode mode)
+{ (void)buf; (void)addr; (void)n; (void)mode; return MB_PDU_EX_ILLEGAL_FUNCTION; }
+static eMBException applink_disc_tramp(UBYTE *buf, USHORT addr, USHORT n)
+{ (void)buf; (void)addr; (void)n; return MB_PDU_EX_ILLEGAL_FUNCTION; }
+
+/* Slave serving (plc_mbs): exceptions 1..3 and 6 (busy: a diagnostic session holds the tags). */
+static eMBException slave_ex(uint8_t ex)
+{
+    switch (ex) {
+    case 0: return MB_PDU_EX_NONE;
+    case 1: return MB_PDU_EX_ILLEGAL_FUNCTION;
+    case 2: return MB_PDU_EX_ILLEGAL_DATA_ADDRESS;
+    case 3: return MB_PDU_EX_ILLEGAL_DATA_VALUE;
+    case 6: return MB_PDU_EX_SLAVE_BUSY;
+    default: return MB_PDU_EX_SLAVE_DEVICE_FAILURE;
+    }
+}
+static eMBException slave_holding_tramp(UBYTE *buf, USHORT addr, USHORT n, eMBSRegisterMode mode)
+{ return (s_slave_ops.holding == NULL) ? MB_PDU_EX_SLAVE_DEVICE_FAILURE
+         : slave_ex(s_slave_ops.holding(buf, addr, n, mode == MBS_REGISTER_WRITE)); }
+static eMBException slave_coil_tramp(UBYTE *buf, USHORT addr, USHORT n, eMBSRegisterMode mode)
+{ return (s_slave_ops.coils == NULL) ? MB_PDU_EX_SLAVE_DEVICE_FAILURE
+         : slave_ex(s_slave_ops.coils(buf, addr, n, mode == MBS_REGISTER_WRITE)); }
+static eMBException slave_disc_tramp(UBYTE *buf, USHORT addr, USHORT n)
+{ return (s_slave_ops.discrete == NULL) ? MB_PDU_EX_SLAVE_DEVICE_FAILURE
+         : slave_ex(s_slave_ops.discrete(buf, addr, n, false)); }
+#endif /* SPLC_MODBUS_SLAVE_ENABLE */
 
 /* --- eMBPTimer*: soft timers on sx_get_tick_ms() ------------------------- */
 
@@ -599,6 +640,10 @@ bool mb_port_server_create(uint8_t slot, const modbus_transport_t *t,
             tl->t = NULL;
             return false;
         }
+#if SPLC_MODBUS_SLAVE_ENABLE
+        (void)eMBSRegisterCoilCB(tl->server, applink_coil_tramp);
+        (void)eMBSRegisterDiscreteCB(tl->server, applink_disc_tramp);
+#endif
         tl->created = true;
         log_info(TAG, "slot %u: TCP server up (one client, unit id ignored)", (unsigned)slot);
         return true;
@@ -632,6 +677,10 @@ bool mb_port_server_create(uint8_t slot, const modbus_transport_t *t,
         sl->t = NULL;
         return false;
     }
+#if SPLC_MODBUS_SLAVE_ENABLE
+    (void)eMBSRegisterCoilCB(sl->server, applink_coil_tramp);
+    (void)eMBSRegisterDiscreteCB(sl->server, applink_disc_tramp);
+#endif
     sl->created = true;
     log_info(TAG, "slot %u: %s server up, unit_id=%u", (unsigned)slot,
              (mode == MB_RTU) ? "RTU" : "ASCII", (unsigned)t->unit_id);
@@ -654,6 +703,67 @@ void mb_port_server_poll(uint8_t slot)
     tx_flush(sl);                   /* 5. reply out, library re-enables RX      */
 }
 
+
+/* --- RS-485 channels: Modbus SLAVE (plc_mbs) ------------------------------ */
+
+#if SPLC_MODBUS_SLAVE_ENABLE
+int mb_port_slave_open(const modbus_serial_port_t *port, uint32_t baud, uint8_t slave_id,
+                       const mb_port_slave_ops_t *ops)
+{
+    if (port == NULL || port->read == NULL || ops == NULL || ops->holding == NULL ||
+        ops->coils == NULL || ops->discrete == NULL || slave_id < 1U || slave_id > 247U) {
+        log_error(TAG, "slave open: bad argument (id %u)", (unsigned)slave_id);
+        return -1;
+    }
+    const int ch = mb_port_serial_attach(port, baud);
+    if (ch < 0) { return -1; }
+    mb_slot_t *sl = &s_slot[ch];
+    s_slave_ops = *ops;
+    eMBErrorCode e = eMBSSerialInit(&sl->server, MB_RTU, slave_id, (UBYTE)ch,
+                                    (baud != 0U) ? baud : 9600UL, MB_PAR_NONE);
+    if (e != MB_ENOERR) {
+        log_error(TAG, "slave: eMBSSerialInit failed: err=%d id=%u", (int)e, (unsigned)slave_id);
+        mb_port_serial_detach(ch);
+        return -1;
+    }
+    if (eMBSRegisterHoldingCB(sl->server, slave_holding_tramp) != MB_ENOERR ||
+        eMBSRegisterCoilCB(sl->server, slave_coil_tramp) != MB_ENOERR ||
+        eMBSRegisterDiscreteCB(sl->server, slave_disc_tramp) != MB_ENOERR) {
+        log_error(TAG, "slave: callback registration failed");
+        (void)eMBSClose(sl->server);
+        mb_port_serial_detach(ch);
+        return -1;
+    }
+    sl->created = true;
+    return ch;
+}
+
+void mb_port_slave_poll(int ch)
+{
+    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_CHANNELS) { return; }
+    mb_slot_t *sl = &s_slot[ch];
+    if (sl->sp == NULL || !sl->created || !sl->open) { return; }
+    ser_progress(sl);               /* end a transmit started earlier                */
+    rx_feed(sl);                    /* bytes first ...  (order matters: 86)          */
+    timers_run(sl->lib_hdl);        /* ... then this channel's timers (T3.5)         */
+    (void)eMBSPoll(sl->server);     /* MBS_POLL_SINGLE_CYCLE=1: runs to idle         */
+    tx_flush(sl);                   /* reply out, library re-enables RX              */
+}
+
+void mb_port_slave_close(int ch)
+{
+    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_CHANNELS) { return; }
+    mb_slot_t *sl = &s_slot[ch];
+    if (sl->sp == NULL) { return; }
+    if (sl->created) { (void)eMBSClose(sl->server); }   /* frees the library's timer + event */
+    mb_port_serial_detach(ch);                           /* aborts a transmit in flight       */
+}
+#else
+int  mb_port_slave_open(const modbus_serial_port_t *p, uint32_t b, uint8_t id, const mb_port_slave_ops_t *o)
+{ (void)p; (void)b; (void)id; (void)o; return -1; }
+void mb_port_slave_poll(int ch)  { (void)ch; }
+void mb_port_slave_close(int ch) { (void)ch; }
+#endif
 
 /* --- RS-485 channels (Modbus master over a modbus_serial_port_t) ---------- */
 

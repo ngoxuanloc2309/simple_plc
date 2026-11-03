@@ -1,6 +1,6 @@
 /*
  * mb_port.h - Layer 3.5 adapter between libs/mb_master_slave (SPLC_MODBUS_LIB_MB)
- * and the product's byte link. Included ONLY by plc_modbus_cfg.c.
+ * and the product's byte link. Included by plc_modbus_cfg.c (App link) and plc_mbs.c (RS-485 Slave).
  *
  * Contract (decision 81): the product writes nothing new. The adapter works on
  * the modbus_transport_t that splc_link_get_transport() already gives (read /
@@ -62,6 +62,24 @@ bool mb_port_server_create(uint8_t slot, const modbus_transport_t *t,
 /* One tick of slot `slot` (steps 2..5 above). Does nothing if the slot has no
  * server. Never blocks (transport->read is called with timeout 0). */
 void mb_port_server_poll(uint8_t slot);
+
+/* --- RS-485 channels: Modbus SLAVE (plc_mbs; needs SPLC_MODBUS_SLAVE_ENABLE) ---
+ * Callbacks of the one fixed map. Same shape as mb_port_holding_cb_t; for coils / discrete
+ * inputs `nregs` is the number of bits and `buf` is LSB-first packed. Return 0 or a Modbus
+ * exception (1, 2, 3, 6; anything else = device failure). `discrete` is never called with write. */
+typedef struct {
+    mb_port_holding_cb_t holding;
+    mb_port_holding_cb_t coils;
+    mb_port_holding_cb_t discrete;
+} mb_port_slave_ops_t;
+
+/* Open an RTU slave server (unit `slave_id`) on `port`. `baud` only sets T3.5. Returns the
+ * channel, or -1 (logged). Poll it once per engine scan; close before reopening with another
+ * id or baud. The ops are shared by all Slave ports (one map). */
+int  mb_port_slave_open(const modbus_serial_port_t *port, uint32_t baud, uint8_t slave_id,
+                        const mb_port_slave_ops_t *ops);
+void mb_port_slave_poll(int ch);
+void mb_port_slave_close(int ch);
 
 /* --- RS-485 channels: Modbus MASTER over a modbus_serial_port_t ---
  * Used by port/modbus_serial/modbus_serial_mb.c only (LIB == MB). Same eMBP* layer as the

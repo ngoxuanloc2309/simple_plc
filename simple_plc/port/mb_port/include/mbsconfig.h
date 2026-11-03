@@ -16,7 +16,12 @@
 #define MBS_UDP_ENABLED                 ( 0 )
 
 /* One server instance per transport slot (RTU and ASCII share the slot index). */
+/* Slave serving (plc_mbs, LIB=MB): one more RTU server per RS-485 port that can take the Slave role. */
+#if SPLC_MODBUS_SLAVE_ENABLE
+#define MBS_SERIAL_RTU_MAX_INSTANCES    ( SPLC_MODBUS_MAX_TRANSPORTS + SPLC_MBM_PORT_COUNT )
+#else
 #define MBS_SERIAL_RTU_MAX_INSTANCES    ( SPLC_MODBUS_MAX_TRANSPORTS )
+#endif
 #define MBS_SERIAL_ASCII_MAX_INSTANCES  ( SPLC_MODBUS_MAX_TRANSPORTS )
 
 /* TCP: one server instance per transport slot, and exactly ONE client per
@@ -57,10 +62,11 @@
 #define MBS_FUNC_WRITE_FILE_RECORD_ENABLED            ( 0 )
 #define MBS_FUNC_MASK_WRITE_REGISTER_ENABLED          ( 0 )
 #define MBS_FUNC_READWRITE_MULTIPLE_REGISTERS_ENABLED ( 0 )
-#define MBS_FUNC_READ_DISCRETE_ENABLED                ( 0 )
-#define MBS_FUNC_READ_COILS_ENABLED                   ( 0 )
-#define MBS_FUNC_WRITE_SINGLE_COIL_ENABLED            ( 0 )
-#define MBS_FUNC_WRITE_MULTIPLE_COILS_ENABLED         ( 0 )
+/* Coils / discrete inputs are served only by plc_mbs (RS-485 Slave ports). */
+#define MBS_FUNC_READ_DISCRETE_ENABLED                ( SPLC_MODBUS_SLAVE_ENABLE )
+#define MBS_FUNC_READ_COILS_ENABLED                   ( SPLC_MODBUS_SLAVE_ENABLE )
+#define MBS_FUNC_WRITE_SINGLE_COIL_ENABLED            ( SPLC_MODBUS_SLAVE_ENABLE )
+#define MBS_FUNC_WRITE_MULTIPLE_COILS_ENABLED         ( SPLC_MODBUS_SLAVE_ENABLE )
 #define MBS_FUNC_REPORT_SLAVE_ID_ENABLED              ( 0 )
 #define MBS_FUNC_READ_EXCEPTION_STATUS_ENABLED        ( 0 )
 
