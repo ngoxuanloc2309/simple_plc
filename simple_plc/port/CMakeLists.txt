@@ -56,7 +56,9 @@ set(SPLC_PORT_SRC
 # library's porting layer on top of modbus_transport_t. Layer 3.5; only
 # plc_modbus_cfg.c includes mb_port.h.
 if(SPLC_MODBUS_LIB_IS_MB)
-    list(APPEND SPLC_PORT_SRC ${CMAKE_CURRENT_SOURCE_DIR}/mb_port/mb_port.c)
+    list(APPEND SPLC_PORT_SRC
+        ${CMAKE_CURRENT_SOURCE_DIR}/mb_port/mb_port.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/modbus_serial/modbus_serial_mb.c)   # master API on mbmaster
 endif()
 
 add_library(splc_port STATIC ${SPLC_PORT_SRC})
@@ -87,7 +89,7 @@ target_link_libraries(splc_port PUBLIC
 
 if(SPLC_MODBUS_LIB_IS_MB)
     target_include_directories(splc_port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/mb_port)
-    target_link_libraries(splc_port PUBLIC splc_mbslave)
+    target_link_libraries(splc_port PUBLIC splc_mbslave splc_mbmaster)
 endif()
 
 target_compile_features(splc_port PUBLIC c_std_11)
