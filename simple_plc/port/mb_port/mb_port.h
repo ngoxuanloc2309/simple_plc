@@ -92,6 +92,27 @@ void mb_port_serial_pump(int ch);
 void mb_port_serial_flush(int ch);
 void mb_port_serial_drain(int ch);
 
+/* --- TCP master channels (SPLC_MODBUS_TCP_MASTER_ENABLE) ---
+ * Used by port/modbus_tcp_master/modbus_tcp_master.c only. The HOST owns the socket: the
+ * channel sees it through three callbacks, so the library's TCP client (mbmtcp.c) runs on a
+ * connection somebody else opened. Connecting is the facade's job (it asks the host); the
+ * library's eMBPTCPClientOpen() only attaches to the connection that is already up.
+ * Order per tick (86): pump (RX bytes into the library, then its timers) -> library poll. */
+typedef struct {
+    int  (*read)(void *ctx, uint8_t *buf, uint16_t max_len);  /* >=0 bytes (0 = none yet), <0 lost */
+    int  (*write)(void *ctx, const uint8_t *buf, uint16_t len); /* bytes taken; != len = lost */
+    void (*close)(void *ctx);                                  /* idempotent */
+    void *ctx;
+} mb_port_tcpc_ops_t;
+
+int  mb_port_tcpc_attach(const mb_port_tcpc_ops_t *ops);   /* channel, or -1 (logged); ops must outlive it */
+void mb_port_tcpc_detach(int ch);
+/* Call right before eMBMTCPInit() (eMBPTCPClientInit has no channel argument); -1 right after. */
+void mb_port_tcpc_bind(int ch);
+void mb_port_tcpc_pump(int ch);
+bool mb_port_tcpc_is_up(int ch);      /* library client open and the connection has not failed since */
+bool mb_port_tcpc_take_lost(int ch);  /* true once if the connection was lost since the last call */
+
 #ifdef __cplusplus
 }
 #endif

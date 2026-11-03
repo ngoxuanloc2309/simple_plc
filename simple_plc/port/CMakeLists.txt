@@ -58,7 +58,8 @@ set(SPLC_PORT_SRC
 if(SPLC_MODBUS_LIB_IS_MB)
     list(APPEND SPLC_PORT_SRC
         ${CMAKE_CURRENT_SOURCE_DIR}/mb_port/mb_port.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/modbus_serial/modbus_serial_mb.c)   # master API on mbmaster
+        ${CMAKE_CURRENT_SOURCE_DIR}/modbus_serial/modbus_serial_mb.c   # master API on mbmaster
+        ${CMAKE_CURRENT_SOURCE_DIR}/modbus_tcp_master/modbus_tcp_master.c) # TCP master (empty unless SPLC_MODBUS_TCP_MASTER_ENABLE=1)
 endif()
 
 add_library(splc_port STATIC ${SPLC_PORT_SRC})
@@ -71,6 +72,7 @@ target_include_directories(splc_port PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/modbus_serial
     ${CMAKE_CURRENT_SOURCE_DIR}/modbus_link
     ${CMAKE_CURRENT_SOURCE_DIR}/modbus_transport
+    ${CMAKE_CURRENT_SOURCE_DIR}/modbus_tcp_master
 )
 
 # splc_components (Layer 1) supplies sx_time.h / sx_os.h / sx_uart.h, which

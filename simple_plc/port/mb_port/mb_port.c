@@ -43,7 +43,14 @@ static const char *TAG = "MB_PORT";
 #define MB_PORT_RS485_SLAVE_CH  (0U)
 #endif
 #define MB_PORT_RS485_CH     (MB_PORT_RS485_MASTER_CH + MB_PORT_RS485_SLAVE_CH)
-#define MB_PORT_CHANNELS     (MB_PORT_SLOTS + MB_PORT_RS485_CH)
+/* TCP master channels (host-owned sockets) follow the RS-485 ones. */
+#if SPLC_MODBUS_TCP_MASTER_ENABLE
+#define MB_PORT_TCPM_CH      (SPLC_MODBUS_TCP_MASTER_COUNT)
+#else
+#define MB_PORT_TCPM_CH      (0U)
+#endif
+#define MB_PORT_SER_END      (MB_PORT_SLOTS + MB_PORT_RS485_CH)   /* end of the serial range */
+#define MB_PORT_CHANNELS     (MB_PORT_SER_END + MB_PORT_TCPM_CH)
 #define MB_PORT_MAX_TIMERS   (3U * MB_PORT_CHANNELS)   /* RTU/ASCII use <= 3 per instance */
 #define MB_PORT_MAX_EVENTS   (2U * MB_PORT_CHANNELS)
 #define MB_PORT_SER_TX_MAX   256U   /* RTU ADU maximum */
@@ -80,6 +87,13 @@ typedef struct {
     uint16_t                      tcp_got;       /* bytes eMBPTCPConRead() returned in this call */
     uint16_t                      tcp_frame;     /* bytes taken since the last reply / reset */
     uint32_t                      tcp_rx_ms;     /* tick of the last byte taken */
+#if SPLC_MODBUS_TCP_MASTER_ENABLE
+    /* TCP master channel: the host's socket behind three callbacks (tcp_up/tcp_newdata/
+     * tcp_disc/tcp_got are shared with the TCP-server fields above). */
+    const mb_port_tcpc_ops_t     *tc;            /* not owned; NULL = channel free */
+    bool                          tcpc;          /* eMBPTCPClientInit() done */
+    bool                          tcpc_lost;     /* connection failed since take_lost() */
+#endif
 } mb_slot_t;
 
 typedef struct {
@@ -106,6 +120,9 @@ static mb_port_holding_cb_t s_holding_cb;
 static mb_port_slave_ops_t  s_slave_ops;                /* plc_mbs callbacks (one map, all ports) */
 #endif
 static uint8_t              s_tcp_pending = 0xFFU;      /* slot inside eMBSTCPInit(), else 0xFF */
+#if SPLC_MODBUS_TCP_MASTER_ENABLE
+static int                  s_tcpc_pending = -1;        /* channel inside eMBMTCPInit(), else -1 */
+#endif
 
 /* --- Library callback: holding registers -> product register map -------- */
 
@@ -405,6 +422,11 @@ eMBErrorCode eMBTCPServerClose(xMBPTCPHandle xTCPHdl)
 
 static bool tcp_handles_ok(const mb_slot_t *sl, xMBPTCPHandle h, xMBPTCPClientHandle c)
 {
+#if SPLC_MODBUS_TCP_MASTER_ENABLE
+    if (sl != NULL && sl->tcpc && h == (xMBPTCPHandle)sl && c == (xMBPTCPClientHandle)&sl->tcp_up) {
+        return true;
+    }
+#endif
     return sl != NULL && sl->tcp && h == (xMBPTCPHandle)sl && c == (xMBPTCPClientHandle)&sl->tcp_up;
 }
 
@@ -419,6 +441,21 @@ eMBErrorCode eMBPTCPConRead(xMBPTCPHandle xTCPHdl, xMBPTCPClientHandle xTCPClien
     if (usBufferMax == 0U) {
         return MB_ENOERR;
     }
+#if SPLC_MODBUS_TCP_MASTER_ENABLE
+    if (sl->tcpc) {                    /* TCP master: the host's socket */
+        const int rn = sl->tc->read(sl->tc->ctx, pubBuffer, usBufferMax);
+        if (rn < 0) {
+            sl->tcpc_lost = true;
+            return MB_EIO;             /* the library closes the client; the facade sees `lost` */
+        }
+        if (rn > 0) {
+            const uint16_t rgot = ((uint32_t)rn > usBufferMax) ? usBufferMax : (uint16_t)rn;
+            *pusBufferLen = rgot;
+            sl->tcp_got   = (uint16_t)(sl->tcp_got + rgot);
+        }
+        return MB_ENOERR;
+    }
+#endif
     const int32_t n = sl->t->read(pubBuffer, usBufferMax, 0, sl->t->ctx);
     if (n < 0) {
         return MB_EIO;                 /* the library drops the client; we re-open it next tick */
@@ -440,6 +477,17 @@ eMBErrorCode eMBPTCPConWrite(xMBPTCPHandle xTCPHdl, xMBPTCPClientHandle xTCPClie
     if (!tcp_handles_ok(sl, xTCPHdl, xTCPClientHdl) || pubBuffer == NULL) {
         return MB_EINVAL;
     }
+#if SPLC_MODBUS_TCP_MASTER_ENABLE
+    if (sl->tcpc) {                    /* TCP master: one request frame out */
+        const int rw = sl->tc->write(sl->tc->ctx, pubBuffer, usBufferLen);
+        if (rw != (int)usBufferLen) {
+            log_warn(TAG, "tcp master write: %d of %u bytes", rw, (unsigned)usBufferLen);
+            sl->tcpc_lost = true;
+            return MB_EIO;
+        }
+        return MB_ENOERR;
+    }
+#endif
     sl->tcp_frame = 0U;                /* the request is answered: nothing is half-received */
     const int32_t w = sl->t->write(pubBuffer, usBufferLen, MB_PORT_WRITE_TIMEOUT_MS, sl->t->ctx);
     if (w != (int32_t)usBufferLen) {
@@ -455,12 +503,77 @@ eMBErrorCode eMBPTCPConClose(xMBPTCPHandle xTCPHdl, xMBPTCPClientHandle xTCPClie
     if (!tcp_handles_ok(sl, xTCPHdl, xTCPClientHdl)) {
         return MB_EINVAL;
     }
+#if SPLC_MODBUS_TCP_MASTER_ENABLE
+    if (sl->tcpc) {                    /* TCP master: really close the host's connection */
+        if (sl->tcp_up) { sl->tc->close(sl->tc->ctx); }
+        sl->tcp_up = false;
+        return MB_ENOERR;
+    }
+#endif
     /* The pipe stays open; the library forgot the client, so re-register it on
      * the next tick (tcp_poll). Does NOT call back into the library. */
     sl->tcp_up    = false;
     sl->tcp_frame = 0U;
     return MB_ENOERR;
 }
+
+#if SPLC_MODBUS_TCP_MASTER_ENABLE
+/* --- eMBPTCPClient*: TCP master over a host-owned socket -------------------- */
+/* The facade (modbus_tcp_master.c) connects through the host BEFORE it calls the library's
+ * eMBMTCPConnect(); eMBPTCPClientOpen() therefore opens nothing, it only makes the already
+ * connected socket the library's client. Server handle = the slot, client handle = &tcp_up. */
+eMBErrorCode eMBPTCPClientInit(xMBPTCPHandle *pxTCPHdl, xMBHandle xMBHdl,
+                               peMBPTCPClientNewDataCB eMBPTCPClientNewDATAFN,
+                               peMBPTCPClientDisconnectedCB eMBPTCPClientDisconnectedFN)
+{
+    if (pxTCPHdl == NULL || xMBHdl == MBP_HDL_INVALID || eMBPTCPClientNewDATAFN == NULL ||
+        eMBPTCPClientDisconnectedFN == NULL || s_tcpc_pending < (int)MB_PORT_SER_END ||
+        s_tcpc_pending >= (int)MB_PORT_CHANNELS) {
+        return MB_EINVAL;
+    }
+    mb_slot_t *sl = &s_slot[s_tcpc_pending];
+    if (sl->tc == NULL || sl->tcpc) {
+        return MB_EINVAL;
+    }
+    sl->lib_hdl     = xMBHdl;
+    sl->tcp_newdata = eMBPTCPClientNewDATAFN;
+    sl->tcp_disc    = eMBPTCPClientDisconnectedFN;
+    sl->tcp_up      = false;
+    sl->tcp_got     = 0U;
+    sl->tcpc_lost   = false;
+    sl->tcpc        = true;
+    *pxTCPHdl       = sl;
+    return MB_ENOERR;
+}
+
+eMBErrorCode eMBPTCPClientClose(xMBPTCPHandle xTCPHdl)
+{
+    mb_slot_t *sl = (mb_slot_t *)xTCPHdl;
+    if (sl == NULL || !sl->tcpc) {
+        return MB_EINVAL;
+    }
+    if (sl->tcp_up) { sl->tc->close(sl->tc->ctx); }
+    sl->tcpc        = false;
+    sl->tcp_up      = false;
+    sl->tcp_newdata = NULL;
+    sl->tcp_disc    = NULL;
+    return MB_ENOERR;
+}
+
+eMBErrorCode eMBPTCPClientOpen(xMBPTCPHandle xTCPHdl, xMBPTCPClientHandle *pxTCPClientHdl,
+                               const CHAR *pcConnectAddress, USHORT usTCPPort)
+{
+    (void)pcConnectAddress; (void)usTCPPort;       /* the host already connected */
+    mb_slot_t *sl = (mb_slot_t *)xTCPHdl;
+    if (sl == NULL || !sl->tcpc || pxTCPClientHdl == NULL) {
+        return MB_EINVAL;
+    }
+    sl->tcp_up     = true;
+    sl->tcpc_lost  = false;
+    *pxTCPClientHdl = (xMBPTCPClientHandle)&sl->tcp_up;
+    return MB_ENOERR;
+}
+#endif /* SPLC_MODBUS_TCP_MASTER_ENABLE */
 
 /* --- Library load/unload ------------------------------------------------- */
 
@@ -740,7 +853,7 @@ int mb_port_slave_open(const modbus_serial_port_t *port, uint32_t baud, uint8_t 
 
 void mb_port_slave_poll(int ch)
 {
-    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_CHANNELS) { return; }
+    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_SER_END) { return; }
     mb_slot_t *sl = &s_slot[ch];
     if (sl->sp == NULL || !sl->created || !sl->open) { return; }
     ser_progress(sl);               /* end a transmit started earlier                */
@@ -752,7 +865,7 @@ void mb_port_slave_poll(int ch)
 
 void mb_port_slave_close(int ch)
 {
-    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_CHANNELS) { return; }
+    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_SER_END) { return; }
     mb_slot_t *sl = &s_slot[ch];
     if (sl->sp == NULL) { return; }
     if (sl->created) { (void)eMBSClose(sl->server); }   /* frees the library's timer + event */
@@ -770,7 +883,7 @@ void mb_port_slave_close(int ch) { (void)ch; }
 int mb_port_serial_attach(const modbus_serial_port_t *port, uint32_t baud)
 {
     if (port == NULL || port->read == NULL) { return -1; }
-    for (uint32_t i = MB_PORT_SLOTS; i < MB_PORT_CHANNELS; i++) {
+    for (uint32_t i = MB_PORT_SLOTS; i < MB_PORT_SER_END; i++) {
         mb_slot_t *sl = &s_slot[i];
         if (sl->t == NULL && sl->sp == NULL && !sl->open) {
             memset(sl, 0, sizeof *sl);
@@ -790,7 +903,7 @@ void mb_port_serial_set_baud(int ch, uint32_t baud)
 
 void mb_port_serial_detach(int ch)
 {
-    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_CHANNELS) { return; }
+    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_SER_END) { return; }
     mb_slot_t *sl = &s_slot[ch];
 #if SPLC_MBM_ENABLE
     if (sl->sp != NULL && sl->sp_async && sl->sp->write_abort != NULL) {
@@ -802,7 +915,7 @@ void mb_port_serial_detach(int ch)
 
 void mb_port_serial_pump(int ch)
 {
-    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_CHANNELS) { return; }
+    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_SER_END) { return; }
     mb_slot_t *sl = &s_slot[ch];
     if (sl->sp == NULL || !sl->open) { return; }
     ser_progress(sl);
@@ -812,18 +925,81 @@ void mb_port_serial_pump(int ch)
 
 void mb_port_serial_flush(int ch)
 {
-    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_CHANNELS) { return; }
+    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_SER_END) { return; }
     mb_slot_t *sl = &s_slot[ch];
     if (sl->sp != NULL && sl->open) { tx_flush(sl); }
 }
 
 void mb_port_serial_drain(int ch)
 {
-    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_CHANNELS || s_slot[ch].sp == NULL) { return; }
+    if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_SER_END || s_slot[ch].sp == NULL) { return; }
     uint8_t scratch[16];
     for (uint32_t i = 0; i < MB_PORT_ECHO_DRAIN; i++) {
         if (s_slot[ch].sp->read(s_slot[ch].sp->ctx, scratch, (uint16_t)sizeof scratch) <= 0) { break; }
     }
 }
+
+/* --- TCP master channels (host-owned sockets) ----------------------------- */
+#if SPLC_MODBUS_TCP_MASTER_ENABLE
+static bool tcpc_valid(int ch) { return ch >= (int)MB_PORT_SER_END && ch < (int)MB_PORT_CHANNELS; }
+
+int mb_port_tcpc_attach(const mb_port_tcpc_ops_t *ops)
+{
+    if (ops == NULL || ops->read == NULL || ops->write == NULL || ops->close == NULL) { return -1; }
+    for (uint32_t i = MB_PORT_SER_END; i < MB_PORT_CHANNELS; i++) {
+        mb_slot_t *sl = &s_slot[i];
+        if (sl->tc == NULL && !sl->tcpc) {
+            memset(sl, 0, sizeof *sl);
+            sl->tc = ops;
+            return (int)i;
+        }
+    }
+    log_error(TAG, "no free TCP master channel (%u)", (unsigned)MB_PORT_TCPM_CH);
+    return -1;
+}
+
+void mb_port_tcpc_detach(int ch)
+{
+    if (!tcpc_valid(ch)) { return; }
+    mb_slot_t *sl = &s_slot[ch];
+    if (sl->tc != NULL && sl->tcp_up) { sl->tc->close(sl->tc->ctx); }
+    memset(sl, 0, sizeof *sl);
+}
+
+void mb_port_tcpc_bind(int ch) { s_tcpc_pending = ch; }
+
+void mb_port_tcpc_pump(int ch)
+{
+    if (!tcpc_valid(ch)) { return; }
+    mb_slot_t *sl = &s_slot[ch];
+    if (!sl->tcpc) { return; }
+    for (uint32_t it = 0; it < MB_PORT_TCP_FEED_ITER && sl->tcp_up; it++) {   /* bytes first ... (86) */
+        sl->tcp_got = 0U;
+        (void)sl->tcp_newdata(sl->lib_hdl, (xMBPTCPClientHandle)&sl->tcp_up);
+        if (sl->tcp_got == 0U) { break; }     /* pipe empty, or the library wants no more */
+    }
+    timers_run(sl->lib_hdl);                  /* ... then this channel's timers (answer timeout) */
+}
+
+bool mb_port_tcpc_is_up(int ch)
+{
+    return tcpc_valid(ch) && s_slot[ch].tcpc && s_slot[ch].tcp_up && !s_slot[ch].tcpc_lost;
+}
+
+bool mb_port_tcpc_take_lost(int ch)
+{
+    if (!tcpc_valid(ch)) { return false; }
+    const bool lost = s_slot[ch].tcpc_lost;
+    s_slot[ch].tcpc_lost = false;
+    return lost;
+}
+#else
+int  mb_port_tcpc_attach(const mb_port_tcpc_ops_t *ops) { (void)ops; return -1; }
+void mb_port_tcpc_detach(int ch)                        { (void)ch; }
+void mb_port_tcpc_bind(int ch)                          { (void)ch; }
+void mb_port_tcpc_pump(int ch)                          { (void)ch; }
+bool mb_port_tcpc_is_up(int ch)                         { (void)ch; return false; }
+bool mb_port_tcpc_take_lost(int ch)                     { (void)ch; return false; }
+#endif
 
 #endif /* SPLC_MODBUS_LIB == SPLC_MODBUS_LIB_MB */

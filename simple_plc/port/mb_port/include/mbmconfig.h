@@ -2,8 +2,9 @@
  * mbmconfig.h - master configuration for libs/mb_master_slave (product-supplied;
  * included by mbm.h before the library's own defaults). SimplePLC builds ONLY what
  * its Modbus master blocks (MB_READ / MB_WRITE / Remote I/O) need: serial RTU on
- * RS-485, FC01..FC06, FC15, FC16. ASCII, TCP, UDP, file records, raw PDU, slave id
- * and the statistics / analyzer interfaces are not built.
+ * RS-485, FC01..FC06, FC15, FC16, plus Modbus TCP when SPLC_MODBUS_TCP_MASTER_ENABLE=1
+ * (port/modbus_tcp_master/). ASCII, UDP, file records, raw PDU, slave id and the
+ * statistics / analyzer interfaces are not built.
  */
 #ifndef SPLC_MBMCONFIG_H
 #define SPLC_MBMCONFIG_H
@@ -13,7 +14,7 @@
 
 #define MBM_RTU_ENABLED                 ( 1 )
 #define MBM_ASCII_ENABLED               ( 0 )
-#define MBM_TCP_ENABLED                 ( 0 )
+#define MBM_TCP_ENABLED                 ( SPLC_MODBUS_TCP_MASTER_ENABLE )
 #define MBM_UDP_ENABLED                 ( 0 )
 
 /* One master instance per RS-485 channel of mb_port.c (Modbus master ports plus the
@@ -24,7 +25,7 @@
 #define MBM_SERIAL_RTU_MAX_INSTANCES    ( 1 )
 #endif
 #define MBM_SERIAL_ASCII_MAX_INSTANCES  ( 1 )
-#define MBM_TCP_MAX_INSTANCES           ( 1 )
+#define MBM_TCP_MAX_INSTANCES           ( SPLC_MODBUS_TCP_MASTER_COUNT )
 #define MBM_UDP_MAX_INSTANCES           ( 1 )
 
 #define MBM_SERIAL_API_VERSION          ( 1 )

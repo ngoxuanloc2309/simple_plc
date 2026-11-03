@@ -137,7 +137,8 @@ typedef enum {
     MODBUS_MASTER_ERR_CRC,         /* CRC mismatch                           */
     MODBUS_MASTER_ERR_FRAME,       /* wrong unit/function/length/echo        */
     MODBUS_MASTER_ERR_EXCEPTION,   /* slave answered with an exception       */
-    MODBUS_MASTER_ERR_TX           /* UART transmit failed                   */
+    MODBUS_MASTER_ERR_TX,          /* UART transmit failed                   */
+    MODBUS_MASTER_ERR_CONNECT      /* TCP master only: no connection / connection lost */
 } modbus_master_error_t;
 
 typedef struct {

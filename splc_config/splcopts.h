@@ -44,6 +44,6 @@
 /* Modbus library for the App link: SPLC_MODBUS_LIB_NANO (default, nanoMODBUS) or
  * SPLC_MODBUS_LIB_MB (libs/mb_master_slave: RTU + ASCII + TCP; UDP not written).
  * CMake reads this line at CONFIGURE time: after changing it, run build.bat clean. */
-#define SPLC_MODBUS_LIB               SPLC_MODBUS_LIB_MB
+#define SPLC_MODBUS_LIB               SPLC_MODBUS_LIB_MB//SPLC_MODBUS_LIB_NANO
 
 #endif /* SPLCOPTS_H */

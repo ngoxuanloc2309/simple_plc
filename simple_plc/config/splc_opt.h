@@ -197,6 +197,31 @@
 #define SPLC_MODBUS_TCP_PARTIAL_MS       1000
 #endif
 
+/* SPLC_MODBUS_LIB_MB only: Modbus TCP MASTER (port/modbus_tcp_master/, API modbus_tcp_master_*).
+ * The HOST owns the sockets (lwIP style): it registers connect/read/write/close callbacks
+ * per master; SimplePLC owns the MBAP framing, transaction ids and timeouts. 0 = nothing is
+ * built or linked and the binary does not change. Not wired to MB_READ/MB_WRITE yet (the
+ * wire has no IP/port field): the host or a board file calls the API itself.
+ *   COUNT      : 1..4 TCP masters (one connection / one request in flight each),
+ *   CONNECT_MS : how long one request may wait for the host to finish connecting,
+ *   RETRY_MS   : pause after a failed connect before the next attempt,
+ *   HOST_MAX   : room for the target host string kept inside each master (with NUL). */
+#ifndef SPLC_MODBUS_TCP_MASTER_ENABLE
+#define SPLC_MODBUS_TCP_MASTER_ENABLE    0
+#endif
+#ifndef SPLC_MODBUS_TCP_MASTER_COUNT
+#define SPLC_MODBUS_TCP_MASTER_COUNT     1
+#endif
+#ifndef SPLC_MODBUS_TCP_MASTER_CONNECT_MS
+#define SPLC_MODBUS_TCP_MASTER_CONNECT_MS 3000
+#endif
+#ifndef SPLC_MODBUS_TCP_MASTER_RETRY_MS
+#define SPLC_MODBUS_TCP_MASTER_RETRY_MS  1000
+#endif
+#ifndef SPLC_MODBUS_TCP_MASTER_HOST_MAX
+#define SPLC_MODBUS_TCP_MASTER_HOST_MAX  40
+#endif
+
 /* Modbus slave address the device answers to (1..247). */
 #ifndef SPLC_MODBUS_UNIT_ID
 #define SPLC_MODBUS_UNIT_ID              1
@@ -500,6 +525,24 @@
 #endif
 #if (SPLC_MODBUS_TCP_PARTIAL_MS < 50) || (SPLC_MODBUS_TCP_PARTIAL_MS > 60000)
 #error "SPLC_MODBUS_TCP_PARTIAL_MS must be 50..60000"
+#endif
+#if (SPLC_MODBUS_TCP_MASTER_ENABLE != 0) && (SPLC_MODBUS_TCP_MASTER_ENABLE != 1)
+#error "SPLC_MODBUS_TCP_MASTER_ENABLE must be 0 or 1"
+#endif
+#if SPLC_MODBUS_TCP_MASTER_ENABLE && (SPLC_MODBUS_LIB != SPLC_MODBUS_LIB_MB)
+#error "SPLC_MODBUS_TCP_MASTER_ENABLE needs SPLC_MODBUS_LIB = SPLC_MODBUS_LIB_MB (nanoMODBUS has no non-blocking TCP client)"
+#endif
+#if (SPLC_MODBUS_TCP_MASTER_COUNT < 1) || (SPLC_MODBUS_TCP_MASTER_COUNT > 4)
+#error "SPLC_MODBUS_TCP_MASTER_COUNT must be 1..4"
+#endif
+#if (SPLC_MODBUS_TCP_MASTER_CONNECT_MS < 100) || (SPLC_MODBUS_TCP_MASTER_CONNECT_MS > 60000)
+#error "SPLC_MODBUS_TCP_MASTER_CONNECT_MS must be 100..60000"
+#endif
+#if (SPLC_MODBUS_TCP_MASTER_RETRY_MS < 0) || (SPLC_MODBUS_TCP_MASTER_RETRY_MS > 60000)
+#error "SPLC_MODBUS_TCP_MASTER_RETRY_MS must be 0..60000"
+#endif
+#if (SPLC_MODBUS_TCP_MASTER_HOST_MAX < 16) || (SPLC_MODBUS_TCP_MASTER_HOST_MAX > 128)
+#error "SPLC_MODBUS_TCP_MASTER_HOST_MAX must be 16..128"
 #endif
 #if (SPLC_MODBUS_MAX_TRANSPORTS < 1) || (SPLC_MODBUS_MAX_TRANSPORTS > 3)
 #error "SPLC_MODBUS_MAX_TRANSPORTS must be 1..3"
