@@ -188,6 +188,15 @@
 #define SPLC_MODBUS_RTU_GAP_MS           0
 #endif
 
+/* SPLC_MODBUS_LIB_MB, TCP: a request that stops half-way (the host replaced or
+ * dropped the connection; the byte pipe tells the adapter nothing) would glue
+ * the NEXT connection's bytes onto it. After this many ms without a byte, while
+ * the library holds a partial frame, the adapter drops that frame (it re-opens
+ * its single virtual client). Ignored by SPLC_MODBUS_LIB_NANO. */
+#ifndef SPLC_MODBUS_TCP_PARTIAL_MS
+#define SPLC_MODBUS_TCP_PARTIAL_MS       1000
+#endif
+
 /* Modbus slave address the device answers to (1..247). */
 #ifndef SPLC_MODBUS_UNIT_ID
 #define SPLC_MODBUS_UNIT_ID              1
@@ -488,6 +497,9 @@
 #endif
 #if (SPLC_MODBUS_RTU_GAP_MS < 0) || (SPLC_MODBUS_RTU_GAP_MS > 1000)
 #error "SPLC_MODBUS_RTU_GAP_MS must be 0..1000"
+#endif
+#if (SPLC_MODBUS_TCP_PARTIAL_MS < 50) || (SPLC_MODBUS_TCP_PARTIAL_MS > 60000)
+#error "SPLC_MODBUS_TCP_PARTIAL_MS must be 50..60000"
 #endif
 #if (SPLC_MODBUS_MAX_TRANSPORTS < 1) || (SPLC_MODBUS_MAX_TRANSPORTS > 3)
 #error "SPLC_MODBUS_MAX_TRANSPORTS must be 1..3"

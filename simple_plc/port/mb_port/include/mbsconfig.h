@@ -1,8 +1,8 @@
 /*
  * mbsconfig.h - slave configuration for libs/mb_master_slave (product-supplied;
  * included by mbs.h before the library's own defaults). SimplePLC builds ONLY
- * what its register map needs: holding registers (FC03/FC06/FC16), serial RTU
- * and ASCII. TCP/UDP are not built yet (see mb_port.h).
+ * what its register map needs: holding registers (FC03/FC06/FC16), serial RTU,
+ * ASCII and TCP. UDP is not built (see mb_port.h).
  */
 #ifndef SPLC_MBSCONFIG_H
 #define SPLC_MBSCONFIG_H
@@ -12,12 +12,27 @@
 
 #define MBS_RTU_ENABLED                 ( 1 )
 #define MBS_ASCII_ENABLED               ( 1 )
-#define MBS_TCP_ENABLED                 ( 0 )
+#define MBS_TCP_ENABLED                 ( 1 )
 #define MBS_UDP_ENABLED                 ( 0 )
 
 /* One server instance per transport slot (RTU and ASCII share the slot index). */
 #define MBS_SERIAL_RTU_MAX_INSTANCES    ( SPLC_MODBUS_MAX_TRANSPORTS )
 #define MBS_SERIAL_ASCII_MAX_INSTANCES  ( SPLC_MODBUS_MAX_TRANSPORTS )
+
+/* TCP: one server instance per transport slot, and exactly ONE client per
+ * instance. A transport is a byte pipe the host already accepted a connection
+ * on, so the adapter shows the library a single always-connected "virtual
+ * client" (mb_port.c). More simultaneous Apps = more transport slots
+ * (SPLC_MODBUS_MAX_TRANSPORTS), never more clients per instance.
+ * NOTE: a host firmware may define a macro of the same name for its own
+ * server (wg_ue: configs/app_config.h); this value must not depend on it. */
+#define MBS_TCP_MAX_INSTANCES           ( SPLC_MODBUS_MAX_TRANSPORTS )
+#ifdef MBS_TCP_MAX_CLIENTS
+#undef MBS_TCP_MAX_CLIENTS
+#endif
+#define MBS_TCP_MAX_CLIENTS             ( 1 )
+/* Same as nanoMODBUS: the unit id of a TCP request is not checked. */
+#define MBS_TCP_IGNORE_UNIT_ID          ( 1 )
 
 #define MBS_SERIAL_API_VERSION          ( 1 )
 #define MBS_CALLBACK_ENABLE_CONTEXT     ( 0 )

@@ -15,8 +15,11 @@
  *   5. flush the reply the library produced to transport->write()
  * Doing 3 before 2 breaks frames. mb_port_server_poll() does 2..5 in this order.
  *
- * Not supported yet: Modbus TCP/UDP (kind == TCP is refused with a log line),
- * and the library's statistics / analyzer interfaces.
+ * TCP (kind == TCP): the transport is the already-accepted connection; the
+ * library sees ONE always-connected virtual client per slot (a second
+ * connection = a second transport slot). The MBAP framing is the library's; no
+ * T3.5 timer. Not supported: Modbus UDP, and the library's statistics /
+ * analyzer interfaces.
  *
  * Single context only (engine); no ISR may call anything here.
  */
@@ -49,7 +52,7 @@ typedef uint8_t (*mb_port_holding_cb_t)(uint8_t *buf, uint16_t addr,
 
 /*
  * Create the server of transport slot `slot` (0 .. SPLC_MODBUS_MAX_TRANSPORTS-1)
- * on top of `t` (RTU or ASCII; `t` must outlive the server, it is not copied).
+ * on top of `t` (RTU, ASCII or TCP; `t` must outlive the server, it is not copied).
  * Returns false and logs on any failure (bad kind, no server instance, ...).
  */
 bool mb_port_server_create(uint8_t slot, const modbus_transport_t *t,

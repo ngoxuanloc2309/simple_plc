@@ -174,6 +174,10 @@ if(SPLC_MODBUS_LIB_IS_MB)
         ${_MBS}/functions/mbsfuncdiag.c
         ${_MBS}/functions/mbsslaveid.c
     )
+    # mbstcp.c keeps the unit id in a local that MBS_TCP_IGNORE_UNIT_ID=1 (mbsconfig.h)
+    # never reads: a third-party file, so silence it here instead of editing it.
+    set_source_files_properties(${_MBS}/tcp/mbstcp.c PROPERTIES
+        COMPILE_OPTIONS "-Wno-unused-but-set-variable")
     target_include_directories(splc_mbslave PUBLIC
         ${_MBS}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/../port/mb_port/include   # mbport.h, mbsconfig.h
@@ -181,5 +185,5 @@ if(SPLC_MODBUS_LIB_IS_MB)
     target_include_directories(splc_mbslave PRIVATE ${_MBS})   # "rtu/..", "functions/.." ...
     target_link_libraries(splc_mbslave PUBLIC splc_config)     # splc_opt.h (mbsconfig.h)
     target_compile_features(splc_mbslave PUBLIC c_std_11)
-    message(STATUS "libs/CMakeLists.txt: SPLC_MODBUS_LIB=MB -- 'splc_mbslave' target built (RTU+ASCII slave, holding registers).")
+    message(STATUS "libs/CMakeLists.txt: SPLC_MODBUS_LIB=MB -- 'splc_mbslave' target built (RTU+ASCII+TCP slave, holding registers).")
 endif()
