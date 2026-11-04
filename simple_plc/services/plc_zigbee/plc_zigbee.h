@@ -1,0 +1,200 @@
+#ifndef PLC_ZIGBEE_H
+#define PLC_ZIGBEE_H
+
+/*
+ * plc_zigbee.h - Layer 3 (PLC Application Services)
+ *
+ * Zigbee port configuration (SPLC-SPEC-ZIGBEE-006 v0.2, docs/; decision 98 in
+ * docs/handoff.md). Zigbee is a wireless transport that carries Modbus (a DTU
+ * Coordinator is the Master, the IO boards are Routers = Slaves); it is NOT a way to
+ * load rules. Like the Wi-Fi and TLS blocks this library only does the LOGIC and HOLDS
+ * the configuration: there is no radio driver here. The host's PORT
+ *   - registers itself with splc_zigbee_register() (this is what makes the block
+ *     appear: capability 0x8000 of 0x0A08 is only declared after that),
+ *   - reads the running configuration with splc_zigbee_get_config() and applies it to
+ *     the module when `generation` changes (it may take seconds, may restart the module),
+ *   - reports LINK_STATE / ERROR_CODE / NODE_COUNT / RSSI through the status callback.
+ *
+ * Wire (FC03 / FC06 / FC16, 64 registers at 0x1700, big-endian):
+ *   +0   CONTROL_FLAGS  bit 0 ENABLE, bit 1 ROLE (0 Master, 1 Slave), bit 2 FRAMING
+ *                       (0 RTU; 1 = ASCII is NOT supported, rejected at COMMIT),
+ *                       bit 3 SECURITY_ENABLE, bit 4 ANTENNA (0 PCB, 1 external),
+ *                       bit 5 PRESERVE_KEY (a COMMAND: never stored, reads back 0),
+ *                       bits 6..15 must be 0
+ *   +1   SLAVE_ID       1..247, only checked when ENABLE = 1 and ROLE = Slave
+ *   +2   PAN_ID         +3 CHANNEL   (stored and handed to the port, not checked here)
+ *   +4   RESERVED       stored and read back as written, not checked
+ *   +5..+12  NET_KEY    16 bytes, high byte first, WRITE-ONLY (reads back 0)
+ *   +13..+31 RESERVED   stored and read back as written
+ *   +32 LINK_STATE  +33 ERROR_CODE  +34 NODE_COUNT  +35 RSSI (int16 dBm, 0 = unknown)
+ *   +36 STATUS_FLAGS  bit 0 KEY_SET (the library knows this one: a key is stored)
+ *   +37..+63 RO 0. Writes to +32..+63 are ACKed and ignored.
+ *
+ * Staging (same idea as plc_mqtt_sub): host writes to +0..+31 go to a DRAFT (copied from
+ * the running block on the first write, so a partial write keeps the rest -- except the
+ * key, see below) and are checked at COMMIT:
+ *     plc_zigbee_validate_draft() : false = reject the COMMIT, nothing changed
+ *     plc_zigbee_commit_draft()   : the draft becomes the running configuration
+ *     plc_zigbee_discard_draft()  : drop the draft
+ * A Deploy that does not write the block keeps the running configuration (and its key).
+ * Reads always return the RUNNING configuration.
+ *
+ * COMMIT rejects (CONFIG_ERROR_CODE 2) when: FRAMING = 1; a bit 6..15 of CONTROL_FLAGS
+ * is set; ENABLE = 1 and the port is not registered or does not support the role asked
+ * for; ENABLE = 1, ROLE = Slave and SLAVE_ID outside 1..247; or a key rule below fails.
+ *
+ * Network key rules at COMMIT (spec section 5):
+ *   SECURITY = 0            PRESERVE_KEY and NET_KEY are ignored, the stored key is kept
+ *   SECURITY = 1, PRESERVE  the stored key is kept; none stored => reject
+ *   SECURITY = 1, no PRESERVE  the draft MUST carry a new, non-zero NET_KEY => else reject
+ * The draft starts with an all-zero key, so "not written" is told apart from "written the
+ * same". Consequence: with SECURITY = 1 a partial write (say SLAVE_ID only) needs
+ * PRESERVE_KEY = 1 in the same COMMIT. The key is stored in Flash as written (like the
+ * MQTT broker password) -- this is not memory-layer security (SPLC-SPEC-SECURITY-001).
+ * "A key is stored" means "the stored key is not all zero".
+ *
+ * Slave ID 236 / 237 (the DRF module treats 0xEC / 0xED as commands) is the PORT's to
+ * refuse, not the library's (spec section 8).
+ *
+ * Not done here (later steps of decision 98): COMMIT error 7 for an MB_READ / MB_WRITE
+ * block that points at Zigbee while the role is Slave (needs the port constant of the
+ * block, still open with the App team), and the Slave endpoint that serves SLAVE-001 on
+ * the Zigbee byte pipe. Because that endpoint does not exist yet, the role bits
+ * (MODBUS_SLAVE 0x4000 / MODBUS_MASTER 0x0100) are NOT declared on behalf of the port.
+ *
+ * CLEAR_RULES does not touch this block; FACTORY_RESET wipes it, the key included.
+ * Saved in the Flash Rule Table record (flag bit 8, SPLC_RULE_FLASH_ZIGBEE_FLAG), 64 B.
+ *
+ * Threading: single-threaded, engine context only (decision 31). The port reads the
+ * configuration from the task that runs plc_engine_poll(), or queues it itself.
+ *
+ * Compiled only with SPLC_ZIGBEE_ENABLE = 1, so a build with it 0 keeps its exact
+ * baseline size.
+ */
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "splc_opt.h"
+
+#if SPLC_ZIGBEE_ENABLE
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define PLC_ZIGBEE_BASE          0x1700U
+#define PLC_ZIGBEE_CFG_REGS      32U      /* +0..+31, the part the host writes and Flash keeps */
+#define PLC_ZIGBEE_REGS          64U      /* 0x1700..0x173F */
+#define PLC_ZIGBEE_FLASH_SIZE    (PLC_ZIGBEE_CFG_REGS * 2U)   /* 64; cross-checked in plc_rule_flash.c */
+#define PLC_ZIGBEE_KEY_BYTES     16U
+
+/* Capability bit ZIGBEE of 0x0A08 (App header SPLC_CAP_ZIGBEE). */
+#define PLC_ZIGBEE_CAP_ZIGBEE    0x00008000UL
+
+/* CONTROL_FLAGS (+0) */
+#define PLC_ZIGBEE_CTRL_ENABLE        0x0001U
+#define PLC_ZIGBEE_CTRL_ROLE_SLAVE    0x0002U
+#define PLC_ZIGBEE_CTRL_FRAMING_ASCII 0x0004U
+#define PLC_ZIGBEE_CTRL_SECURITY      0x0008U
+#define PLC_ZIGBEE_CTRL_ANTENNA_EXT   0x0010U
+#define PLC_ZIGBEE_CTRL_PRESERVE_KEY  0x0020U
+
+/* STATUS_FLAGS (+36) */
+#define PLC_ZIGBEE_STATUS_KEY_SET     0x0001U
+
+/* LINK_STATE (+32) values the port reports */
+#define PLC_ZIGBEE_LINK_OFF      0U
+#define PLC_ZIGBEE_LINK_JOINING  1U
+#define PLC_ZIGBEE_LINK_UP       2U
+#define PLC_ZIGBEE_LINK_ERROR    3U
+
+typedef enum {
+    PLC_ZIGBEE_WRITE_OK = 0,
+    PLC_ZIGBEE_WRITE_BAD_ADDRESS       /* -> Modbus 0x02 */
+} plc_zigbee_write_result_t;
+
+/* ---- host (port) side ------------------------------------------------- */
+
+#define SPLC_ZIGBEE_ROLE_SLAVE   0x01U   /* the port can be a Router = Modbus Slave */
+#define SPLC_ZIGBEE_ROLE_MASTER  0x02U   /* the port can be the Coordinator = Modbus Master */
+
+/* Live values of 0x1720..0x1723, filled by the port. Must not block. */
+typedef struct {
+    uint16_t link_state;     /* PLC_ZIGBEE_LINK_* */
+    uint16_t error_code;     /* port-defined, 0 = none */
+    uint16_t node_count;     /* nodes seen (Coordinator); 0 when unknown */
+    int16_t  rssi;           /* dBm; 0 = unknown */
+} splc_zigbee_status_t;
+
+typedef struct {
+    void   *ctx;
+    uint8_t roles;           /* SPLC_ZIGBEE_ROLE_* the port supports; at least one bit */
+    /* optional; return false = no information (all zero is shown) */
+    bool  (*status)(void *ctx, splc_zigbee_status_t *out);
+} splc_zigbee_ops_t;
+
+/* Decoded running configuration for the port. */
+typedef struct {
+    bool     enable;
+    bool     role_slave;     /* false = Master (Coordinator) */
+    bool     security;
+    bool     antenna_ext;
+    uint16_t slave_id;
+    uint16_t pan_id;
+    uint16_t channel;
+    uint8_t  net_key[PLC_ZIGBEE_KEY_BYTES];
+    bool     key_set;        /* a (non-zero) key is stored */
+} splc_zigbee_config_t;
+
+/* Register the port (kind of netif_add; the struct is copied). Returns false (nothing
+ * registered) if ops is NULL or no role bit is set. Call before plc_engine_init() or
+ * from board_init(); the Zigbee capability is declared from then on. */
+bool splc_zigbee_register(const splc_zigbee_ops_t *ops);
+
+/* The RUNNING configuration. `generation` (may be NULL) changes whenever the running
+ * configuration really changes (COMMIT, Flash load, FACTORY_RESET); the port re-applies
+ * it to the module then. Returns false (and `out` zeroed) if out is NULL. */
+bool splc_zigbee_get_config(splc_zigbee_config_t *out, uint32_t *generation);
+
+/* ---- engine side ------------------------------------------------------ */
+
+/* Boot: block disabled and empty, draft dropped. Call once, before plc_rule_flash_load(). */
+void plc_zigbee_init(void);
+
+/* 0x0A08 contribution: PLC_ZIGBEE_CAP_ZIGBEE once a port is registered, else 0. */
+uint32_t plc_zigbee_capability(void);
+
+/* FC03 of `quantity` registers at `offset` (0..63): the RUNNING block, key reads 0. */
+void plc_zigbee_read(uint16_t offset, uint16_t quantity, uint16_t *registers_out);
+
+/* FC16 (FC06 arrives as quantity 1) into the DRAFT. A request that runs past the end of
+ * the area is BAD_ADDRESS and changes nothing. Content is checked at COMMIT. */
+plc_zigbee_write_result_t plc_zigbee_write(uint16_t offset, uint16_t quantity,
+                                           const uint16_t *registers);
+
+bool plc_zigbee_validate_draft(void);   /* true also when nothing was written */
+void plc_zigbee_commit_draft(void);     /* call only after validate returned true */
+void plc_zigbee_discard_draft(void);
+
+/* FACTORY_RESET: configuration and key back to default (disabled, no key). */
+void plc_zigbee_factory_reset(void);
+
+/* Flash image: PLC_ZIGBEE_FLASH_SIZE bytes = the 32 RUNNING registers, big-endian,
+ * PRESERVE_KEY never set. */
+void plc_zigbee_export(uint8_t *out);
+
+/* Load an image written by plc_zigbee_export(). Checks only what is wrong in ANY image
+ * (FRAMING = 1, bits 5..15 of CONTROL_FLAGS, a Slave ID outside 1..247 while enabled as
+ * Slave): if it fails NOTHING is applied and false is returned. The port is not
+ * registered yet at boot, so role support is NOT checked here. Drops any draft. */
+bool plc_zigbee_import(const uint8_t *in);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* SPLC_ZIGBEE_ENABLE */
+
+#endif /* PLC_ZIGBEE_H */
