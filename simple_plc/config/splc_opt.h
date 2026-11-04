@@ -329,6 +329,39 @@
 #define SPLC_MBM_PORT_COUNT              1
 #endif
 
+/* Frame format of each RS-485 port, for BOTH roles it can take (Modbus Master: MB_READ /
+ * MB_WRITE; Modbus Slave: plc_mbs). Fixed at build time, like the .kind a board gives the
+ * App link: the wire (0x1400) has no field for it. SPLC_MODBUS_FRAMING_RTU (default) or
+ * SPLC_MODBUS_FRAMING_ASCII (":" ... LRC CR LF, hex characters, no T3.5 gap). ASCII needs
+ * SPLC_MODBUS_LIB_MB; with NANO any ASCII port is a build error. The device on the other
+ * end must use the same format and line settings (ASCII is usually 7E1 / 7O1 / 7N2 / 8N1,
+ * set by the App in the port table). Ports above SPLC_MBM_PORT_COUNT are ignored. */
+#define SPLC_MODBUS_FRAMING_RTU          0
+#define SPLC_MODBUS_FRAMING_ASCII        1
+
+/* How a byte pipe lets the library find the end of an RTU frame (SPLC_MODBUS_LIB_MB only; ASCII
+ * has its own delimiters and ignores this). A pipe declares it when it is registered:
+ *   SPLC_MODBUS_SYNC_TIMING (0, default): a real UART line -- the 3.5-character silence ends a
+ *       frame, exactly as before.
+ *   SPLC_MODBUS_SYNC_LENGTH (1): a pipe that does not keep the byte timing (a radio module in
+ *       transparent mode, a socket): the end of a request is found from its length (FC01..06 =
+ *       8 bytes, FC15/16 = 9 + byte count), the T3.5 timer is only the fallback for anything
+ *       else, and a second request that arrives in the same read waits for its turn. */
+#define SPLC_MODBUS_SYNC_TIMING          0
+#define SPLC_MODBUS_SYNC_LENGTH          1
+#ifndef SPLC_MBM_PORT1_FRAMING
+#define SPLC_MBM_PORT1_FRAMING           SPLC_MODBUS_FRAMING_RTU
+#endif
+#ifndef SPLC_MBM_PORT2_FRAMING
+#define SPLC_MBM_PORT2_FRAMING           SPLC_MODBUS_FRAMING_RTU
+#endif
+#ifndef SPLC_MBM_PORT3_FRAMING
+#define SPLC_MBM_PORT3_FRAMING           SPLC_MODBUS_FRAMING_RTU
+#endif
+#ifndef SPLC_MBM_PORT4_FRAMING
+#define SPLC_MBM_PORT4_FRAMING           SPLC_MODBUS_FRAMING_RTU
+#endif
+
 /* 1 = build MB_WRITE (0x1100..0x11FF, plc_mbw.h): the device writes tags to Modbus
  * slaves (FC05/06/15/16, Direct or Channel-Indexed) through the RS-485 ports of the
  * Modbus master (needs SPLC_MBM_ENABLE = 1, shares its ports and port table). 0 =
@@ -517,8 +550,28 @@
 #if SPLC_MBM_ENABLE && ((SPLC_MBM_PORT_COUNT < 1) || (SPLC_MBM_PORT_COUNT > 4))
 #error "SPLC_MBM_PORT_COUNT must be 1..4 (the wire and the Flash image carry 4 port records)"
 #endif
+#if ((SPLC_MBM_PORT1_FRAMING != 0) && (SPLC_MBM_PORT1_FRAMING != 1)) || \
+    ((SPLC_MBM_PORT2_FRAMING != 0) && (SPLC_MBM_PORT2_FRAMING != 1)) || \
+    ((SPLC_MBM_PORT3_FRAMING != 0) && (SPLC_MBM_PORT3_FRAMING != 1)) || \
+    ((SPLC_MBM_PORT4_FRAMING != 0) && (SPLC_MBM_PORT4_FRAMING != 1))
+#error "SPLC_MBM_PORTn_FRAMING must be SPLC_MODBUS_FRAMING_RTU or SPLC_MODBUS_FRAMING_ASCII"
+#endif
+/* Number of RS-485 ports (1..SPLC_MBM_PORT_COUNT) built for ASCII; sizes the library's ASCII
+ * instance tables. 0 = no ASCII master/slave code is built. */
+#if SPLC_MBM_ENABLE
+#define SPLC_MBM_ASCII_PORTS \
+    ( ((SPLC_MBM_PORT_COUNT >= 1) && (SPLC_MBM_PORT1_FRAMING == SPLC_MODBUS_FRAMING_ASCII)) + \
+      ((SPLC_MBM_PORT_COUNT >= 2) && (SPLC_MBM_PORT2_FRAMING == SPLC_MODBUS_FRAMING_ASCII)) + \
+      ((SPLC_MBM_PORT_COUNT >= 3) && (SPLC_MBM_PORT3_FRAMING == SPLC_MODBUS_FRAMING_ASCII)) + \
+      ((SPLC_MBM_PORT_COUNT >= 4) && (SPLC_MBM_PORT4_FRAMING == SPLC_MODBUS_FRAMING_ASCII)) )
+#else
+#define SPLC_MBM_ASCII_PORTS             0
+#endif
 #if (SPLC_MODBUS_LIB != SPLC_MODBUS_LIB_NANO) && (SPLC_MODBUS_LIB != SPLC_MODBUS_LIB_MB)
 #error "SPLC_MODBUS_LIB must be SPLC_MODBUS_LIB_NANO or SPLC_MODBUS_LIB_MB"
+#endif
+#if (SPLC_MBM_ASCII_PORTS > 0) && (SPLC_MODBUS_LIB != SPLC_MODBUS_LIB_MB)
+#error "an RS-485 port built for ASCII (SPLC_MBM_PORTn_FRAMING) needs SPLC_MODBUS_LIB_MB"
 #endif
 #if (SPLC_MODBUS_RTU_GAP_MS < 0) || (SPLC_MODBUS_RTU_GAP_MS > 1000)
 #error "SPLC_MODBUS_RTU_GAP_MS must be 0..1000"

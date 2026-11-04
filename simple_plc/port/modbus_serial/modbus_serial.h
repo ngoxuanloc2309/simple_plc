@@ -80,6 +80,11 @@ typedef struct {
     bool (*tx_done)(void *ctx);
     void (*write_abort)(void *ctx);
 #endif
+#if SPLC_MODBUS_LIB == SPLC_MODBUS_LIB_MB
+    /* Slave side only: SPLC_MODBUS_SYNC_TIMING (0, a UART line) or SPLC_MODBUS_SYNC_LENGTH (1, a
+     * pipe that does not keep the byte timing, e.g. a Zigbee module). Placed last: 0 = as before. */
+    uint8_t frame_sync;
+#endif
 } modbus_serial_port_t;
 
 /* Per-request limits. 125 values is the Modbus maximum for a read (frame =
@@ -168,6 +173,8 @@ typedef struct {
     uint32_t  mb_baud;         /* baud the instance was opened with (it sets T3.5) */
     uint32_t  mb_timeout_ms;   /* answer timeout asked for (without the transmit time) */
     uint8_t   mb_qstate;       /* eMBMQueryState of the request in flight */
+    uint8_t   mb_framing;      /* SPLC_MODBUS_FRAMING_RTU / _ASCII wanted (default RTU) */
+    uint8_t   mb_open_framing; /* framing the library instance was opened with */
     uint8_t   mb_bits[32];     /* packed bits: FC01/FC02 answer, FC15 request (<= 256 coils) */
 #else
     /* While a frame goes out asynchronously rx[] holds that frame; receiving starts after. */
@@ -181,6 +188,12 @@ typedef struct {
  * the master. Returns false (master unusable, every request fails) if m/port
  * is NULL or port->read / port->write is NULL. */
 bool modbus_rtu_master_init(modbus_rtu_master_t *m, const modbus_serial_port_t *port);
+#if SPLC_MODBUS_LIB == SPLC_MODBUS_LIB_MB
+/* Frame format of this master: SPLC_MODBUS_FRAMING_RTU (default after init) or _ASCII (the
+ * port must be built for it: SPLC_MBM_PORTn_FRAMING). Call after init and before the first
+ * request; a change re-opens the library instance. The nano master is RTU only. */
+void modbus_rtu_master_set_framing(modbus_rtu_master_t *m, uint8_t framing);
+#endif
 
 /*
  * Starts a request. Returns false (nothing sent) if a request is already in

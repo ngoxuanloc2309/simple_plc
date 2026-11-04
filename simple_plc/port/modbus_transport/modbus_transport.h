@@ -134,6 +134,11 @@ typedef struct {
      * use address_rtu there).
      */
     uint8_t unit_id;
+#if SPLC_MODBUS_LIB == SPLC_MODBUS_LIB_MB
+    /* RTU only: SPLC_MODBUS_SYNC_TIMING (0, default) or SPLC_MODBUS_SYNC_LENGTH (1) -- see
+     * splc_opt.h. Set by the factory that built this value; ignored for ASCII and TCP. */
+    uint8_t frame_sync;
+#endif
 } modbus_transport_t;
 
 #ifdef __cplusplus

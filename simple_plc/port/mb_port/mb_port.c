@@ -53,7 +53,11 @@ static const char *TAG = "MB_PORT";
 #define MB_PORT_CHANNELS     (MB_PORT_SER_END + MB_PORT_TCPM_CH)
 #define MB_PORT_MAX_TIMERS   (3U * MB_PORT_CHANNELS)   /* RTU/ASCII use <= 3 per instance */
 #define MB_PORT_MAX_EVENTS   (2U * MB_PORT_CHANNELS)
+#if SPLC_MBM_ASCII_PORTS > 0
+#define MB_PORT_SER_TX_MAX   520U   /* ASCII frame: ':' + 2*(addr+PDU+LRC) + CRLF = 513 at most */
+#else
 #define MB_PORT_SER_TX_MAX   256U   /* RTU ADU maximum */
+#endif
 #define MB_PORT_ECHO_DRAIN   16U    /* bounded RX drain after a blocking transmit (echo) */
 #define MB_PORT_TX_MAX       520U   /* ASCII frame: ':' + 2*(addr+PDU+LRC) + CRLF */
 #define MB_PORT_RX_CHUNK     32U
@@ -74,6 +78,14 @@ typedef struct {
     xMBSHandle                    server;    /* eMBSSerialInit() result */
     xMBHandle                     lib_hdl;   /* handle the library passes to callbacks */
     pvMBPSerialReceiverCB         rx_cb;     /* NULL = receiver disabled */
+    uint8_t                       rx_pend[MB_PORT_RX_CHUNK]; /* read from the pipe, not yet given to the library */
+    uint8_t                       rx_pend_n, rx_pend_i;
+    /* RTU frame end by length (SPLC_MODBUS_SYNC_LENGTH) */
+    bool                          fr_len;     /* this slot finds the end of a request from its length */
+    bool                          fr_hold;    /* a whole request is in: feed nothing until it is answered */
+    uint16_t                      fr_total, fr_need;
+    uint32_t                      fr_last_ms; /* time of the last byte of the frame in progress */
+    uint8_t                       fr_hdr[7];
     pbMBPSerialTransmitterEmptyCB tx_cb;
     bool                          tx_pending;
     bool                          open;      /* eMBPSerialInit() done */
@@ -323,6 +335,7 @@ eMBErrorCode eMBPSerialInit(xMBPSerialHandle *pxSerialHdl, UCHAR ucPort, ULONG u
     }
     sl->lib_hdl    = xMBHdl;
     sl->rx_cb      = NULL;
+    sl->rx_pend_n  = sl->rx_pend_i = 0U;
     sl->tx_cb      = NULL;
     sl->tx_pending = false;
     sl->open       = true;
@@ -338,6 +351,7 @@ eMBErrorCode eMBPSerialClose(xMBPSerialHandle xSerialHdl)
     }
     sl->open       = false;
     sl->rx_cb      = NULL;
+    sl->rx_pend_n  = sl->rx_pend_i = 0U;
     sl->tx_cb      = NULL;
     sl->tx_pending = false;
     return MB_ENOERR;
@@ -361,6 +375,7 @@ eMBErrorCode eMBPSerialRxEnable(xMBPSerialHandle xSerialHdl, pvMBPSerialReceiver
         return MB_EINVAL;
     }
     sl->rx_cb = pvFN;
+    if (pvFN != NULL) { sl->fr_total = 0U; sl->fr_need = 0U; sl->fr_hold = false; }   /* a new frame starts */
     return MB_ENOERR;
 }
 
@@ -591,22 +606,88 @@ static int32_t chan_read(const mb_slot_t *sl, uint8_t *buf, uint16_t max)
     return (int32_t)sl->sp->read(sl->sp->ctx, buf, max);
 }
 
+/* Length of an RTU request from its first bytes: 0 = not known (yet). */
+static bool fr_track(mb_slot_t *sl, uint8_t b)
+{
+    if (sl->fr_total < sizeof sl->fr_hdr) { sl->fr_hdr[sl->fr_total] = b; }
+    if (sl->fr_total < 0xFFFFU) { sl->fr_total++; }
+    sl->fr_last_ms = sx_get_tick_ms();
+    if (sl->fr_total == 2U) {
+        const uint8_t fc = sl->fr_hdr[1];
+        sl->fr_need = (fc >= 1U && fc <= 6U) ? 8U : 0U;
+    } else if (sl->fr_total == 7U && (sl->fr_hdr[1] == 15U || sl->fr_hdr[1] == 16U)) {
+        const uint16_t need = (uint16_t)(9U + sl->fr_hdr[6]);
+        sl->fr_need = (need <= 256U) ? need : 0U;
+    }
+    return sl->fr_need != 0U && sl->fr_total == sl->fr_need;
+}
+
+/* How long a frame may stall half-way on a pipe that does not keep byte timing (same as the 1 s
+ * character timeout of ASCII). After that the normal T3.5 rule ends it. */
+#define MB_PORT_FR_STALL_MS 1000U
+
+/* true while a request of this slot has started but its known length is not complete yet. */
+static bool fr_waiting(const mb_slot_t *sl)
+{
+    if (!sl->fr_len || sl->fr_total == 0U || sl->fr_hold) { return false; }
+    if ((uint32_t)(sx_get_tick_ms() - sl->fr_last_ms) >= MB_PORT_FR_STALL_MS) { return false; }
+    if (sl->fr_total < 2U) { return true; }                                   /* FC not seen yet */
+    if (sl->fr_need != 0U) { return sl->fr_total < sl->fr_need; }
+    return (sl->fr_hdr[1] == 15U || sl->fr_hdr[1] == 16U) && sl->fr_total < 7U; /* byte count not seen */
+}
+
+/* Timers of one slot: while a request is still arriving by length, T3.5 is held back (the pause
+ * is the pipe's, not the end of the frame). */
+static void slot_timers(mb_slot_t *sl)
+{
+    if (fr_waiting(sl)) {
+        const uint32_t now = sx_get_tick_ms();
+        for (uint32_t i = 0; i < MB_PORT_MAX_TIMERS; i++) {
+            mb_timer_t *tm = &s_timer[i];
+            if (tm->used && tm->armed && tm->hdl == sl->lib_hdl) { tm->start_ms = now; }
+        }
+    }
+    timers_run(sl->lib_hdl);
+}
+
+/* Make the library's T3.5 timer of this slot expire at once: the frame is complete. */
+static void frame_end_now(mb_slot_t *sl)
+{
+    const uint32_t now = sx_get_tick_ms();
+    for (uint32_t i = 0; i < MB_PORT_MAX_TIMERS; i++) {
+        mb_timer_t *tm = &s_timer[i];
+        if (tm->used && tm->armed && tm->hdl == sl->lib_hdl) { tm->start_ms = now - (uint32_t)tm->timeout_ms; }
+    }
+}
+
 static void rx_feed(mb_slot_t *sl)
 {
-    uint8_t chunk[MB_PORT_RX_CHUNK];
+    /* The library turns its receiver off as soon as it has a whole frame (ASCII: at the LF). A
+     * byte stream (a socket) can carry the NEXT request in the same read, so what the library
+     * did not take stays in rx_pend[] and is offered again when the receiver is back on --
+     * dropping it would lose that request. */
     for (uint32_t it = 0; it < MB_PORT_RX_MAX_ITER; it++) {
-        if (sl->rx_cb == NULL) {
-            return;                      /* leave the bytes in the link until RX is on again */
+        if (sl->rx_cb == NULL || sl->fr_hold) {
+            return;                      /* leave the bytes where they are until RX is on again */
         }
-        const int32_t n = chan_read(sl, chunk, (uint16_t)sizeof chunk);
-        if (n <= 0) {
-            return;
+        if (sl->rx_pend_i >= sl->rx_pend_n) {
+            const int32_t n = chan_read(sl, sl->rx_pend, (uint16_t)sizeof sl->rx_pend);
+            sl->rx_pend_n = sl->rx_pend_i = 0U;
+            if (n <= 0) {
+                return;
+            }
+            sl->rx_pend_n = (uint8_t)n;
         }
-        for (int32_t i = 0; i < n && sl->rx_cb != NULL; i++) {
-            sl->rx_cb(sl->lib_hdl, chunk[i]);
+        while (sl->rx_pend_i < sl->rx_pend_n && sl->rx_cb != NULL && !sl->fr_hold) {
+            const uint8_t b = sl->rx_pend[sl->rx_pend_i++];
+            sl->rx_cb(sl->lib_hdl, b);
+            if (sl->fr_len && fr_track(sl, b)) {
+                frame_end_now(sl);       /* whole request in: do not wait for T3.5 ... */
+                sl->fr_hold = true;      /* ... and do not glue the next request onto it */
+            }
         }
-        if ((uint32_t)n < sizeof chunk) {
-            return;
+        if (sl->rx_pend_i < sl->rx_pend_n || sl->rx_pend_n < sizeof sl->rx_pend) {
+            return;                      /* kept for the next tick / the pipe had no more */
         }
     }
 }
@@ -775,6 +856,10 @@ bool mb_port_server_create(uint8_t slot, const modbus_transport_t *t,
     mb_slot_t *sl = &s_slot[slot];
     s_holding_cb  = holding_cb;
     sl->t         = t;
+    sl->fr_len    = (mode == MB_RTU) && (t->frame_sync == SPLC_MODBUS_SYNC_LENGTH);
+    sl->fr_hold   = false;
+    sl->fr_total  = sl->fr_need = 0U;
+    sl->rx_pend_n = sl->rx_pend_i = 0U;
 
     eMBErrorCode e = eMBSSerialInit(&sl->server, mode, t->unit_id, slot,
                                     SPLC_MODBUS_SERIAL_BAUD_HINT, MB_PAR_NONE);
@@ -811,9 +896,10 @@ void mb_port_server_poll(uint8_t slot)
         return;
     }
     rx_feed(sl);                    /* 2. bytes first ...                       */
-    timers_run(sl->lib_hdl);        /* 3. ... then timers (order matters: 86)   */
+    slot_timers(sl);                /* 3. ... then timers (order matters: 86)   */
     (void)eMBSPoll(sl->server);     /* 4. MBS_POLL_SINGLE_CYCLE=1: runs to idle */
     tx_flush(sl);                   /* 5. reply out, library re-enables RX      */
+    sl->fr_hold = false;            /* the request is answered (or ignored): the next may come in */
 }
 
 
@@ -821,7 +907,7 @@ void mb_port_server_poll(uint8_t slot)
 
 #if SPLC_MODBUS_SLAVE_ENABLE
 int mb_port_slave_open(const modbus_serial_port_t *port, uint32_t baud, uint8_t slave_id,
-                       const mb_port_slave_ops_t *ops)
+                       uint8_t framing, const mb_port_slave_ops_t *ops)
 {
     if (port == NULL || port->read == NULL || ops == NULL || ops->holding == NULL ||
         ops->coils == NULL || ops->discrete == NULL || slave_id < 1U || slave_id > 247U) {
@@ -832,10 +918,13 @@ int mb_port_slave_open(const modbus_serial_port_t *port, uint32_t baud, uint8_t 
     if (ch < 0) { return -1; }
     mb_slot_t *sl = &s_slot[ch];
     s_slave_ops = *ops;
-    eMBErrorCode e = eMBSSerialInit(&sl->server, MB_RTU, slave_id, (UBYTE)ch,
+    const eMBSerialMode mode = (framing == SPLC_MODBUS_FRAMING_ASCII) ? MB_ASCII : MB_RTU;
+    sl->fr_len = (mode == MB_RTU) && (port->frame_sync == SPLC_MODBUS_SYNC_LENGTH);
+    eMBErrorCode e = eMBSSerialInit(&sl->server, mode, slave_id, (UBYTE)ch,
                                     (baud != 0U) ? baud : 9600UL, MB_PAR_NONE);
     if (e != MB_ENOERR) {
-        log_error(TAG, "slave: eMBSSerialInit failed: err=%d id=%u", (int)e, (unsigned)slave_id);
+        log_error(TAG, "slave: eMBSSerialInit failed: err=%d id=%u %s", (int)e, (unsigned)slave_id,
+                  (mode == MB_ASCII) ? "ASCII" : "RTU");
         mb_port_serial_detach(ch);
         return -1;
     }
@@ -858,9 +947,10 @@ void mb_port_slave_poll(int ch)
     if (sl->sp == NULL || !sl->created || !sl->open) { return; }
     ser_progress(sl);               /* end a transmit started earlier                */
     rx_feed(sl);                    /* bytes first ...  (order matters: 86)          */
-    timers_run(sl->lib_hdl);        /* ... then this channel's timers (T3.5)         */
+    slot_timers(sl);                /* ... then this channel's timers (T3.5)         */
     (void)eMBSPoll(sl->server);     /* MBS_POLL_SINGLE_CYCLE=1: runs to idle         */
     tx_flush(sl);                   /* reply out, library re-enables RX              */
+    sl->fr_hold = false;            /* the request is answered (or ignored): the next may come in */
 }
 
 void mb_port_slave_close(int ch)
@@ -872,8 +962,8 @@ void mb_port_slave_close(int ch)
     mb_port_serial_detach(ch);                           /* aborts a transmit in flight       */
 }
 #else
-int  mb_port_slave_open(const modbus_serial_port_t *p, uint32_t b, uint8_t id, const mb_port_slave_ops_t *o)
-{ (void)p; (void)b; (void)id; (void)o; return -1; }
+int  mb_port_slave_open(const modbus_serial_port_t *p, uint32_t b, uint8_t id, uint8_t f, const mb_port_slave_ops_t *o)
+{ (void)p; (void)b; (void)id; (void)f; (void)o; return -1; }
 void mb_port_slave_poll(int ch)  { (void)ch; }
 void mb_port_slave_close(int ch) { (void)ch; }
 #endif
@@ -933,6 +1023,7 @@ void mb_port_serial_flush(int ch)
 void mb_port_serial_drain(int ch)
 {
     if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_SER_END || s_slot[ch].sp == NULL) { return; }
+    s_slot[ch].rx_pend_n = s_slot[ch].rx_pend_i = 0U;       /* stale bytes already read belong to nobody */
     uint8_t scratch[16];
     for (uint32_t i = 0; i < MB_PORT_ECHO_DRAIN; i++) {
         if (s_slot[ch].sp->read(s_slot[ch].sp->ctx, scratch, (uint16_t)sizeof scratch) <= 0) { break; }
