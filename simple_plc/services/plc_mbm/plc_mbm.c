@@ -422,6 +422,9 @@ void splc_mbm_set_rs485_port(uint8_t port_index, const modbus_serial_port_t *por
     }
     port_rt_t *p = &s_port[port_index];
     p->registered = (port != NULL) && modbus_rtu_master_init(&p->master, port);
+#if SPLC_MODBUS_LIB == SPLC_MODBUS_LIB_MB
+    if (p->registered) { modbus_rtu_master_set_framing(&p->master, plc_mbm_port_framing(port_index)); }
+#endif
     p->configure  = configure;
     p->async_tx   = p->registered && port->write_start != NULL && port->tx_done != NULL;
     p->dirty      = true;

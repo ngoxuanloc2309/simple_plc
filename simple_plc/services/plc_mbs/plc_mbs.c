@@ -706,15 +706,17 @@ static void service_port(unsigned pi, uint32_t now_ms)
             do { dn = port->read(port->ctx, scratch, (uint16_t)sizeof(scratch)); }
             while (dn > 0 && --guard > 0);
         }
-        const int ch = mb_port_slave_open(port, baud, id, &s_ops);
+        const uint8_t framing = plc_mbm_port_framing(pi);
+        const int ch = mb_port_slave_open(port, baud, id, framing, &s_ops);
         if (ch < 0) {
             if (!m->failed) { log_error(TAG, "port %u: cannot open the Slave server (ID %u)", pi + 1U, (unsigned)id); }
             m->failed = true; m->retry_ms = now_ms + 1000U;
             return;
         }
         m->open = true; m->ch = ch; m->failed = false; m->id = id; m->baud = baud;
-        log_info(TAG, "port %u: Slave ID %u listening (mb_master_slave, %lu baud)",
-                 pi + 1U, (unsigned)id, (unsigned long)baud);
+        log_info(TAG, "port %u: Slave ID %u listening (mb_master_slave, %s, %lu baud)",
+                 pi + 1U, (unsigned)id, (framing == SPLC_MODBUS_FRAMING_ASCII) ? "ASCII" : "RTU",
+                 (unsigned long)baud);
     }
     mb_port_slave_poll(m->ch);
 }

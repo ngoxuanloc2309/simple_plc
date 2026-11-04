@@ -152,19 +152,21 @@ static uint32_t eff_baud(const modbus_rtu_master_t *m)
 static bool ensure_instance(modbus_rtu_master_t *m)
 {
     const uint32_t baud = eff_baud(m);
-    if (m->mb_hdl != NULL && m->mb_baud == baud) { return true; }
+    if (m->mb_hdl != NULL && m->mb_baud == baud && m->mb_open_framing == m->mb_framing) { return true; }
     if (m->mb_hdl != NULL) {
         (void)eMBMClose((xMBMHandle)m->mb_hdl);
         m->mb_hdl = NULL;
     }
     xMBMHandle h = NULL;
-    const eMBErrorCode e = eMBMSerialInit(&h, MB_RTU, (UCHAR)m->mb_ch, baud, MB_PAR_NONE);
+    const eMBSerialMode mode = (m->mb_framing == SPLC_MODBUS_FRAMING_ASCII) ? MB_ASCII : MB_RTU;
+    const eMBErrorCode e = eMBMSerialInit(&h, mode, (UCHAR)m->mb_ch, baud, MB_PAR_NONE);
     if (e != MB_ENOERR) {
         log_error(TAG, "eMBMSerialInit failed: err=%d ch=%d baud=%lu", (int)e, m->mb_ch, (unsigned long)baud);
         return false;
     }
     m->mb_hdl  = h;
     m->mb_baud = baud;
+    m->mb_open_framing = m->mb_framing;
     mb_port_serial_set_baud(m->mb_ch, baud);
     return true;
 }
@@ -174,7 +176,14 @@ static bool ensure_instance(modbus_rtu_master_t *m)
 static uint16_t lib_timeout_ms(const modbus_rtu_master_t *m, uint16_t frame_len)
 {
     uint32_t tx = 20U;
-    if (m->mb_baud != 0U) { tx += ((uint32_t)frame_len * 11000U) / m->mb_baud; }
+    if (m->mb_baud != 0U) {
+        /* ASCII: ':' + 2 characters per byte (address + PDU + LRC) + CR LF; frame_len is the
+         * RTU length (address + PDU + CRC16), so the ASCII body is 2*(frame_len - 1) + 3. */
+        const uint32_t chars = (m->mb_framing == SPLC_MODBUS_FRAMING_ASCII)
+                                   ? (2U * ((uint32_t)frame_len - 1U) + 3U)
+                                   : (uint32_t)frame_len;
+        tx += (chars * 11000U) / m->mb_baud;
+    }
     uint32_t t = m->mb_timeout_ms + tx;
     if (t > 65535U) { t = 65535U; }
     return (uint16_t)t;
@@ -301,6 +310,19 @@ bool modbus_rtu_master_init(modbus_rtu_master_t *m, const modbus_serial_port_t *
         m->port.set_tx(m->port.ctx, false);                /* listen by default */
     }
     return true;
+}
+
+void modbus_rtu_master_set_framing(modbus_rtu_master_t *m, uint8_t framing)
+{
+    if (m == NULL) { return; }
+    if (framing != SPLC_MODBUS_FRAMING_RTU && framing != SPLC_MODBUS_FRAMING_ASCII) { return; }
+#if SPLC_MBM_ASCII_PORTS == 0
+    if (framing == SPLC_MODBUS_FRAMING_ASCII) {
+        log_error(TAG, "ASCII master: no port is built for it (SPLC_MBM_PORTn_FRAMING)");
+        return;
+    }
+#endif
+    m->mb_framing = framing;   /* ensure_instance() reopens the library instance on the next request */
 }
 
 static bool read_common(modbus_rtu_master_t *m, uint8_t unit, uint8_t fc, uint16_t addr,

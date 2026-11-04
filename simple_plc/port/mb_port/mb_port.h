@@ -73,11 +73,12 @@ typedef struct {
     mb_port_holding_cb_t discrete;
 } mb_port_slave_ops_t;
 
-/* Open an RTU slave server (unit `slave_id`) on `port`. `baud` only sets T3.5. Returns the
- * channel, or -1 (logged). Poll it once per engine scan; close before reopening with another
- * id or baud. The ops are shared by all Slave ports (one map). */
+/* Open a slave server (unit `slave_id`) on `port`; `framing` is SPLC_MODBUS_FRAMING_RTU or
+ * _ASCII (ASCII needs the port built for it: SPLC_MBM_PORTn_FRAMING). `baud` only sets T3.5
+ * (RTU). Returns the channel, or -1 (logged). Poll it once per engine scan; close before
+ * reopening with another id, baud or framing. The ops are shared by all Slave ports (one map). */
 int  mb_port_slave_open(const modbus_serial_port_t *port, uint32_t baud, uint8_t slave_id,
-                        const mb_port_slave_ops_t *ops);
+                        uint8_t framing, const mb_port_slave_ops_t *ops);
 void mb_port_slave_poll(int ch);
 void mb_port_slave_close(int ch);
 

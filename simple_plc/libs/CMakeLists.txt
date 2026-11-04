@@ -196,6 +196,7 @@ if(SPLC_MODBUS_LIB_IS_MB)
         ${_MBM}/mbm.c
         ${_MBM}/rtu/mbmrtu.c
         ${_MBM}/rtu/mbmcrc.c
+        ${_MBM}/ascii/mbmascii.c   # empty unless a port is built for ASCII (MBM_ASCII_ENABLED)
         ${_MBM}/tcp/mbmtcp.c   # empty unless SPLC_MODBUS_TCP_MASTER_ENABLE=1 (MBM_TCP_ENABLED)
         ${_MBM}/functions/mbmfuncholding.c
         ${_MBM}/functions/mbmfuncinput.c

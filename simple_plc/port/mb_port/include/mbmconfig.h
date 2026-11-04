@@ -13,7 +13,7 @@
 #include "splc_opt.h"   /* SPLC_MBM_ENABLE, SPLC_MBM_PORT_COUNT */
 
 #define MBM_RTU_ENABLED                 ( 1 )
-#define MBM_ASCII_ENABLED               ( 0 )
+#define MBM_ASCII_ENABLED               ( SPLC_MBM_ASCII_PORTS > 0 )
 #define MBM_TCP_ENABLED                 ( SPLC_MODBUS_TCP_MASTER_ENABLE )
 #define MBM_UDP_ENABLED                 ( 0 )
 
@@ -24,7 +24,13 @@
 #else
 #define MBM_SERIAL_RTU_MAX_INSTANCES    ( 1 )
 #endif
+/* ASCII master instances: one per RS-485 port built for ASCII (the Remote I/O master is RTU).
+ * Instances are taken from a free-slot pool, so the count (not the channel) is what matters. */
+#if SPLC_MBM_ASCII_PORTS > 0
+#define MBM_SERIAL_ASCII_MAX_INSTANCES  ( SPLC_MBM_ASCII_PORTS )
+#else
 #define MBM_SERIAL_ASCII_MAX_INSTANCES  ( 1 )
+#endif
 #define MBM_TCP_MAX_INSTANCES           ( SPLC_MODBUS_TCP_MASTER_COUNT )
 #define MBM_UDP_MAX_INSTANCES           ( 1 )
 

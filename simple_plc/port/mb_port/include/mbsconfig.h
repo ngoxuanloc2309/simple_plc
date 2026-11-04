@@ -22,7 +22,12 @@
 #else
 #define MBS_SERIAL_RTU_MAX_INSTANCES    ( SPLC_MODBUS_MAX_TRANSPORTS )
 #endif
+/* ... and, with Slave serving, one ASCII server per RS-485 port built for ASCII. */
+#if SPLC_MODBUS_SLAVE_ENABLE
+#define MBS_SERIAL_ASCII_MAX_INSTANCES  ( SPLC_MODBUS_MAX_TRANSPORTS + SPLC_MBM_ASCII_PORTS )
+#else
 #define MBS_SERIAL_ASCII_MAX_INSTANCES  ( SPLC_MODBUS_MAX_TRANSPORTS )
+#endif
 
 /* TCP: one server instance per transport slot, and exactly ONE client per
  * instance. A transport is a byte pipe the host already accepted a connection

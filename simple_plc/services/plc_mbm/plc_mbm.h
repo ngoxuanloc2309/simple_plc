@@ -171,6 +171,20 @@ typedef enum { PLC_MBM_ROLE_MASTER = 0, PLC_MBM_ROLE_SLAVE = 1 } plc_mbm_role_t;
 plc_mbm_role_t plc_mbm_port_role(unsigned idx);
 uint8_t        plc_mbm_port_slave_id(unsigned idx);
 
+/* Frame format of RS-485 port `idx` (0-based), fixed at build time by SPLC_MBM_PORTn_FRAMING
+ * (the 0x1400 wire has no field for it): SPLC_MODBUS_FRAMING_RTU or _ASCII. The same value
+ * serves both roles of the port (Master: modbus_serial, Slave: plc_mbs). */
+static inline uint8_t plc_mbm_port_framing(unsigned idx)
+{
+    switch (idx) {
+    case 0U:  return (uint8_t)SPLC_MBM_PORT1_FRAMING;
+    case 1U:  return (uint8_t)SPLC_MBM_PORT2_FRAMING;
+    case 2U:  return (uint8_t)SPLC_MBM_PORT3_FRAMING;
+    case 3U:  return (uint8_t)SPLC_MBM_PORT4_FRAMING;
+    default:  return (uint8_t)SPLC_MODBUS_FRAMING_RTU;
+    }
+}
+
 /* What the Slave serving module (plc_mbs) needs of a port. The Slave has no configurable
  * turnaround: register +6 is "don't care" for a Slave port (App contract 29/10), it answers as
  * soon as the request is complete.
