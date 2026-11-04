@@ -61,6 +61,9 @@
 /* #define SPLC_MQTT_SUB_ENABLE          0 */      /* 1 = remote commands/setpoints from MQTT into tags (needs SPLC_MQTT_ENABLE 1); 0 = no change at all */
 /* #define SPLC_MQTT_SUB_FIFO_DEPTH      1 */      /* 1..8 queued messages per block for FIFO delivery; 1 = latest only */
 
+/* --- Zigbee port configuration (SPLC-SPEC-ZIGBEE-006) -------------------- */
+/* #define SPLC_ZIGBEE_ENABLE            0 */      /* 1 = Zigbee configuration block 0x1700..0x173F (role, slave id, PAN id, channel, antenna, network key) saved with the Rule Table; the host registers its Zigbee port; 0 = no change at all */
+
 /* --- REAL (float32) tags ---------------------------------------------- */
 /* #define SPLC_REAL_ENABLE              0 */      /* 1 = Tag DataType Registry 0x0080 (BOOL/INT32/REAL per tag) + float32 Rule Engine (rule flags bit 0); 0 = no change at all */
 

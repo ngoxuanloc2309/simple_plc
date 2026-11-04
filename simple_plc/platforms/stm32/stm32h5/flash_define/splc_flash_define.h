@@ -359,6 +359,19 @@ _Static_assert(SPLC_FLASH_RETAIN_BASE_ADDR == SPLC_FLASH_DATA_BASE_ADDR,
 #define SPLC_RULE_FLASH_MBW_FLAG          0x0200U /* bit 9 of the rule_count field: MB_WRITE section present */
 #define SPLC_RULE_FLASH_MBW_SIZE          512U    /* 4 x 128 B blocks; cross-checked against PLC_MBW_FLASH_SIZE in plc_rule_flash.c */
 
+/* Bit 8 of the rule_count field: a Zigbee configuration section
+ * (SPLC_RULE_FLASH_ZIGBEE_SIZE bytes = registers 0x1700..0x171F, big-endian as on
+ * the wire, 32 registers; SPLC-SPEC-ZIGBEE-006) follows the MB_WRITE section -- the
+ * LAST section, so a build with SPLC_ZIGBEE_ENABLE=0 moves no offset (layout:
+ * header | rules | FB | MQTT | MB | TYPES | SUB | MBW | ZIGBEE). The network key is
+ * stored as written (plain, like the MQTT broker password); the PRESERVE_KEY bit is a
+ * command and is never stored. Only a build with SPLC_ZIGBEE_ENABLE=1 knows this
+ * flag; a build with it 0 keeps bit 8 in its count mask (same downgrade rule as the
+ * other flags). With the flag owned the count mask is 0x00FF at most, enough for
+ * MAX_RULES = 100. */
+#define SPLC_RULE_FLASH_ZIGBEE_FLAG       0x0100U /* bit 8 of the rule_count field: Zigbee configuration section present */
+#define SPLC_RULE_FLASH_ZIGBEE_SIZE       64U     /* 32 registers; must be cross-checked against the Zigbee module's flash size once it exists */
+
 /* The flag bits THIS build owns (0 for a feature that is compiled out): they are
  * taken out of the count mask. */
 #if SPLC_MQTT_ENABLE
@@ -396,10 +409,17 @@ _Static_assert(SPLC_FLASH_RETAIN_BASE_ADDR == SPLC_FLASH_DATA_BASE_ADDR,
 #define SPLC_RULE_FLASH_MBW_RESERVE       0U
 #define SPLC_RULE_FLASH_MBW_OWNED_FLAG    0U
 #endif
+#if SPLC_ZIGBEE_ENABLE
+#define SPLC_RULE_FLASH_ZIGBEE_RESERVE    SPLC_RULE_FLASH_ZIGBEE_SIZE
+#define SPLC_RULE_FLASH_ZIGBEE_OWNED_FLAG SPLC_RULE_FLASH_ZIGBEE_FLAG
+#else
+#define SPLC_RULE_FLASH_ZIGBEE_RESERVE    0U
+#define SPLC_RULE_FLASH_ZIGBEE_OWNED_FLAG 0U
+#endif
 /* The real rule count: bits 0..13 minus the flags this build owns
- * (0x3FFF; minus bit 13 with MQTT, bit 12 with MBM, bit 11 with REAL, bit 10 with MQTT SUB). */
-#define SPLC_RULE_FLASH_COUNT_MASK        ((uint16_t)(0x3FFFU & ~(SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_MB_OWNED_FLAG | SPLC_RULE_FLASH_TYPES_OWNED_FLAG | SPLC_RULE_FLASH_SUB_OWNED_FLAG | SPLC_RULE_FLASH_MBW_OWNED_FLAG)))
-#define SPLC_RULE_FLASH_RECORD_MAX_SIZE   (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE + SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE + SPLC_RULE_FLASH_MB_RESERVE + SPLC_RULE_FLASH_TYPES_RESERVE + SPLC_RULE_FLASH_SUB_RESERVE + SPLC_RULE_FLASH_MBW_RESERVE) /* 3336 bytes at MAX_RULES = 100 (4296 with SPLC_MQTT_ENABLE=1, +640 with SPLC_MBM_ENABLE=1, +128 with SPLC_REAL_ENABLE=1, +256 with SPLC_MQTT_SUB_ENABLE=1, +512 with SPLC_MBW_ENABLE=1) */
+ * (0x3FFF; minus bit 13 with MQTT, bit 12 with MBM, bit 11 with REAL, bit 10 with MQTT SUB, bit 9 with MB_WRITE, bit 8 with Zigbee). */
+#define SPLC_RULE_FLASH_COUNT_MASK        ((uint16_t)(0x3FFFU & ~(SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_MB_OWNED_FLAG | SPLC_RULE_FLASH_TYPES_OWNED_FLAG | SPLC_RULE_FLASH_SUB_OWNED_FLAG | SPLC_RULE_FLASH_MBW_OWNED_FLAG | SPLC_RULE_FLASH_ZIGBEE_OWNED_FLAG)))
+#define SPLC_RULE_FLASH_RECORD_MAX_SIZE   (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE + SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE + SPLC_RULE_FLASH_MB_RESERVE + SPLC_RULE_FLASH_TYPES_RESERVE + SPLC_RULE_FLASH_SUB_RESERVE + SPLC_RULE_FLASH_MBW_RESERVE + SPLC_RULE_FLASH_ZIGBEE_RESERVE) /* 3336 bytes at MAX_RULES = 100 (4296 with SPLC_MQTT_ENABLE=1, +640 with SPLC_MBM_ENABLE=1, +128 with SPLC_REAL_ENABLE=1, +256 with SPLC_MQTT_SUB_ENABLE=1, +512 with SPLC_MBW_ENABLE=1, +64 with SPLC_ZIGBEE_ENABLE=1) */
 _Static_assert(SPLC_RULE_FLASH_RECORD_MAX_SIZE <= SPLC_FLASH_SECTOR_SIZE,
                "a rule record must fit in one Flash sector");
 

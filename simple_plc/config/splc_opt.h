@@ -308,6 +308,21 @@
 #endif
 
 /* ======================================================================
+ * Zigbee port configuration (SPLC-SPEC-ZIGBEE-006 v0.2, handoff decision 98)
+ * ======================================================================
+ * 1 = the Zigbee configuration block 0x1700..0x173F: the App writes role, slave
+ * id, PAN id, channel, antenna and the network key through the draft + COMMIT
+ * path; the configuration is saved in the Flash Rule Table record (flag bit 8,
+ * SPLC_RULE_FLASH_ZIGBEE_FLAG, the LAST section). The library holds the LOGIC and
+ * the data only: the host registers its Zigbee port, applies the configuration to
+ * the radio module and reports the link state (like Wi-Fi / TLS). The capability
+ * bit 0x8000 is declared only after the host has registered a port.
+ * 0 = nothing changes: no code, no Flash flag, the exact baseline binary. */
+#ifndef SPLC_ZIGBEE_ENABLE
+#define SPLC_ZIGBEE_ENABLE               0
+#endif
+
+/* ======================================================================
  * Modbus master blocks: MB_READ (0x1000..0x10FF), later MB_WRITE (0x1100..)
  * ==================================================================== */
 /* 1 = build the Modbus-master service and enlarge the RS485 master buffers to
@@ -632,6 +647,9 @@
 #endif
 #if SPLC_MQTT_SUB_ENABLE && ((SPLC_MQTT_SUB_FIFO_DEPTH < 1) || (SPLC_MQTT_SUB_FIFO_DEPTH > 8))
 #error "SPLC_MQTT_SUB_FIFO_DEPTH must be 1..8"
+#endif
+#if (SPLC_ZIGBEE_ENABLE != 0) && (SPLC_ZIGBEE_ENABLE != 1)
+#error "SPLC_ZIGBEE_ENABLE must be 0 or 1"
 #endif
 #if (SPLC_MQTT_PAYLOAD_MAX < 128) || (SPLC_MQTT_PAYLOAD_MAX > 512)
 #error "SPLC_MQTT_PAYLOAD_MAX must be 128..512 (compact JSON worst case is 127 characters + NUL)"

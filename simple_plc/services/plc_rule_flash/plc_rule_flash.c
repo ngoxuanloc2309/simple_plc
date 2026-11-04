@@ -42,8 +42,9 @@ static const char *TAG = "PLC_RULE_FLASH";
 _Static_assert(SPLC_RULE_FLASH_RECORD_MAX_SIZE ==
                (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE +
                 SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE + SPLC_RULE_FLASH_MB_RESERVE +
-                SPLC_RULE_FLASH_TYPES_RESERVE + SPLC_RULE_FLASH_SUB_RESERVE + SPLC_RULE_FLASH_MBW_RESERVE),
-               "SPLC_RULE_FLASH_RECORD_MAX_SIZE out of sync with MAX_RULES / FB / MQTT / MB / TYPES / SUB / MBW size");
+                SPLC_RULE_FLASH_TYPES_RESERVE + SPLC_RULE_FLASH_SUB_RESERVE + SPLC_RULE_FLASH_MBW_RESERVE +
+                SPLC_RULE_FLASH_ZIGBEE_RESERVE),
+               "SPLC_RULE_FLASH_RECORD_MAX_SIZE out of sync with MAX_RULES / FB / MQTT / MB / TYPES / SUB / MBW / ZIGBEE size");
 
 /* Same literal-duplication story for the FB image sizes. */
 _Static_assert(SPLC_RULE_FLASH_FB_SIZE == PLC_FB_FLASH_SIZE,
@@ -77,7 +78,13 @@ _Static_assert(SPLC_RULE_FLASH_SUB_SIZE == PLC_MQTT_SUB_FLASH_SIZE,
 #define RULE_FLASH_FLAGS_OWNED (SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG | \
                                 SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_MB_OWNED_FLAG | \
                                 SPLC_RULE_FLASH_TYPES_OWNED_FLAG | SPLC_RULE_FLASH_SUB_OWNED_FLAG | \
-                                SPLC_RULE_FLASH_MBW_OWNED_FLAG)
+                                SPLC_RULE_FLASH_MBW_OWNED_FLAG | SPLC_RULE_FLASH_ZIGBEE_OWNED_FLAG)
+/* The Zigbee flag is a new bit: it must not collide with any other owned flag. */
+_Static_assert((SPLC_RULE_FLASH_ZIGBEE_OWNED_FLAG & (SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG |
+                                                     SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_MB_OWNED_FLAG |
+                                                     SPLC_RULE_FLASH_TYPES_OWNED_FLAG | SPLC_RULE_FLASH_SUB_OWNED_FLAG |
+                                                     SPLC_RULE_FLASH_MBW_OWNED_FLAG)) == 0U,
+               "the Zigbee flag overlaps another flag");
 /* The MBW flag is a new bit: it must not collide with any other owned flag. */
 _Static_assert((SPLC_RULE_FLASH_MBW_OWNED_FLAG & (SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG |
                                                   SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_MB_OWNED_FLAG |
