@@ -432,6 +432,11 @@ static bool broker_valid(const uint16_t *brk)
         return false;
     }
 #endif
+    if ((brk[BK_CONTROL] & SPLC_BROKER_CTRL_USE_MTLS_BIT) != 0U &&
+        (brk[BK_CONTROL] & SPLC_BROKER_CTRL_USE_TLS_BIT) == 0U) {
+        log_warn(TAG, "COMMIT: broker use_mtls=1 needs use_tls=1");
+        return false;
+    }
     if (((brk[BK_CONTROL] & SPLC_BROKER_CTRL_VERSION_MASK) >> SPLC_BROKER_CTRL_VERSION_SHIFT) > 1U) {
         log_warn(TAG, "COMMIT: broker protocol version is not 0 (3.1.1) or 1 (5.0)");
         return false;
@@ -831,9 +836,12 @@ void splc_mqtt_get_broker(splc_mqtt_broker_t *out, bool *app_configured, uint32_
         regs_to_str(&s_brk[BK_PASSWORD],  SPLC_MQTT_BROKER_CRED_MAX_CHARS, out->password);
         out->port          = s_brk[BK_PORT];
         out->keepalive_sec = s_brk[BK_KEEPALIVE];
-        out->use_tls       = (s_brk[BK_CONTROL] & SPLC_BROKER_CTRL_USE_TLS_BIT) != 0U;
-        out->clean_session = (s_brk[BK_CONTROL] & SPLC_BROKER_CTRL_CLEAN_SESSION_BIT) != 0U;
-        out->version       = (uint8_t)((s_brk[BK_CONTROL] & SPLC_BROKER_CTRL_VERSION_MASK) >>
+        out->use_tls           = (s_brk[BK_CONTROL] & SPLC_BROKER_CTRL_USE_TLS_BIT) != 0U;
+        out->use_mtls          = out->use_tls && (s_brk[BK_CONTROL] & SPLC_BROKER_CTRL_USE_MTLS_BIT) != 0U;
+        out->ignore_hostname   = out->use_tls && (s_brk[BK_CONTROL] & SPLC_BROKER_CTRL_IGNORE_HOSTNAME_BIT) != 0U;
+        out->allow_self_signed = out->use_tls && (s_brk[BK_CONTROL] & SPLC_BROKER_CTRL_ALLOW_SELF_SIGNED_BIT) != 0U;
+        out->clean_session     = (s_brk[BK_CONTROL] & SPLC_BROKER_CTRL_CLEAN_SESSION_BIT) != 0U;
+        out->version           = (uint8_t)((s_brk[BK_CONTROL] & SPLC_BROKER_CTRL_VERSION_MASK) >>
                                        SPLC_BROKER_CTRL_VERSION_SHIFT);
     }
     if (app_configured != NULL) {

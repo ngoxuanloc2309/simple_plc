@@ -206,6 +206,10 @@ typedef struct {                 /* copy of the running broker config, NUL-termi
     uint16_t port;
     uint16_t keepalive_sec;
     bool     use_tls;
+    bool     use_mtls;           /* mutual TLS asked for (always with use_tls): the host must present the
+                                  * client certificate + key, and refuse to connect when they are missing */
+    bool     ignore_hostname;    /* App asked to skip the host name check; the host honours it only if it can */
+    bool     allow_self_signed;  /* App asked to accept a self-signed server certificate; same */
     bool     clean_session;
     uint8_t  version;            /* 0 = MQTT 3.1.1, 1 = MQTT 5.0 */
 } splc_mqtt_broker_t;

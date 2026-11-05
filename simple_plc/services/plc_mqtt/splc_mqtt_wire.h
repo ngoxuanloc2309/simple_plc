@@ -137,6 +137,9 @@ typedef SPLC_MqttTelemetryBlock_t splc_mqtt_telemetry_block_t;
 #define SPLC_BROKER_CTRL_CLEAN_SESSION_BIT    0x0004
 #define SPLC_BROKER_CTRL_VERSION_MASK         0x0018
 #define SPLC_BROKER_CTRL_VERSION_SHIFT        3
+#define SPLC_BROKER_CTRL_USE_MTLS_BIT         0x0020   /* bit 5: mutual TLS: needs USE_TLS; client cert + key are required */
+#define SPLC_BROKER_CTRL_IGNORE_HOSTNAME_BIT  0x0040   /* bit 6: skip the host name / SAN check (host decides if it can) */
+#define SPLC_BROKER_CTRL_ALLOW_SELF_SIGNED_BIT 0x0080  /* bit 7: accept a self-signed server certificate (host decides if it can) */
 
 /* =========================================================================
  * 5. MQTT BROKER CONFIGURATION WIRE STRUCTURE (192 Bytes = 96 Holding Registers)
