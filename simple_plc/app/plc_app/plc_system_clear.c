@@ -27,6 +27,10 @@
 #endif
 #include "plc_wifi.h"
 #include "plc_mqtt_tls.h"
+#if SPLC_ZIGBEE_ENABLE
+#include "plc_zigbee.h"
+#include <string.h>
+#endif
 #include "splc_log.h"
 
 /*
@@ -191,7 +195,22 @@ bool plc_factory_reset(void)
     /* Both are always attempted (no early return) so one failing Flash
      * region does not prevent clearing the other. */
     const bool retain_ok = plc_clear_retain();
+#if SPLC_ZIGBEE_ENABLE
+    /* The Zigbee configuration (key included) lives in the Rule Table record, and
+     * plc_clear_rules() saves that record from RAM -- so the wipe must happen BEFORE it,
+     * or Flash would keep the old key. CLEAR_RULES alone never touches it (decision 98).
+     * If the save fails, put the running configuration back so RAM matches Flash. */
+    uint8_t zigbee_backup[PLC_ZIGBEE_FLASH_SIZE];
+    plc_zigbee_export(zigbee_backup);
+    plc_zigbee_factory_reset();
+#endif
     const bool rules_ok  = plc_clear_rules();
+#if SPLC_ZIGBEE_ENABLE
+    if (!rules_ok) {
+        (void)plc_zigbee_import(zigbee_backup);
+    }
+    memset(zigbee_backup, 0, sizeof(zigbee_backup));   /* it held the network key */
+#endif
     plc_wifi_factory_reset();   /* stored Wi-Fi credentials only; CLEAR_RULES alone never touches them */
     plc_mqtt_tls_factory_reset();/* stored TLS certificates (host clear()); CLEAR_RULES alone never touches them */
 

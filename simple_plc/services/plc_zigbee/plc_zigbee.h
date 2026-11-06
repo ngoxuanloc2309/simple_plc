@@ -77,6 +77,7 @@
 #include <stdint.h>
 
 #include "splc_opt.h"
+#include "modbus_serial.h"   /* modbus_serial_port_t: the byte pipe has the same shape */
 
 #if SPLC_ZIGBEE_ENABLE
 
@@ -133,6 +134,20 @@ typedef struct {
     uint8_t roles;           /* SPLC_ZIGBEE_ROLE_* the port supports; at least one bit */
     /* optional; return false = no information (all zero is shown) */
     bool  (*status)(void *ctx, splc_zigbee_status_t *out);
+    /*
+     * Byte pipe to the module (e.g. the USART that talks to the DRF module), REQUIRED
+     * when `roles` has SLAVE. Same contract as modbus_serial_port_t (modbus_serial.h):
+     *   read : non-blocking, copy up to max_len bytes, return the count (0 = none).
+     *   write: send len bytes, return 0 when done, negative on failure; the module is
+     *          transparent and has no RS-485 direction pin, so there is no set_tx and no
+     *          echo to filter. Must not block longer than one frame's TX time.
+     * The library marks the pipe as "does not keep byte timing" (SPLC_MODBUS_SYNC_LENGTH)
+     * itself: RTU frames are cut by length, never by the 3.5-character silence.
+     * Both stay NULL for a port that only configures the module.
+     */
+    int   (*read)(void *ctx, uint8_t *buf, uint16_t max_len);
+    int   (*write)(void *ctx, const uint8_t *buf, uint16_t len, uint32_t timeout_ms);
+    uint32_t baudrate;       /* real UART speed to the module, for the library's timing */
 } splc_zigbee_ops_t;
 
 /* Decoded running configuration for the port. */
@@ -152,6 +167,11 @@ typedef struct {
  * registered) if ops is NULL or no role bit is set. Call before plc_engine_init() or
  * from board_init(); the Zigbee capability is declared from then on. */
 bool splc_zigbee_register(const splc_zigbee_ops_t *ops);
+
+/* The byte pipe registered above, shaped for the Modbus layer (read/write/baudrate, no
+ * set_tx, frame_sync = LENGTH). NULL when no port is registered or it gave no pipe.
+ * Valid until the next splc_zigbee_register(). For Layer 3 users (the Slave endpoint). */
+const modbus_serial_port_t *splc_zigbee_serial_port(void);
 
 /* The RUNNING configuration. `generation` (may be NULL) changes whenever the running
  * configuration really changes (COMMIT, Flash load, FACTORY_RESET); the port re-applies

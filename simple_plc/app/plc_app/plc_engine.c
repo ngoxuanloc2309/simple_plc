@@ -18,6 +18,9 @@
 #if SPLC_MQTT_SUB_ENABLE
 #include "plc_mqtt_sub.h"
 #endif
+#if SPLC_ZIGBEE_ENABLE
+#include "plc_zigbee.h"
+#endif
 #include "plc_system_cmd_service.h"
 #include "splc_board.h"
 #include "sx_time.h"
@@ -76,6 +79,9 @@ void plc_engine_init(void)
 #endif
 #if SPLC_MQTT_SUB_ENABLE
     plc_mqtt_sub_init();   /* before plc_rule_flash_load(): the Flash record will fill it (decision 47) */
+#endif
+#if SPLC_ZIGBEE_ENABLE
+    plc_zigbee_init();     /* before plc_rule_flash_load(): the Flash record will fill it (decision 98) */
 #endif
 
     rule_table_load_from_flash();

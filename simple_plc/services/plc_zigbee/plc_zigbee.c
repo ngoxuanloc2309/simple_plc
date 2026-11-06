@@ -41,6 +41,8 @@ static uint32_t s_gen;
 
 static splc_zigbee_ops_t s_ops;
 static bool              s_registered;
+static modbus_serial_port_t s_pipe;   /* built at register time from ops.read/write */
+static bool              s_pipe_ok;
 
 static bool is_key_reg(unsigned i) { return i >= R_KEY && i < (R_KEY + KEY_REGS); }
 
@@ -62,10 +64,33 @@ bool splc_zigbee_register(const splc_zigbee_ops_t *ops)
         log_error(TAG, "register: bad ops (NULL or no role)");
         return false;
     }
+    /* A Slave needs a pipe to answer on: refuse the registration instead of declaring a
+     * role that cannot work (the same rule as the capability bits, decision 71). */
+    if ((ops->roles & SPLC_ZIGBEE_ROLE_SLAVE) != 0U && (ops->read == NULL || ops->write == NULL)) {
+        log_error(TAG, "register: role Slave needs ops.read and ops.write");
+        return false;
+    }
     s_ops = *ops;
     s_registered = true;
+    s_pipe_ok = (ops->read != NULL && ops->write != NULL);
+    memset(&s_pipe, 0, sizeof(s_pipe));
+    if (s_pipe_ok) {
+        s_pipe.read     = ops->read;
+        s_pipe.write    = ops->write;
+        s_pipe.set_tx   = NULL;            /* transparent module: no direction pin */
+        s_pipe.ctx      = ops->ctx;
+        s_pipe.baudrate = ops->baudrate;
+#if SPLC_MODBUS_LIB == SPLC_MODBUS_LIB_MB
+        s_pipe.frame_sync = SPLC_MODBUS_SYNC_LENGTH;   /* radio: no 3.5-char silence */
+#endif
+    }
     log_info(TAG, "port registered, roles 0x%02X", (unsigned)(ops->roles & 0x03U));
     return true;
+}
+
+const modbus_serial_port_t *splc_zigbee_serial_port(void)
+{
+    return (s_registered && s_pipe_ok) ? &s_pipe : NULL;
 }
 
 bool splc_zigbee_get_config(splc_zigbee_config_t *out, uint32_t *generation)

@@ -31,6 +31,9 @@
 #if SPLC_MQTT_SUB_ENABLE
 #include "plc_mqtt_sub.h"   /* plc_mqtt_sub_export()/plc_mqtt_sub_import(): MQTT Subscribe blocks (decision 47) */
 #endif
+#if SPLC_ZIGBEE_ENABLE
+#include "plc_zigbee.h"     /* plc_zigbee_export()/plc_zigbee_import(): Zigbee configuration (decision 98) */
+#endif
 #include "plc_retain.h"     /* retain_flash_op_begin()/end(): keeps the PVD write off the Flash during this one */
 #include "splc_log.h"
 
@@ -74,6 +77,10 @@ _Static_assert(SPLC_RULE_FLASH_MBW_SIZE == PLC_MBW_FLASH_SIZE,
 #if SPLC_MQTT_SUB_ENABLE
 _Static_assert(SPLC_RULE_FLASH_SUB_SIZE == PLC_MQTT_SUB_FLASH_SIZE,
                "SPLC_RULE_FLASH_SUB_SIZE out of sync with PLC_MQTT_SUB_FLASH_SIZE");
+#endif
+#if SPLC_ZIGBEE_ENABLE
+_Static_assert(SPLC_RULE_FLASH_ZIGBEE_SIZE == PLC_ZIGBEE_FLASH_SIZE,
+               "SPLC_RULE_FLASH_ZIGBEE_SIZE out of sync with PLC_ZIGBEE_FLASH_SIZE");
 #endif
 #define RULE_FLASH_FLAGS_OWNED (SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG | \
                                 SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_MB_OWNED_FLAG | \
@@ -170,6 +177,9 @@ typedef struct {
 #if SPLC_MBW_ENABLE
     uint32_t mbw_size;    /* 0 (none) or 512; the member does not exist when SPLC_MBW_ENABLE = 0 */
 #endif
+#if SPLC_ZIGBEE_ENABLE
+    uint32_t zigbee_size; /* 0 (none) or 64; the member does not exist when SPLC_ZIGBEE_ENABLE = 0 */
+#endif
 } rule_flash_layout_t;
 
 /*
@@ -217,6 +227,9 @@ static void rule_flash_split_field(uint16_t field, rule_flash_layout_t *l)
 #if SPLC_MBW_ENABLE
     l->mbw_size = ((field & SPLC_RULE_FLASH_MBW_FLAG) != 0U) ? SPLC_RULE_FLASH_MBW_SIZE : 0U;
 #endif
+#if SPLC_ZIGBEE_ENABLE
+    l->zigbee_size = ((field & SPLC_RULE_FLASH_ZIGBEE_FLAG) != 0U) ? SPLC_RULE_FLASH_ZIGBEE_SIZE : 0U;
+#endif
 }
 
 /* Total bytes of a record: header + rules [+ FB section] [+ MQTT section] [+ TYPES].
@@ -239,6 +252,9 @@ static uint32_t rule_flash_record_size(const rule_flash_layout_t *l)
 #endif
 #if SPLC_MBW_ENABLE
     size += l->mbw_size;
+#endif
+#if SPLC_ZIGBEE_ENABLE
+    size += l->zigbee_size;
 #endif
     return size;
 }
@@ -301,6 +317,9 @@ static uint32_t rule_flash_build_record(uint32_t seq_num)
 #if SPLC_MBW_ENABLE
         .mbw_size   = SPLC_RULE_FLASH_MBW_RESERVE,    /* 512 with MB_WRITE */
 #endif
+#if SPLC_ZIGBEE_ENABLE
+        .zigbee_size = SPLC_RULE_FLASH_ZIGBEE_RESERVE, /* 64 with Zigbee */
+#endif
     };
     uint16_t field = (uint16_t)(layout.rule_count | SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG);
 #if SPLC_MQTT_ENABLE
@@ -317,6 +336,9 @@ static uint32_t rule_flash_build_record(uint32_t seq_num)
 #endif
 #if SPLC_MBW_ENABLE
     field |= SPLC_RULE_FLASH_MBW_FLAG;    /* every save of an MB_WRITE build carries the MB_WRITE section */
+#endif
+#if SPLC_ZIGBEE_ENABLE
+    field |= SPLC_RULE_FLASH_ZIGBEE_FLAG; /* every save of a Zigbee build carries the Zigbee section */
 #endif
 
     write_u32_be(&s_rule_flash_buf[RULE_FLASH_SEQ_OFFSET], seq_num);
@@ -359,8 +381,15 @@ static uint32_t rule_flash_build_record(uint32_t seq_num)
                                      SPLC_RULE_FLASH_MB_RESERVE + SPLC_RULE_FLASH_TYPES_RESERVE +
                                      SPLC_RULE_FLASH_SUB_RESERVE]);
 #endif
+#if SPLC_ZIGBEE_ENABLE
+    /* Zigbee section (last): the RUNNING configuration (plc_zigbee_commit_draft() has already
+     * run). It holds the network key as written. */
+    plc_zigbee_export(&s_rule_flash_buf[fb_off + SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE +
+                                        SPLC_RULE_FLASH_MB_RESERVE + SPLC_RULE_FLASH_TYPES_RESERVE +
+                                        SPLC_RULE_FLASH_SUB_RESERVE + SPLC_RULE_FLASH_MBW_RESERVE]);
+#endif
 
-    /* The one CRC covers header + rules + FB + MQTT + MB + TYPES + SUB + MBW sections. */
+    /* The one CRC covers header + rules + FB + MQTT + MB + TYPES + SUB + MBW + ZIGBEE sections. */
     uint32_t record_size = rule_flash_record_size(&layout);
     uint16_t crc = rule_flash_record_crc(s_rule_flash_buf, record_size);
     write_u16_be(&s_rule_flash_buf[RULE_FLASH_CRC_OFFSET], crc);
@@ -625,6 +654,28 @@ static void rule_flash_apply_buffer(const rule_flash_layout_t *l, const char *fr
         log_info(TAG, "MB_WRITE blocks restored from Flash %s", from);
     } else {
         log_warn(TAG, "MB_WRITE section in Flash %s failed validation -- every block left DISABLED", from);
+    }
+#endif
+#if SPLC_ZIGBEE_ENABLE
+    if (l->zigbee_size == 0U) {
+        log_info(TAG, "Flash %s has no Zigbee section -- Zigbee left DISABLED", from);
+    } else if (plc_zigbee_import(fb + l->fb_size + l->mqtt_size +
+#if SPLC_MBM_ENABLE
+                                 l->mb_size +
+#endif
+#if SPLC_REAL_ENABLE
+                                 l->types_size +
+#endif
+#if SPLC_MQTT_SUB_ENABLE
+                                 l->sub_size +
+#endif
+#if SPLC_MBW_ENABLE
+                                 l->mbw_size +
+#endif
+                                 0U)) {
+        log_info(TAG, "Zigbee configuration restored from Flash %s", from);
+    } else {
+        log_warn(TAG, "Zigbee section in Flash %s failed validation -- Zigbee left DISABLED", from);
     }
 #endif
 }
