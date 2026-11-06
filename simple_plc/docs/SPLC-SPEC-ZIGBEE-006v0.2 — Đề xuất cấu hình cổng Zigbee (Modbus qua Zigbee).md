@@ -115,13 +115,15 @@ Ghi vào vùng RO (`+32..+63`) được ACK và bỏ qua (cùng quy ước Wi-Fi
 8. Sau COMMIT, thư viện tăng `generation` và báo cho port. Port đọc cấu hình mới, áp vào module (có thể mất vài giây, kể cả khởi động lại module), rồi báo `LINK_STATE`. Thư viện không chờ module.
 9. Lỗi do port phát hiện (PAN ID/kênh/ăng-ten không hợp lệ với module) **không** làm COMMIT thất bại; port báo qua `LINK_STATE = 3` và `ERROR_CODE`.
 
-### 4.4 Master: khối MB\_READ/MB\_WRITE chọn Zigbee thế nào (làm sau)
+### 4.4 Master: khối MB\_READ/MB\_WRITE chọn Zigbee thế nào (đã code ở firmware; chưa chạy board)
 
-- Studio **không** ghi số cổng Zigbee xuống `0x1700`. Khối MB trỏ vào Zigbee bằng một **hằng số cố định trong trường cổng của khối**, nằm ngoài dải 1..4 của RS-485, định nghĩa trong ICD. Firmware ánh xạ sang cổng Zigbee nội bộ.
-- **[GIẢ ĐỊNH, CHƯA XÁC NHẬN]** Giá trị đề xuất: **5**. Độ rộng bit và dải cho phép của trường này trong codec App **chưa xác nhận** (xem mục 9). Nếu 5 không ghi được thì đổi hằng số, không đổi cấu trúc.
-- Giá trị lạ trong trường cổng thì từ chối COMMIT với mã lỗi của khối.
-- Khối trỏ vào Zigbee khi Zigbee tắt hoặc chưa có port: khối báo `err_code 1` lúc chạy (giống cổng RS-485 chưa đăng ký).
-- Timeout, độ trễ giữa các khung và retry dùng các trường của từng khối. Khuyến nghị nhà sản xuất module cho Zigbee: trễ giữa các lệnh khoảng 200 ms, timeout 2–5 s khi mạng lớn.
+- Studio **không** ghi số cổng Zigbee xuống `0x1700`. Khối MB trỏ vào Zigbee bằng một **hằng số cố định trong trường cổng của khối** (bit 4..7 của thanh ghi đầu khối), nằm ngoài dải RS-485.
+- **[GIẢ ĐỊNH, CHƯA XÁC NHẬN]** Firmware dùng giá trị **thô 4** (Studio hiển thị "cổng 5", vì RS-485 dùng thô 0..3 = cổng 1..4). Giá trị thô 5..15 bị từ chối COMMIT với lỗi 2. Độ rộng bit và dải của trường này trong codec App **chưa xác nhận** (mục 9, điểm 1). Nếu 4 không ghi được thì đổi một hằng số (`PLC_MBM_PORT_ZIGBEE`), không đổi cấu trúc.
+- Zigbee là một slot Master của `plc_mbm`/`plc_mbw`, **không có bản ghi trong bảng `0x1400`**: trạng thái lấy từ khối `0x1700` đang chạy (`ENABLE`, `ROLE`) và ống byte của port. Chỉ dùng được khi `ENABLE = 1`, `ROLE = Master` và port đã đăng ký vai Master kèm ống byte.
+- Khối bật trỏ vào Zigbee mà Zigbee chưa bật, vai Slave, hoặc không có ống Master: COMMIT được nhận, lúc chạy khối báo `err_code 1` và **không gửi byte**.
+- Khối MB bật trỏ vào Zigbee khi vai Zigbee (nháp hoặc đang chạy) là Slave: COMMIT bị từ chối `CONFIG_STATUS = 4`, `CONFIG_ERROR_CODE = 7` (xem 4.3 mục 4).
+- Timeout, retry và khoảng nghỉ: timeout và interval theo từng khối; **khoảng nghỉ giữa hai khung 50 ms và retry 1 là chọn tạm của firmware** (`ZB_GAP_MS`, `ZB_RETRIES` trong `plc_mbm.c`), không có trường cấu hình. Khuyến nghị nhà sản xuất module cho mạng lớn: trễ giữa các lệnh khoảng 200 ms, timeout 2-5 s.
+- Khung response được tách theo độ dài (mục 6.1), không dựa T3.5.
 - Kiểu khung: RTU (mục 6).
 
 ### 4.5 Slave: phục vụ bản đồ nào
@@ -159,7 +161,7 @@ Vấn đề cần tránh: Upload Project từ PLC lên Studio, sửa nhỏ rồi
 Module không dây không giữ khoảng nghỉ 3,5 ký tự nên không dựa vào T3.5. Port khai ống là loại "không giữ nhịp" (`frame_sync`), thư viện tách khung RTU theo **độ dài**:
 
 - **Request** (Slave nhận): suy từ function code (FC01..06 = 8 byte; FC15/16 = 9 + byte count). **Đã làm và kiểm trên host giả** (126 kiểm tra). Chưa kiểm trên module thật.
-- **Response** (Master nhận): suy từ byte count (FC01..04) hoặc cố định (FC05/06/15/16 và exception). **Chưa làm.**
+- **Response** (Master nhận): suy từ byte count (FC01..04) hoặc cố định (FC05/06/15/16 và exception). **Đã code (`fr_resp` trong `mb_port.c`) và build ARM sạch; chưa chạy harness, chưa chạy board.**
 
 ## 7. Ghi chú cho người viết port (không thuộc thư viện)
 
@@ -187,7 +189,7 @@ Các điểm sau là **giả định của đội Firmware**, theo thoả thuậ
 
 | # | Điểm | Giả định hiện dùng |
 | --- | --- | --- |
-| 1 | Giá trị trường cổng trong khối MB để chỉ Zigbee | Hằng số 5, ngoài dải 1..4. **Độ rộng và dải của trường trong codec App chưa biết.** Chỉ ảnh hưởng phần Master |
+| 1 | Giá trị trường cổng trong khối MB để chỉ Zigbee | Giá trị thô 4 ("cổng 5"), ngoài dải thô 0..3 của RS-485; 5..15 bị từ chối. **Độ rộng và dải của trường trong codec App chưa biết.** Chỉ ảnh hưởng phần Master |
 | 2 | `KEY_SET` | `STATUS_FLAGS` ở `+36`, bit 0 |
 | 3 | Ngữ nghĩa `PRESERVE_KEY` | Theo bảng mục 5, kể cả "khối không ghi thì giữ khoá" |
 | 4 | `CLEAR_RULES` và Zigbee | `CLEAR_RULES` không xoá, `FACTORY_RESET` xoá. Cách lưu Flash chưa kiểm |
@@ -196,6 +198,7 @@ Các điểm sau là **giả định của đội Firmware**, theo thoả thuậ
 | 7 | `SLAVE_ID` chỉ kiểm khi `ENABLE = 1` và `ROLE = Slave` | Giống cổng RS-485 |
 | 8 | Danh mục `ERROR_CODE` chung | Chưa có; do port định nghĩa |
 | 9 | `SECURITY_ENABLE = 0` giữ khoá đang lưu | Giữ nguyên, chỉ `FACTORY_RESET` xoá |
+| 10 | Khoảng nghỉ giữa hai khung và retry của Master trên ống Zigbee | 50 ms và 1 retry, hằng số của firmware, không có trường cấu hình (mục 4.4) |
 
 ## 10. Việc đội App cần làm
 
@@ -216,8 +219,9 @@ Các điểm sau là **giả định của đội Firmware**, theo thoả thuậ
 
 ## 12. Chưa làm / chưa biết
 
-- Chưa có code firmware cho khối Zigbee, API port, endpoint Slave và tách khung Master theo độ dài.
-- Chưa thử trên module DRF1609H.
+- Đã có code firmware: khối cấu hình `0x1700` (nháp, COMMIT, Flash, capability `0x8000`), endpoint Slave SLAVE-001 trên ống byte, tách khung request và response theo độ dài, Master qua Zigbee cho MB\_READ/MB\_WRITE. **Chưa chạy trên board, chưa thử module DRF1609H.** Đường `LIB=MB` của Master Zigbee (kênh master trong `mb_port`, tách khung response) mới được build, chưa chạy harness.
+- Chưa có glue USART2 phía port (ngoài thư viện) và chưa nối `utils/zigbee` (cấu hình module bằng lệnh `INS*`).
+- Script kiểm board cho khối cấu hình và lỗi 7: `test/test_zigbee_cfg.py` (chưa chạy board).
 - Chưa chốt hằng số cổng Zigbee trong khối MB (điểm 1 mục 9).
-- Chưa kiểm cách lưu Flash cho Zigbee và việc `CLEAR_RULES` giữ Zigbee (điểm 4 mục 9).
+- Cách lưu Flash: bản ghi Rule Table có cờ bit 8 (64 B); `CLEAR_RULES` không xoá Zigbee, `FACTORY_RESET` xoá kể cả khoá. Đã code, chưa kiểm trên board (điểm 4 mục 9).
 - Khoá mạng lưu nguyên văn trong Flash.
