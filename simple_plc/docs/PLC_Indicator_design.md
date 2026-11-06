@@ -1,8 +1,6 @@
 # SimplePLC — Thiết kế `plc_indicator` (đèn báo kết nối)
 
-> **Trạng thái:** thiết kế ĐÃ DUYỆT 06/11/2026 (người dùng). **Chưa có dòng code nào** (trừ header nháp
-> `services/plc_indicator/plc_indicator_err_define.h` sẽ được viết lại theo mục 9). Quyết định tóm tắt ở `handoff.md`
-> quyết định 99. Option `SPLC_INDICATOR_ENABLE` mặc định 0.
+> **Trạng thái:** thiết kế ĐÃ DUYỆT 06/11/2026 (người dùng). **Phần thư viện đã code 06/11** (`services/plc_indicator/`, option, engine, CMake; ARM `INDICATOR=0` md5 giống hệt baseline; kiểm host giả 71 kiểm tra). Chưa có port sản phẩm, chưa chạy board. Chi tiết số đo ở `handoff.md` quyết định 99. Option `SPLC_INDICATOR_ENABLE` mặc định 0.
 
 ## 1. Mục tiêu và phạm vi
 
@@ -82,7 +80,7 @@ Trường `depends_on` (chỉ số dòng + 1, 0 = không). Giao thức bị ph�
 `CONNECTED` (Wi-Fi mất ⇒ MQTT chắc chắn không lên, báo cả hai chỉ gây nhiễu). Giao thức gốc `DISABLED` ⇒ coi như không có
 phụ thuộc. Các giao thức độc lập thì xoay vòng bình thường.
 
-## 6. API (phác thảo; tên cuối cùng chốt khi code, kiểm trùng symbol với host — quyết định 21)
+## 6. API (đúng với code 06/11; kiểm trùng symbol với host `wg_ue` CHƯA làm — quyết định 21)
 
 ```c
 typedef struct {
@@ -98,13 +96,14 @@ typedef struct {
     void  *ctx;
 } splc_ind_ops_t;
 
-void    splc_indicator_init(const splc_ind_ops_t *ops);       /* lights POWER            */
-uint8_t splc_indicator_register(const splc_ind_proto_t *p);   /* init time only; order = priority */
-void    splc_indicator_scan(uint32_t now_ms);                 /* once per engine cycle   */
+bool splc_indicator_init(const splc_ind_ops_t *ops);       /* lights POWER; false if ops/set NULL        */
+int  splc_indicator_register(const splc_ind_proto_t *p);   /* row index, or -1 when refused; order = priority */
+void splc_indicator_scan(uint32_t now_ms);                 /* once per engine cycle                      */
+int  splc_indicator_shown(void);                           /* row on LED LINK, -1 = none (tests/diag)    */
 ```
 
 - Bảng tĩnh `SPLC_INDICATOR_MAX_PROTOCOLS` dòng (mặc định 4); không heap; một ngữ cảnh gọi.
-- `register` quá số dòng hoặc sau `init` xong vòng đầu ⇒ từ chối (trả lỗi), không âm thầm bỏ.
+- `register` quá số dòng (tối đa 8), sau vòng scan đầu, mẫu nháy sai (`on_ms`/`count` = 0, hoặc `count` > 1 mà `off_ms` = 0), `depends_on` không trỏ dòng trước, hoặc thiếu `get_state` ⇒ từ chối (trả -1 và log), không âm thầm bỏ.
 - Mốc thời gian lấy từ `now_ms` của vòng scan (10 ms) ⇒ độ phân giải nháy 10 ms.
 - `splc_indicator_scan()` chạy MỌI vòng, KỂ CẢ khi diag treo engine (LED vẫn phải báo kết nối). Vị trí chính xác trong
   `scan_cycle()` chốt khi code (không được nằm sau `plc_system_cmd_service`, vì hàm đó có thể reset).

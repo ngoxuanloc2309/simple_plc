@@ -323,6 +323,41 @@
 #endif
 
 /* ======================================================================
+ * Connection indicator (docs/plc_indicator_design.md, handoff decision 99)
+ * ======================================================================
+ * 1 = three-LED connection indicator (POWER / STATUS / LINK). The library decides what
+ * each LED shows; the product registers an LED function and one get_state() per protocol
+ * from its own port file (splc_indicators_port.{h,c}, outside the library).
+ * 0 = nothing changes: no code, the exact baseline binary. */
+#ifndef SPLC_INDICATOR_ENABLE
+#define SPLC_INDICATOR_ENABLE            0
+#endif
+/* Rows of the protocol table (1..8). Static RAM, no heap. */
+#ifndef SPLC_INDICATOR_MAX_PROTOCOLS
+#define SPLC_INDICATOR_MAX_PROTOCOLS     4
+#endif
+/* How long one protocol stays on LED LINK when several are not OK (rounded up to whole
+ * pattern cycles), and the pause with BOTH LEDs off between two of them. */
+#ifndef SPLC_IND_SLOT_MS
+#define SPLC_IND_SLOT_MS                 8000
+#endif
+#ifndef SPLC_IND_GAP_MS
+#define SPLC_IND_GAP_MS                  1000
+#endif
+/* LED STATUS: one flash per this period while CONNECTING / FAILED. */
+#ifndef SPLC_IND_STATUS_CONNECTING_MS
+#define SPLC_IND_STATUS_CONNECTING_MS    1000
+#endif
+#ifndef SPLC_IND_STATUS_FAILED_MS
+#define SPLC_IND_STATUS_FAILED_MS        2000
+#endif
+/* Length of one STATUS flash. The scan runs every PLC_SCAN_INTERVAL_MS, so this is also the
+ * shortest visible pulse. */
+#ifndef SPLC_LED_FLASH_ON_MS
+#define SPLC_LED_FLASH_ON_MS             100
+#endif
+
+/* ======================================================================
  * Modbus master blocks: MB_READ (0x1000..0x10FF), later MB_WRITE (0x1100..)
  * ==================================================================== */
 /* 1 = build the Modbus-master service and enlarge the RS485 master buffers to
@@ -650,6 +685,29 @@
 #endif
 #if (SPLC_ZIGBEE_ENABLE != 0) && (SPLC_ZIGBEE_ENABLE != 1)
 #error "SPLC_ZIGBEE_ENABLE must be 0 or 1"
+#endif
+#if (SPLC_INDICATOR_ENABLE != 0) && (SPLC_INDICATOR_ENABLE != 1)
+#error "SPLC_INDICATOR_ENABLE must be 0 or 1"
+#endif
+#if SPLC_INDICATOR_ENABLE
+#if (SPLC_INDICATOR_MAX_PROTOCOLS < 1) || (SPLC_INDICATOR_MAX_PROTOCOLS > 8)
+#error "SPLC_INDICATOR_MAX_PROTOCOLS must be 1..8"
+#endif
+#if (SPLC_IND_SLOT_MS < 1000) || (SPLC_IND_SLOT_MS > 60000)
+#error "SPLC_IND_SLOT_MS must be 1000..60000"
+#endif
+#if (SPLC_IND_GAP_MS > 10000)
+#error "SPLC_IND_GAP_MS must be 0..10000"
+#endif
+#if (SPLC_LED_FLASH_ON_MS < 10) || (SPLC_LED_FLASH_ON_MS > 1000)
+#error "SPLC_LED_FLASH_ON_MS must be 10..1000"
+#endif
+#if (SPLC_IND_STATUS_CONNECTING_MS <= SPLC_LED_FLASH_ON_MS) || (SPLC_IND_STATUS_CONNECTING_MS > 10000)
+#error "SPLC_IND_STATUS_CONNECTING_MS must be above SPLC_LED_FLASH_ON_MS and at most 10000"
+#endif
+#if (SPLC_IND_STATUS_FAILED_MS <= SPLC_LED_FLASH_ON_MS) || (SPLC_IND_STATUS_FAILED_MS > 10000)
+#error "SPLC_IND_STATUS_FAILED_MS must be above SPLC_LED_FLASH_ON_MS and at most 10000"
+#endif
 #endif
 #if (SPLC_MQTT_PAYLOAD_MAX < 128) || (SPLC_MQTT_PAYLOAD_MAX > 512)
 #error "SPLC_MQTT_PAYLOAD_MAX must be 128..512 (compact JSON worst case is 127 characters + NUL)"

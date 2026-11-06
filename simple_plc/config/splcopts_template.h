@@ -64,6 +64,15 @@
 /* --- Zigbee port configuration (SPLC-SPEC-ZIGBEE-006) -------------------- */
 /* #define SPLC_ZIGBEE_ENABLE            0 */      /* 1 = Zigbee configuration block 0x1700..0x173F (role, slave id, PAN id, channel, antenna, network key) saved with the Rule Table; the host registers its Zigbee port; 0 = no change at all */
 
+/* --- Connection indicator (docs/plc_indicator_design.md) ------------------ */
+/* #define SPLC_INDICATOR_ENABLE         0 */      /* 1 = POWER / STATUS / LINK LEDs report connection state; the product writes splc_indicators_port.{h,c} (LED function + one get_state() per protocol); 0 = no change at all */
+/* #define SPLC_INDICATOR_MAX_PROTOCOLS  4 */      /* 1..8 rows of the protocol table */
+/* #define SPLC_IND_SLOT_MS              8000 */   /* ms each protocol stays on LED LINK when several are not OK (rounded up to whole pattern cycles) */
+/* #define SPLC_IND_GAP_MS               1000 */   /* ms with BOTH LEDs off between two protocols (0 = none) */
+/* #define SPLC_IND_STATUS_CONNECTING_MS 1000 */   /* STATUS flashes once per this period while connecting */
+/* #define SPLC_IND_STATUS_FAILED_MS     2000 */   /* STATUS flashes once per this period on failure */
+/* #define SPLC_LED_FLASH_ON_MS          100 */    /* length of one STATUS flash */
+
 /* --- REAL (float32) tags ---------------------------------------------- */
 /* #define SPLC_REAL_ENABLE              0 */      /* 1 = Tag DataType Registry 0x0080 (BOOL/INT32/REAL per tag) + float32 Rule Engine (rule flags bit 0); 0 = no change at all */
 

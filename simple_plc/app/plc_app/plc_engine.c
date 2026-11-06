@@ -21,6 +21,9 @@
 #if SPLC_MQTT_SUB_ENABLE
 #include "plc_mqtt_sub.h"
 #endif
+#if SPLC_INDICATOR_ENABLE
+#include "plc_indicator.h"
+#endif
 #include "plc_system_cmd_service.h"
 #include "splc_board.h"
 #include "sx_time.h"
@@ -197,6 +200,11 @@ static void scan_cycle(uint32_t now_ms)
     modbus_config_service();
     plc_wifi_service(now_ms);    /* no-op unless SPLC_WIFI_ENABLE: boot restore + save after GOT_IP */
     plc_mqtt_tls_service(now_ms);/* no-op unless SPLC_MQTT_TLS_CERT_ENABLE: abandon a certificate transfer idle for 30 s */
+#if SPLC_INDICATOR_ENABLE
+    /* Outside the `suspended` blocks on purpose: the LEDs keep reporting connections while a
+     * diagnostic session holds the rule engine. Before plc_system_cmd_service (may reset). */
+    splc_indicator_scan(now_ms);
+#endif
     retain_service();
 
     plc_modbus_cfg_record_scan_time(sx_get_tick_ms() - now_ms);
