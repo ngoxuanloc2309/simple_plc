@@ -59,6 +59,9 @@
 
 #define SPI_ST67                    hspi1       /*PA5: SCK, PA6: MISO, PA7: MOSI*/
 
+/*LED INDICATORS*/
+
+
 /*RS485 Configuration*/
 #define RS485_DE_PORT               GPIOA
 #define RS485_DE_PIN                GPIO_PIN_15

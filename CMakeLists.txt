@@ -40,6 +40,9 @@ add_subdirectory(cmake/stm32cubemx)
 # SPLC
 add_subdirectory(simple_plc)
 
+# Zigbee-IO product port (USART2 + DRF module glue), outside the library
+add_subdirectory(Zigbee_IO)
+
 # Link directories setup
 target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined library search paths
@@ -48,6 +51,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
+    $<TARGET_OBJECTS:splc_zigbee_port>   # Zigbee-IO product port (OBJECT library, see Zigbee_IO/CMakeLists.txt)
 )
 
 # Add include paths
