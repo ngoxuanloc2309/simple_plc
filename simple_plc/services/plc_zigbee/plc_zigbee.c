@@ -70,6 +70,14 @@ bool splc_zigbee_register(const splc_zigbee_ops_t *ops)
         log_error(TAG, "register: role Slave needs ops.read and ops.write");
         return false;
     }
+#if !(SPLC_MODBUS_SLAVE_ENABLE && (SPLC_MODBUS_LIB == SPLC_MODBUS_LIB_MB))
+    /* The Slave endpoint lives in plc_mbs on the second Modbus library: without it the role
+     * would be declared but never served (same rule as decision 71). */
+    if ((ops->roles & SPLC_ZIGBEE_ROLE_SLAVE) != 0U) {
+        log_error(TAG, "register: role Slave needs SPLC_MODBUS_SLAVE_ENABLE=1 and SPLC_MODBUS_LIB=MB");
+        return false;
+    }
+#endif
     s_ops = *ops;
     s_registered = true;
     s_pipe_ok = (ops->read != NULL && ops->write != NULL);

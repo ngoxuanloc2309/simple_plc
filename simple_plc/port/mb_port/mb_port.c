@@ -38,7 +38,7 @@ static const char *TAG = "MB_PORT";
 #define MB_PORT_RS485_MASTER_CH (1U)
 #endif
 #if SPLC_MODBUS_SLAVE_ENABLE
-#define MB_PORT_RS485_SLAVE_CH  (SPLC_MBM_PORT_COUNT)
+#define MB_PORT_RS485_SLAVE_CH  (SPLC_MBM_PORT_COUNT + SPLC_ZIGBEE_ENABLE)   /* + the Zigbee Slave endpoint */
 #else
 #define MB_PORT_RS485_SLAVE_CH  (0U)
 #endif

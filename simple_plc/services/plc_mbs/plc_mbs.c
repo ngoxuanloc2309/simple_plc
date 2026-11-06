@@ -20,6 +20,9 @@
 #endif
 #include "splc_log.h"
 #include "sx_time.h"
+#if SPLC_ZIGBEE_ENABLE
+#include "plc_zigbee.h"       /* Zigbee Slave endpoint: the pipe and the running configuration */
+#endif
 #if SPLC_REAL_ENABLE
 #include "plc_tagtype.h"
 #endif
@@ -672,12 +675,72 @@ static void stop_port(unsigned pi)
     if (m->open) { mb_port_slave_close(m->ch); m->open = false; m->ch = -1; }
 }
 
+#if SPLC_ZIGBEE_ENABLE
+/* Zigbee Slave endpoint (SPLC-SPEC-ZIGBEE-006). The Zigbee byte pipe is NOT an RS-485 port of
+ * the 0x1400 table: it is served whenever the 0x1700 block says ENABLE + Slave, with the Slave
+ * ID of that block, RTU only (FRAMING = 1 is refused at COMMIT). The pipe carries
+ * frame_sync = LENGTH, so mb_port cuts RTU frames by length (a radio module keeps no 3.5
+ * character silence). Same map as every other Slave: the bridges above feed plc_mbs_execute(). */
+typedef struct {
+    bool     open;
+    int      ch;
+    uint8_t  id;            /* Slave ID the server was opened with */
+    uint32_t retry_ms;
+    bool     failed;
+} zbep_t;
+
+static zbep_t s_zb = { false, -1, 0U, 0U, false };
+
+static void zb_stop(void)
+{
+    if (s_zb.open) { mb_port_slave_close(s_zb.ch); s_zb.open = false; s_zb.ch = -1; }
+}
+
+static void service_zigbee(uint32_t now_ms)
+{
+    splc_zigbee_config_t cfg;
+    (void)splc_zigbee_get_config(&cfg, NULL);
+    const modbus_serial_port_t *port = splc_zigbee_serial_port();
+    const bool want = cfg.enable && cfg.role_slave && cfg.slave_id >= 1U && cfg.slave_id <= 247U &&
+                      port != NULL && port->read != NULL;
+
+    if (s_zb.open && (!want || s_zb.id != (uint8_t)cfg.slave_id)) {
+        zb_stop();
+        log_info(TAG, "zigbee: Slave server closed");
+    }
+    if (!want) { s_zb.failed = false; return; }
+
+    if (!s_zb.open) {
+        if (s_zb.failed && (int32_t)(now_ms - s_zb.retry_ms) < 0) { return; }
+        {   /* bytes that arrived while the endpoint was off belong to nobody */
+            uint8_t scratch[32]; int dn, guard = 64;
+            do { dn = port->read(port->ctx, scratch, (uint16_t)sizeof(scratch)); }
+            while (dn > 0 && --guard > 0);
+        }
+        const int ch = mb_port_slave_open(port, port->baudrate, (uint8_t)cfg.slave_id,
+                                          SPLC_MODBUS_FRAMING_RTU, &s_ops);
+        if (ch < 0) {
+            if (!s_zb.failed) { log_error(TAG, "zigbee: cannot open the Slave server (ID %u)", (unsigned)cfg.slave_id); }
+            s_zb.failed = true; s_zb.retry_ms = now_ms + 1000U;
+            return;
+        }
+        s_zb.open = true; s_zb.ch = ch; s_zb.failed = false; s_zb.id = (uint8_t)cfg.slave_id;
+        log_info(TAG, "zigbee: Slave ID %u listening (RTU, frames cut by length)", (unsigned)cfg.slave_id);
+    }
+    mb_port_slave_poll(s_zb.ch);
+}
+#endif /* SPLC_ZIGBEE_ENABLE */
+
 void plc_mbs_init(void)
 {
     for (unsigned i = 0U; i < PORTS; i++) {
         stop_port(i);
         s_mp[i].id = 0U; s_mp[i].baud = 0U; s_mp[i].retry_ms = 0U; s_mp[i].failed = false;
     }
+#if SPLC_ZIGBEE_ENABLE
+    zb_stop();
+    s_zb.id = 0U; s_zb.retry_ms = 0U; s_zb.failed = false;
+#endif
     s_writes_allowed = false;
     s_ok = s_exc = s_drop = 0U;
 }
@@ -725,6 +788,9 @@ void plc_mbs_scan(uint32_t now_ms, bool rule_engine_suspended)
 {
     s_writes_allowed = !rule_engine_suspended;
     for (unsigned i = 0U; i < PORTS; i++) { service_port(i, now_ms); }
+#if SPLC_ZIGBEE_ENABLE
+    service_zigbee(now_ms);
+#endif
 }
 
 #endif /* SPLC_MODBUS_LIB */

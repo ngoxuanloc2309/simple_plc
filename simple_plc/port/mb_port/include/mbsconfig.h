@@ -18,7 +18,7 @@
 /* One server instance per transport slot (RTU and ASCII share the slot index). */
 /* Slave serving (plc_mbs, LIB=MB): one more RTU server per RS-485 port that can take the Slave role. */
 #if SPLC_MODBUS_SLAVE_ENABLE
-#define MBS_SERIAL_RTU_MAX_INSTANCES    ( SPLC_MODBUS_MAX_TRANSPORTS + SPLC_MBM_PORT_COUNT )
+#define MBS_SERIAL_RTU_MAX_INSTANCES    ( SPLC_MODBUS_MAX_TRANSPORTS + SPLC_MBM_PORT_COUNT + SPLC_ZIGBEE_ENABLE )
 #else
 #define MBS_SERIAL_RTU_MAX_INSTANCES    ( SPLC_MODBUS_MAX_TRANSPORTS )
 #endif
