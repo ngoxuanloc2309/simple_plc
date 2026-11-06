@@ -19,7 +19,10 @@
 
 /* One master instance per RS-485 channel of mb_port.c (Modbus master ports plus the
  * Gateway's Remote I/O master). */
-#if SPLC_MBM_ENABLE
+#if SPLC_MBM_ENABLE && SPLC_ZIGBEE_ENABLE
+/* + one for the Zigbee byte pipe as a Master (MB_READ / MB_WRITE port value 4) */
+#define MBM_SERIAL_RTU_MAX_INSTANCES    ( SPLC_MBM_PORT_COUNT + 2 )
+#elif SPLC_MBM_ENABLE
 #define MBM_SERIAL_RTU_MAX_INSTANCES    ( SPLC_MBM_PORT_COUNT + 1 )
 #else
 #define MBM_SERIAL_RTU_MAX_INSTANCES    ( 1 )

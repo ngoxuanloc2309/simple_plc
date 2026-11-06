@@ -38,11 +38,26 @@ static const char *TAG = "MB_PORT";
 #define MB_PORT_RS485_MASTER_CH (1U)
 #endif
 #if SPLC_MODBUS_SLAVE_ENABLE
-#define MB_PORT_RS485_SLAVE_CH  (SPLC_MBM_PORT_COUNT + SPLC_ZIGBEE_ENABLE)   /* + the Zigbee Slave endpoint */
+#define MB_PORT_RS485_SLAVE_CH  (SPLC_MBM_PORT_COUNT)
 #else
 #define MB_PORT_RS485_SLAVE_CH  (0U)
 #endif
-#define MB_PORT_RS485_CH     (MB_PORT_RS485_MASTER_CH + MB_PORT_RS485_SLAVE_CH)
+/* Zigbee byte pipe (plc_zigbee): one channel for its Slave endpoint (plc_mbs) ... */
+#if SPLC_ZIGBEE_ENABLE && SPLC_MODBUS_SLAVE_ENABLE
+#define MB_PORT_ZB_SLAVE_CH  (1U)
+#else
+#define MB_PORT_ZB_SLAVE_CH  (0U)
+#endif
+/* ... and one as a Modbus MASTER (MB_READ / MB_WRITE port value 4). */
+#if SPLC_ZIGBEE_ENABLE && SPLC_MBM_ENABLE
+#define MB_PORT_ZB_MASTER_CH (1U)
+#else
+#define MB_PORT_ZB_MASTER_CH (0U)
+#endif
+/* Length-framed RESPONSES on a master channel exist only with a Zigbee port (a build without it
+ * keeps its exact size). */
+#define MB_PORT_RESP_FRAMING (SPLC_ZIGBEE_ENABLE && SPLC_MBM_ENABLE)
+#define MB_PORT_RS485_CH     (MB_PORT_RS485_MASTER_CH + MB_PORT_RS485_SLAVE_CH + MB_PORT_ZB_SLAVE_CH + MB_PORT_ZB_MASTER_CH)
 /* TCP master channels (host-owned sockets) follow the RS-485 ones. */
 #if SPLC_MODBUS_TCP_MASTER_ENABLE
 #define MB_PORT_TCPM_CH      (SPLC_MODBUS_TCP_MASTER_COUNT)
@@ -82,6 +97,9 @@ typedef struct {
     uint8_t                       rx_pend_n, rx_pend_i;
     /* RTU frame end by length (SPLC_MODBUS_SYNC_LENGTH) */
     bool                          fr_len;     /* this slot finds the end of a request from its length */
+#if MB_PORT_RESP_FRAMING
+    bool                          fr_resp;    /* fr_len on a MASTER channel: the frame in progress is a RESPONSE */
+#endif
     bool                          fr_hold;    /* a whole request is in: feed nothing until it is answered */
     uint16_t                      fr_total, fr_need;
     uint32_t                      fr_last_ms; /* time of the last byte of the frame in progress */
@@ -606,12 +624,27 @@ static int32_t chan_read(const mb_slot_t *sl, uint8_t *buf, uint16_t max)
     return (int32_t)sl->sp->read(sl->sp->ctx, buf, max);
 }
 
-/* Length of an RTU request from its first bytes: 0 = not known (yet). */
+/* Length of an RTU frame from its first bytes: 0 = not known (yet). A Slave channel sees
+ * REQUESTS (FC01..06 = 8 bytes, FC15/16 = 9 + byte count at byte 6); a Master channel sees
+ * RESPONSES (exception = 5, FC01..04 = 5 + byte count at byte 2, FC05/06/15/16 = 8). */
 static bool fr_track(mb_slot_t *sl, uint8_t b)
 {
     if (sl->fr_total < sizeof sl->fr_hdr) { sl->fr_hdr[sl->fr_total] = b; }
     if (sl->fr_total < 0xFFFFU) { sl->fr_total++; }
     sl->fr_last_ms = sx_get_tick_ms();
+#if MB_PORT_RESP_FRAMING
+    if (sl->fr_resp) {
+        if (sl->fr_total == 2U) {
+            const uint8_t fc = sl->fr_hdr[1];
+            if ((fc & 0x80U) != 0U)                                       { sl->fr_need = 5U; }
+            else if (fc == 5U || fc == 6U || fc == 15U || fc == 16U)      { sl->fr_need = 8U; }
+            else                                                          { sl->fr_need = 0U; } /* FC01..04: wait for the count; others: T3.5 */
+        } else if (sl->fr_total == 3U && sl->fr_hdr[1] >= 1U && sl->fr_hdr[1] <= 4U) {
+            sl->fr_need = (uint16_t)(5U + sl->fr_hdr[2]);                 /* uint8 count: at most 260 */
+        }
+        return sl->fr_need != 0U && sl->fr_total == sl->fr_need;
+    }
+#endif
     if (sl->fr_total == 2U) {
         const uint8_t fc = sl->fr_hdr[1];
         sl->fr_need = (fc >= 1U && fc <= 6U) ? 8U : 0U;
@@ -633,6 +666,9 @@ static bool fr_waiting(const mb_slot_t *sl)
     if ((uint32_t)(sx_get_tick_ms() - sl->fr_last_ms) >= MB_PORT_FR_STALL_MS) { return false; }
     if (sl->fr_total < 2U) { return true; }                                   /* FC not seen yet */
     if (sl->fr_need != 0U) { return sl->fr_total < sl->fr_need; }
+#if MB_PORT_RESP_FRAMING
+    if (sl->fr_resp) { return sl->fr_hdr[1] >= 1U && sl->fr_hdr[1] <= 4U && sl->fr_total < 3U; } /* byte count not seen */
+#endif
     return (sl->fr_hdr[1] == 15U || sl->fr_hdr[1] == 16U) && sl->fr_total < 7U; /* byte count not seen */
 }
 
@@ -857,6 +893,9 @@ bool mb_port_server_create(uint8_t slot, const modbus_transport_t *t,
     s_holding_cb  = holding_cb;
     sl->t         = t;
     sl->fr_len    = (mode == MB_RTU) && (t->frame_sync == SPLC_MODBUS_SYNC_LENGTH);
+#if MB_PORT_RESP_FRAMING
+    sl->fr_resp   = false;
+#endif
     sl->fr_hold   = false;
     sl->fr_total  = sl->fr_need = 0U;
     sl->rx_pend_n = sl->rx_pend_i = 0U;
@@ -919,7 +958,10 @@ int mb_port_slave_open(const modbus_serial_port_t *port, uint32_t baud, uint8_t 
     mb_slot_t *sl = &s_slot[ch];
     s_slave_ops = *ops;
     const eMBSerialMode mode = (framing == SPLC_MODBUS_FRAMING_ASCII) ? MB_ASCII : MB_RTU;
-    sl->fr_len = (mode == MB_RTU) && (port->frame_sync == SPLC_MODBUS_SYNC_LENGTH);
+    sl->fr_len  = (mode == MB_RTU) && (port->frame_sync == SPLC_MODBUS_SYNC_LENGTH);
+#if MB_PORT_RESP_FRAMING
+    sl->fr_resp = false;
+#endif
     eMBErrorCode e = eMBSSerialInit(&sl->server, mode, slave_id, (UBYTE)ch,
                                     (baud != 0U) ? baud : 9600UL, MB_PAR_NONE);
     if (e != MB_ENOERR) {
@@ -979,6 +1021,12 @@ int mb_port_serial_attach(const modbus_serial_port_t *port, uint32_t baud)
             memset(sl, 0, sizeof *sl);
             sl->sp      = port;
             sl->sp_baud = baud;
+            /* A pipe that does not keep byte timing (Zigbee): a MASTER channel cuts the RESPONSE
+             * by its length; mb_port_slave_open() overrides both fields for a Slave. */
+#if MB_PORT_RESP_FRAMING
+            sl->fr_len  = (port->frame_sync == SPLC_MODBUS_SYNC_LENGTH);
+            sl->fr_resp = true;
+#endif
             return (int)i;
         }
     }
@@ -1010,7 +1058,11 @@ void mb_port_serial_pump(int ch)
     if (sl->sp == NULL || !sl->open) { return; }
     ser_progress(sl);
     rx_feed(sl);                    /* bytes first ...  (order matters: 86) */
+#if MB_PORT_RESP_FRAMING
+    slot_timers(sl);                /* ... then this channel's timers (T3.5 held while a length-framed response arrives) */
+#else
     timers_run(sl->lib_hdl);        /* ... then this channel's timers       */
+#endif
 }
 
 void mb_port_serial_flush(int ch)
@@ -1018,6 +1070,9 @@ void mb_port_serial_flush(int ch)
     if (ch < (int)MB_PORT_SLOTS || ch >= (int)MB_PORT_SER_END) { return; }
     mb_slot_t *sl = &s_slot[ch];
     if (sl->sp != NULL && sl->open) { tx_flush(sl); }
+#if MB_PORT_RESP_FRAMING
+    if (sl->sp != NULL) { sl->fr_hold = false; }   /* the response is handled: the next frame may come in */
+#endif
 }
 
 void mb_port_serial_drain(int ch)
