@@ -84,6 +84,8 @@ bool splc_zigbee_register(const splc_zigbee_ops_t *ops)
         log_error(TAG, "register: role Slave needs ops.read and ops.write");
         return false;
     }
+    /* A Master role without a pipe stays registrable (a port may only configure the module), but
+     * MB_READ / MB_WRITE blocks on Zigbee then report err_code 1: see plc_zigbee_master_supported(). */
     s_ops = *ops;
     s_ops.roles = roles;           /* what the build serves, not what the port asked for */
     s_registered = true;
@@ -106,6 +108,17 @@ bool splc_zigbee_register(const splc_zigbee_ops_t *ops)
 const modbus_serial_port_t *splc_zigbee_serial_port(void)
 {
     return (s_registered && s_pipe_ok) ? &s_pipe : NULL;
+}
+
+bool plc_zigbee_master_supported(void)
+{
+    return s_registered && s_pipe_ok && (s_ops.roles & SPLC_ZIGBEE_ROLE_MASTER) != 0U;
+}
+
+bool plc_zigbee_is_slave_after_commit(void)
+{
+    const uint16_t c = s_draft_open ? s_draft[R_CTRL] : s_run[R_CTRL];
+    return (c & PLC_ZIGBEE_CTRL_ENABLE) != 0U && (c & PLC_ZIGBEE_CTRL_ROLE_SLAVE) != 0U;
 }
 
 bool splc_zigbee_get_config(splc_zigbee_config_t *out, uint32_t *generation)

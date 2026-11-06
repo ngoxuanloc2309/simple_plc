@@ -240,7 +240,7 @@ static bool block_valid(const uint16_t *b, unsigned idx)
     const unsigned mode     = blk_mode(b);
     const uint16_t trig     = b[F_TRIG_MODE];
 
-    if (blk_port(b) >= PORTS) { log_warn(TAG, "block %u: port %u, the device has %u", idx, blk_port(b) + 1U, PORTS); return false; }
+    if (plc_mbm_port_raw_invalid(blk_port(b))) { log_warn(TAG, "block %u: port %u, the device has %u", idx, blk_port(b) + 1U, PORTS); return false; }
     if (blk_slave(b) < 1U || blk_slave(b) > 247U) { log_warn(TAG, "block %u: slave %u", idx, blk_slave(b)); return false; }
     if (mode > MODE_CHANNEL)  { log_warn(TAG, "block %u: write mode %u", idx, mode); return false; }
     if (timeout < MIN_TIMEOUT_MS || timeout > MAX_TIMEOUT_MS) { log_warn(TAG, "block %u: timeout %lu", idx, (unsigned long)timeout); return false; }
@@ -344,7 +344,7 @@ bool plc_mbw_validate_draft(void)
      * judged on the port table as it will be after this COMMIT (plc_mbm). */
     for (unsigned i = 0U; i < PLC_MBW_BLOCKS; i++) {
         const uint16_t *b = ((s_draft_mask & (1U << i)) != 0U) ? s_draft[i] : s_run[i];
-        if (blk_enabled(b) && plc_mbm_port_is_slave_after_commit(blk_port(b))) {
+        if (blk_enabled(b) && plc_mbm_port_raw_is_slave_after_commit(blk_port(b))) {
             log_warn(TAG, "MB_WRITE block %u uses port %u, which is a Modbus Slave", i, blk_port(b) + 1U);
             s_slave_conflict = true;
             return false;
@@ -676,7 +676,8 @@ static void try_send(unsigned i, uint32_t now_ms)
 {
     const uint16_t *b = s_run[i];
     blk_rt_t *r = &s_rt[i];
-    const unsigned port = blk_port(b);
+    const unsigned raw  = blk_port(b);                       /* port field of the block (wire value) */
+    const unsigned port = plc_mbm_port_slot(raw);            /* library slot: an RS-485 port or the Zigbee pipe */
     modbus_rtu_master_t *m = NULL;
     uint8_t retries = 0U;
 
@@ -684,7 +685,7 @@ static void try_send(unsigned i, uint32_t now_ms)
     case PLC_MBM_CLAIM_UNUSABLE:
         if (!r->warned_port) {
             r->warned_port = true;
-            log_warn(TAG, "block %u: port %u is not registered or disabled, the block reports err_code 1", i, port + 1U);
+            log_warn(TAG, "block %u: port %u is not registered or disabled, the block reports err_code 1", i, raw + 1U);
         }
         finish_err(i, ERR_TIMEOUT);
         return;

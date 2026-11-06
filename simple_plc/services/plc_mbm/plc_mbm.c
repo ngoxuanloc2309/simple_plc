@@ -9,6 +9,9 @@
 
 #include "plc_tag.h"
 #include "splc_log.h"
+#if SPLC_ZIGBEE_ENABLE
+#include "plc_zigbee.h"
+#endif
 #if SPLC_REAL_ENABLE
 #include "plc_tagtype.h"
 #endif
@@ -16,6 +19,17 @@
 static const char *TAG = "PLC_MBM";
 
 #define PORTS    ((unsigned)SPLC_MBM_PORT_COUNT)
+/* Master slots: the RS-485 ports, then (SPLC_ZIGBEE_ENABLE) the Zigbee byte pipe. Only the slots
+ * below PORTS have a record in the port table (0x1400); the Zigbee slot takes its state from the
+ * 0x1700 block and the pipe that plc_zigbee holds. */
+#if SPLC_ZIGBEE_ENABLE
+#define NSLOTS      (PORTS + 1U)
+#define ZB_SLOT     PORTS
+#define ZB_GAP_MS   50U     /* firmware choice: gap between two requests on the radio pipe */
+#define ZB_RETRIES  1U      /* firmware choice: timeout / CRC retries on the radio pipe */
+#else
+#define NSLOTS      PORTS
+#endif
 _Static_assert(SPLC_MBM_PORT_COUNT >= 1 && SPLC_MBM_PORT_COUNT <= (int)PLC_MBM_PORT_MAX,
                "SPLC_MBM_PORT_COUNT must be 1..PLC_MBM_PORT_MAX");
 /* RAM keeps the records of the ports the device HAS; the wire and the Flash image
@@ -124,7 +138,7 @@ static uint16_t   s_prun[PT_REGS];                              /* RUNNING port 
 static uint16_t   s_pdraft[PT_REGS];
 static bool       s_pdraft_on;
 static block_rt_t s_rt[PLC_MBM_BLOCKS];
-static port_rt_t  s_port[PORTS];
+static port_rt_t  s_port[NSLOTS];
 static plc_mbm_role_listener_fn s_role_listener;                /* told when a port's role/ID changes */
 static uint8_t    s_rr;                                         /* round-robin start */
 static bool       s_boot_logged;
@@ -137,6 +151,7 @@ static bool blk_enabled(const uint16_t *b) { return (b[F_FLAGS] & FLAG_ENABLED) 
 static uint8_t blk_fc(const uint16_t *b)    { return (uint8_t)(b[F_FC_SLAVE] >> 8); }
 static uint8_t blk_slave(const uint16_t *b) { return (uint8_t)(b[F_FC_SLAVE] & 0xFFU); }
 static unsigned blk_port(const uint16_t *b) { return (unsigned)((b[F_FLAGS] >> FLAG_PORT_SHIFT) & FLAG_PORT_MASK); }
+static unsigned blk_slot(const uint16_t *b) { return plc_mbm_port_slot(blk_port(b)); }
 static bool fc_is_bit(uint8_t fc)           { return fc == 1U || fc == 2U; }
 
 static float bits_to_float(uint32_t u) { float f; memcpy(&f, &u, sizeof(f)); return f; }
@@ -178,7 +193,7 @@ static bool block_valid(const uint16_t *b, unsigned idx)
     const uint32_t interval = get_u32(&b[F_INTERVAL]);
     const uint32_t timeout  = get_u32(&b[F_TIMEOUT]);
 
-    if (blk_port(b) >= PORTS)                        { log_warn(TAG, "block %u: port %u, the device has %u", idx, blk_port(b) + 1U, PORTS); return false; }
+    if (plc_mbm_port_raw_invalid(blk_port(b)))       { log_warn(TAG, "block %u: port %u, the device has %u", idx, blk_port(b) + 1U, PORTS); return false; }
     if (sl < 1U || sl > 247U)                        { log_warn(TAG, "block %u: slave %u", idx, sl); return false; }
     if (fc < 1U || fc > 4U)                          { log_warn(TAG, "block %u: function code %u", idx, fc); return false; }
     if (count < 1U || count > MODBUS_MASTER_MAX_REGS) { log_warn(TAG, "block %u: count %u", idx, count); return false; }
@@ -328,10 +343,50 @@ static void apply_port_table(void)
     }
 }
 
+#if SPLC_ZIGBEE_ENABLE
+/* The Zigbee slot as a Modbus Master. Its "registration" is the byte pipe plc_zigbee holds (a port
+ * that registered the MASTER role and gave read/write); enable and role come from the RUNNING 0x1700
+ * block: ENABLE = 1 and ROLE = Master make it usable, ROLE = Slave makes it the Slave endpoint's
+ * (plc_mbs), so a block on it reports err_code 1 like on any Slave port. There is no UART to
+ * configure (the module is transparent) and no line settings in the port table. */
+static const modbus_serial_port_t *s_zb_pipe;   /* pipe the slot was initialised with */
+static bool s_zb_logged;
+
+static void zb_refresh(void)
+{
+    port_rt_t *p = &s_port[ZB_SLOT];
+    const modbus_serial_port_t *pipe = splc_zigbee_serial_port();
+    const bool can = pipe != NULL && plc_zigbee_master_supported();
+    if (can && pipe != s_zb_pipe) {
+        p->registered = modbus_rtu_master_init(&p->master, pipe);
+        p->configure  = NULL;
+        p->async_tx   = false;
+        p->dirty      = false;
+        p->gap_ms     = ZB_GAP_MS;
+        p->retries    = ZB_RETRIES;
+        p->active     = -1;
+        p->active_stale = false;
+        if (p->registered) { modbus_rtu_master_set_min_gap_ms(&p->master, p->gap_ms); }
+        s_zb_pipe = pipe;
+        log_info(TAG, "Zigbee pipe registered as Master port %u, %lu baud to the module",
+                 PLC_MBM_PORT_ZIGBEE + 1U, (unsigned long)pipe->baudrate);
+    }
+    if (!can) { return; }
+    splc_zigbee_config_t cfg;
+    (void)splc_zigbee_get_config(&cfg, NULL);
+    const plc_mbm_role_t role = cfg.role_slave ? PLC_MBM_ROLE_SLAVE : PLC_MBM_ROLE_MASTER;
+    if ((cfg.enable != p->enabled || role != p->role) && p->active >= 0) {
+        p->active_stale = true;        /* the answer on the wire belongs to the old configuration */
+    }
+    p->enabled = cfg.enable;
+    p->role    = role;
+}
+#endif
+
 static void rt_reset(unsigned i)
 {
     memset(&s_rt[i], 0, sizeof(s_rt[i]));
-    for (unsigned p = 0U; p < PORTS; p++) {
+    for (unsigned p = 0U; p < NSLOTS; p++) {
         if (s_port[p].active == (int8_t)i) {
             s_port[p].active_stale = true;       /* the answer on the wire belongs to the old config */
         }
@@ -347,10 +402,13 @@ static void write_status(uint16_t tag, int32_t v)
 
 void plc_mbm_init(void)
 {
-    for (unsigned p = 0U; p < PORTS; p++) {
+    for (unsigned p = 0U; p < NSLOTS; p++) {
         s_port[p].active = -1;                   /* registration done by the host is kept */
         s_port[p].active_stale = false;
     }
+#if SPLC_ZIGBEE_ENABLE
+    s_zb_pipe = NULL;                            /* the Zigbee slot is rebuilt from the pipe at first use */
+#endif
     plc_mbm_clear_all();
     for (unsigned p = 0U; p < PORTS; p++) {      /* first apply: whatever the table says */
         s_port[p].dirty = true;
@@ -401,6 +459,27 @@ bool plc_mbm_port_ready(unsigned idx)
 {
     return idx < PORTS && s_port[idx].registered && !s_port[idx].dirty;
 }
+
+#if SPLC_ZIGBEE_ENABLE
+bool plc_mbm_port_raw_valid(unsigned raw)
+{
+    if (raw == PLC_MBM_PORT_ZIGBEE) { return true; }
+    return raw < PORTS;
+}
+
+unsigned plc_mbm_port_slot(unsigned raw)
+{
+    if (raw == PLC_MBM_PORT_ZIGBEE) { return ZB_SLOT; }
+    return (raw < PORTS) ? raw : NSLOTS;
+}
+
+bool plc_mbm_port_raw_is_slave_after_commit(unsigned raw)
+{
+    if (raw == PLC_MBM_PORT_ZIGBEE) { return plc_zigbee_is_slave_after_commit(); }
+    return plc_mbm_port_is_slave_after_commit(raw);
+}
+
+#endif
 
 bool plc_mbm_port_is_slave_after_commit(unsigned idx)
 {
@@ -497,8 +576,8 @@ bool plc_mbm_validate_draft(void)
      * blocks and the port table as they will be after this COMMIT). */
     for (unsigned i = 0U; i < PLC_MBM_BLOCKS; i++) {
         const uint16_t *b = ((s_draft_mask & (1U << i)) != 0U) ? s_draft[i] : s_run[i];
-        if (!blk_enabled(b) || blk_port(b) >= PORTS) { continue; }
-        if (plc_mbm_port_is_slave_after_commit(blk_port(b))) {
+        if (!blk_enabled(b) || !plc_mbm_port_raw_valid(blk_port(b))) { continue; }
+        if (plc_mbm_port_raw_is_slave_after_commit(blk_port(b))) {
             log_warn(TAG, "block %u uses port %u, which is a Modbus Slave", i, blk_port(b) + 1U);
             s_slave_conflict = true;
             return false;
@@ -778,6 +857,14 @@ void plc_mbm_scan(uint32_t now_ms)
             }
         }
     }
+#if SPLC_ZIGBEE_ENABLE
+    zb_refresh();
+    if (!s_zb_logged && s_zb_pipe == NULL) {
+        s_zb_logged = true;      /* Zigbee blocks are possible: say once that the pipe is not usable yet */
+        log_info(TAG, "Zigbee port (port %u): no Master pipe registered, blocks on it report err_code 1",
+                 PLC_MBM_PORT_ZIGBEE + 1U);
+    }
+#endif
     for (unsigned p = 0U; p < PORTS; p++) {
         if (s_port[p].registered) { apply_serial(&s_port[p], p, now_ms); }
     }
@@ -801,7 +888,7 @@ void plc_mbm_scan(uint32_t now_ms)
     }
 
     /* Collect the answer of the request in flight on every port. */
-    for (unsigned p = 0U; p < PORTS; p++) {
+    for (unsigned p = 0U; p < NSLOTS; p++) {
         port_rt_t *pr = &s_port[p];
         if (pr->active < 0) { continue; }
 #if SPLC_MBW_ENABLE
@@ -824,7 +911,7 @@ void plc_mbm_scan(uint32_t now_ms)
         const unsigned i = (s_rr + n) % PLC_MBM_BLOCKS;
         if (!block_due(i, now_ms)) { continue; }
         const uint16_t *b = s_run[i];
-        port_rt_t *pr = &s_port[blk_port(b)];     /* validated: < PORTS */
+        port_rt_t *pr = &s_port[blk_slot(b)];     /* validated: an RS-485 port or the Zigbee slot */
 
         if (!pr->registered) { fail_block_no_port(i, now_ms, "has no RS485 port registered"); continue; }
         if (!pr->enabled)    { fail_block_no_port(i, now_ms, "is disabled in the port table"); continue; }
@@ -854,14 +941,17 @@ void plc_mbm_scan(uint32_t now_ms)
     }
 #if SPLC_MBW_ENABLE
     s_blocking_started = false;
-    for (unsigned p = 0U; p < PORTS; p++) { s_port[p].write_wanted = false; }
+    for (unsigned p = 0U; p < NSLOTS; p++) { s_port[p].write_wanted = false; }
 #endif
 }
 
 #if SPLC_MBW_ENABLE
 plc_mbm_claim_t plc_mbm_port_claim(unsigned idx, modbus_rtu_master_t **master, uint8_t *retries)
 {
-    if (idx >= PORTS) { return PLC_MBM_CLAIM_UNUSABLE; }
+    if (idx >= NSLOTS) { return PLC_MBM_CLAIM_UNUSABLE; }
+#if SPLC_ZIGBEE_ENABLE
+    if (idx == ZB_SLOT) { zb_refresh(); }
+#endif
     port_rt_t *p = &s_port[idx];
     if (!p->registered || !p->enabled || p->role == PLC_MBM_ROLE_SLAVE) { return PLC_MBM_CLAIM_UNUSABLE; }
     if ((p->dirty && p->configure != NULL) || p->active >= 0 || (!p->async_tx && s_blocking_started)) {
@@ -878,7 +968,7 @@ plc_mbm_claim_t plc_mbm_port_claim(unsigned idx, modbus_rtu_master_t **master, u
 
 void plc_mbm_port_release(unsigned idx, bool sent)
 {
-    if (idx >= PORTS) { return; }
+    if (idx >= NSLOTS) { return; }
     port_rt_t *p = &s_port[idx];
     if (p->active != PLC_MBM_OWNER_WRITER) { return; }
     p->active        = -1;

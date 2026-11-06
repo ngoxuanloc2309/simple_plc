@@ -101,6 +101,12 @@ extern "C" {
 #define PLC_MBM_PORT_REGS         16U
 #define PLC_MBM_PORT_TABLE_REGS   (PLC_MBM_PORT_MAX * PLC_MBM_PORT_REGS)   /* 64 */
 
+/* Raw value of the `port` field of an MB_READ / MB_WRITE block that selects the Zigbee byte pipe
+ * instead of an RS-485 port (valid only when SPLC_ZIGBEE_ENABLE = 1). ASSUMPTION of the firmware,
+ * not yet confirmed by the App team (handoff 98c1): "port 5" = raw 4, outside the 0..3 of the
+ * four RS-485 ports. */
+#define PLC_MBM_PORT_ZIGBEE       4U
+
 /* Flash image: the 256 block registers, then the 64 port-table registers. */
 #define PLC_MBM_FLASH_SIZE    ((PLC_MBM_REGS + PLC_MBM_PORT_TABLE_REGS) * 2U)   /* 640 */
 #define PLC_MBM_MAX_PINS      4U
@@ -199,6 +205,26 @@ bool plc_mbm_port_ready(unsigned idx);
  * port table if one was written, else the running one). plc_mbw uses it to refuse an
  * MB_WRITE block on such a port. false for an index out of range. */
 bool plc_mbm_port_is_slave_after_commit(unsigned idx);
+
+/* The `port` field of a block as the wire carries it ("raw": 0..SPLC_MBM_PORT_COUNT-1 are the RS-485
+ * ports, PLC_MBM_PORT_ZIGBEE the Zigbee pipe when SPLC_ZIGBEE_ENABLE = 1):
+ *   plc_mbm_port_raw_valid(): the device has such a port.
+ *   plc_mbm_port_slot(): index for plc_mbm_port_claim/release (RS-485 ports first, then Zigbee);
+ *                        an out-of-range value for an invalid raw.
+ *   plc_mbm_port_raw_is_slave_after_commit(): as ..._is_slave_after_commit(), also for Zigbee. */
+#if SPLC_ZIGBEE_ENABLE
+bool     plc_mbm_port_raw_valid(unsigned raw);
+unsigned plc_mbm_port_slot(unsigned raw);
+bool     plc_mbm_port_raw_is_slave_after_commit(unsigned raw);
+#define plc_mbm_port_raw_invalid(raw) (!plc_mbm_port_raw_valid(raw))
+#else
+/* No Zigbee pipe: the raw value IS the RS-485 port index (inline, so a build with
+ * SPLC_ZIGBEE_ENABLE = 0 keeps its exact baseline binary). */
+#define plc_mbm_port_raw_invalid(raw) ((unsigned)(raw) >= (unsigned)SPLC_MBM_PORT_COUNT)
+static inline bool     plc_mbm_port_raw_valid(unsigned raw) { return raw < (unsigned)SPLC_MBM_PORT_COUNT; }
+static inline unsigned plc_mbm_port_slot(unsigned raw)      { return raw; }
+static inline bool     plc_mbm_port_raw_is_slave_after_commit(unsigned raw) { return plc_mbm_port_is_slave_after_commit(raw); }
+#endif
 
 /* Called (from the COMMIT / boot context) whenever a port's role or Slave ID changes, with
  * the new values; role is MASTER for a disabled port. The module that serves the Slave

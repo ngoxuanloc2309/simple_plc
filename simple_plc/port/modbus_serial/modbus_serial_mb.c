@@ -55,7 +55,7 @@ static const char *TAG = "MB_MASTER";
 
 #define MB_STEP_MAX        6U      /* library states walked in one drive step */
 #define MB_DEFAULT_BAUD    9600UL  /* port->baudrate == 0 (host never told us) */
-#define MB_MAX_MASTERS     (SPLC_MBM_ENABLE ? (SPLC_MBM_PORT_COUNT + 1U) : 1U)
+#define MB_MAX_MASTERS     (SPLC_MBM_ENABLE ? (SPLC_MBM_PORT_COUNT + 1U + (SPLC_ZIGBEE_ENABLE ? 1U : 0U)) : 1U)
 
 /* Every master that went through init: lets a second init of the same object release
  * its library instance and channel first, without trusting the bytes of a struct the

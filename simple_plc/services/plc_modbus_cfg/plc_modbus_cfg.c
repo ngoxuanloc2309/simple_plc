@@ -1271,8 +1271,8 @@ static void write_commit_command(uint16_t value)
 
 #if SPLC_ZIGBEE_ENABLE
     /* Zigbee draft: checked as a whole BEFORE anything is applied, like the others
-     * (plc_zigbee.h). Error 2; the Slave-conflict error 7 for an MB block that points at
-     * Zigbee comes with the Master step of decision 98. */
+     * (plc_zigbee.h). Error 2. The Slave-conflict error 7 for an MB block that points at
+     * Zigbee (port field 4) is raised above, by plc_mbm / plc_mbw, which read the Zigbee draft. */
     if (!plc_zigbee_validate_draft()) {
         log_warn(TAG, "commit rejected: Zigbee draft failed validation");
         s_config_status     = CONFIG_STATUS_ERROR;
