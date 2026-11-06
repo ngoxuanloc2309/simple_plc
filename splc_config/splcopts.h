@@ -46,4 +46,7 @@
  * CMake reads this line at CONFIGURE time: after changing it, run build.bat clean. */
 #define SPLC_MODBUS_LIB               SPLC_MODBUS_LIB_MB//SPLC_MODBUS_LIB_NANO
 
+/* Turn on Zigbee*/
+#define SPLC_ZIGBEE_ENABLE            1
+
 #endif /* SPLCOPTS_H */
