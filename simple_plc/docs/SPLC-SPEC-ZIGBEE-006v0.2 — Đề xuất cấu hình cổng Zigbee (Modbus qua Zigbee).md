@@ -225,3 +225,5 @@ Các điểm sau là **giả định của đội Firmware**, theo thoả thuậ
 - Chưa chốt hằng số cổng Zigbee trong khối MB (điểm 1 mục 9).
 - Cách lưu Flash: bản ghi Rule Table có cờ bit 8 (64 B); `CLEAR_RULES` không xoá Zigbee, `FACTORY_RESET` xoá kể cả khoá. Đã code, chưa kiểm trên board (điểm 4 mục 9).
 - Khoá mạng lưu nguyên văn trong Flash.
+- **Test qua sóng (06/11/2026):** script `test/test_zigbee_slave_read.py` (PC làm master qua một module DRF Coordinator cắm PC, đọc DI/DO của board Slave) mới chạy với slave giả, CHƯA chạy với module thật vì chưa có Coordinator phía PC. Dự kiến test luôn khi board DTU xong. Module DRF phải được đặt tay (Router/Coordinator, PAN ID, kênh, truyền trong suốt, UART 115200 8N1) vì firmware chưa có driver lệnh `INS*`.
+- Port chưa từ chối được Slave ID 236/237 ở COMMIT (thư viện chưa có hook `validate` cho port): hiện chỉ báo `LINK_STATE = 3`, `ERROR_CODE = 1`.
