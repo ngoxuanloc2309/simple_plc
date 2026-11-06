@@ -11,6 +11,9 @@
 #include "sx_uart.h"
 #include "modbus_serial.h"  /* modbus_serial_port_t (used by plc_zigbee.h) */
 #include "plc_zigbee.h"     /* splc_zigbee_register(), splc_zigbee_get_config() */
+#if SPLC_INDICATOR_ENABLE
+#include "sx_time.h"        /* sx_get_tick_ms(): time of the last received byte */
+#endif
 
 /*
  * Zigbee byte pipe: USART2 (PA2 TX / PA3 RX) <-> DRF1609H in transparent mode. The module
@@ -40,11 +43,30 @@ static sx_uart_config_t s_zb_uart_cfg;
 static uint8_t          s_zb_rx_buf[512];   /* one transparent packet is up to 269 bytes */
 static uint8_t          s_zb_tx_buf[1];     /* unused: sx_uart_write() is direct */
 
+#if SPLC_INDICATOR_ENABLE
+static bool     s_zb_rx_seen;
+static uint32_t s_zb_rx_tick;
+#endif
+
 static int zb_read(void *ctx, uint8_t *buf, uint16_t max_len)
 {
     (void)ctx;
-    return sx_uart_read(&s_zb_uart, buf, (int)max_len);
+    const int n = sx_uart_read(&s_zb_uart, buf, (int)max_len);
+#if SPLC_INDICATOR_ENABLE
+    if (n > 0) {
+        s_zb_rx_seen = true;
+        s_zb_rx_tick = sx_get_tick_ms();
+    }
+#endif
+    return n;
 }
+
+#if SPLC_INDICATOR_ENABLE
+uint32_t splc_zigbee_port_ms_since_rx(void)
+{
+    return s_zb_rx_seen ? (uint32_t)(sx_get_tick_ms() - s_zb_rx_tick) : UINT32_MAX;
+}
+#endif
 
 static int zb_write(void *ctx, const uint8_t *buf, uint16_t len, uint32_t timeout_ms)
 {

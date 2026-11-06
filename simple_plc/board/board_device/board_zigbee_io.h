@@ -85,4 +85,12 @@
 void splc_zigbee_port_init(void);
 #endif
 
+#if SPLC_INDICATOR_ENABLE
+/* Connection-indicator LEDs: NOT part of this board file. The product port
+ * Zigbee_IO/port/splc_indicators_port.c writes the three LED pins and registers the protocols
+ * with the library; board_hw_init() only calls this. Same prototype as splc_indicators_port.h
+ * -- repeated here for the same reason as splc_zigbee_port_init(). */
+void splc_indicators_port_init(void);
+#endif
+
 #endif

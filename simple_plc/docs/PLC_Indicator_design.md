@@ -1,6 +1,6 @@
 # SimplePLC — Thiết kế `plc_indicator` (đèn báo kết nối)
 
-> **Trạng thái:** thiết kế ĐÃ DUYỆT 06/11/2026 (người dùng). **Phần thư viện đã code 06/11** (`services/plc_indicator/`, option, engine, CMake; ARM `INDICATOR=0` md5 giống hệt baseline; kiểm host giả 71 kiểm tra). Chưa có port sản phẩm, chưa chạy board. Chi tiết số đo ở `handoff.md` quyết định 99. Option `SPLC_INDICATOR_ENABLE` mặc định 0.
+> **Trạng thái:** thiết kế ĐÃ DUYỆT 06/11/2026 (người dùng). **Phần thư viện đã code 06/11** (`services/plc_indicator/`, option, engine, CMake; ARM `INDICATOR=0` md5 giống hệt baseline; kiểm host giả 71 kiểm tra). Port Zigbee-IO đã viết (`Zigbee_IO/port/splc_indicators_port.{h,c}`), chưa chạy board. Chi tiết số đo ở `handoff.md` quyết định 99. Option `SPLC_INDICATOR_ENABLE` mặc định 0.
 
 ## 1. Mục tiêu và phạm vi
 

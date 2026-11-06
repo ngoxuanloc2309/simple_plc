@@ -31,3 +31,18 @@ target_link_libraries(splc_zigbee_port PUBLIC
 )
 
 target_compile_features(splc_zigbee_port PUBLIC c_std_11)
+
+
+# splc_indicators_port: the three LEDs (POWER / STATUS / LINK) of the connection indicator.
+# Empty unless SPLC_INDICATOR_ENABLE = 1. OBJECT library for the same reason as above: the
+# symbol splc_indicators_port_init() is called from splc_board (earlier on the link line).
+add_library(splc_indicators_port OBJECT
+    ${CMAKE_CURRENT_SOURCE_DIR}/port/splc_indicators_port.c
+)
+target_include_directories(splc_indicators_port PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/port
+)
+target_link_libraries(splc_indicators_port PUBLIC
+    splc_config splc_services splc_port splc_components stm32cubemx
+)
+target_compile_features(splc_indicators_port PUBLIC c_std_11)

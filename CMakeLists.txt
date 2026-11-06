@@ -52,6 +52,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     $<TARGET_OBJECTS:splc_zigbee_port>   # Zigbee-IO product port (OBJECT library, see Zigbee_IO/CMakeLists.txt)
+    $<TARGET_OBJECTS:splc_indicators_port> # Zigbee-IO connection-indicator LEDs (OBJECT library, see Zigbee_IO/CMakeLists.txt)
 )
 
 # Add include paths
