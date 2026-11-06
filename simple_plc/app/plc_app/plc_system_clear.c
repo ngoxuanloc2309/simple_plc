@@ -29,7 +29,6 @@
 #include "plc_mqtt_tls.h"
 #if SPLC_ZIGBEE_ENABLE
 #include "plc_zigbee.h"
-#include <string.h>
 #endif
 #include "splc_log.h"
 
@@ -121,6 +120,12 @@ bool plc_clear_rules(void)
 #if SPLC_MQTT_SUB_ENABLE
     plc_mqtt_sub_clear_all();  /* every block disabled, draft and queues dropped; BEFORE the save like the others */
 #endif
+#if SPLC_ZIGBEE_ENABLE
+    /* Decision 98: CLEAR_RULES does NOT wipe the Zigbee configuration (it belongs to the device,
+     * not to the program); only a stale draft is dropped. The save below writes the running
+     * block as it is. */
+    plc_zigbee_discard_draft();
+#endif
 
     if (plc_rule_flash_save()) {
         log_info(TAG, "CLEAR_RULES done: empty rule table and FB config saved to Flash (was %u rule(s))",
@@ -196,20 +201,17 @@ bool plc_factory_reset(void)
      * region does not prevent clearing the other. */
     const bool retain_ok = plc_clear_retain();
 #if SPLC_ZIGBEE_ENABLE
-    /* The Zigbee configuration (key included) lives in the Rule Table record, and
-     * plc_clear_rules() saves that record from RAM -- so the wipe must happen BEFORE it,
-     * or Flash would keep the old key. CLEAR_RULES alone never touches it (decision 98).
-     * If the save fails, put the running configuration back so RAM matches Flash. */
-    uint8_t zigbee_backup[PLC_ZIGBEE_FLASH_SIZE];
-    plc_zigbee_export(zigbee_backup);
+    /* Wiped BEFORE plc_clear_rules() so its Flash save writes the empty Zigbee block too
+     * (key included). If that save fails the old image is put back, so RAM matches the
+     * Flash a reboot would restore. */
+    uint8_t zb_backup[PLC_ZIGBEE_FLASH_SIZE];
+    plc_zigbee_export(zb_backup);
     plc_zigbee_factory_reset();
 #endif
     const bool rules_ok  = plc_clear_rules();
 #if SPLC_ZIGBEE_ENABLE
-    if (!rules_ok) {
-        (void)plc_zigbee_import(zigbee_backup);
-    }
-    memset(zigbee_backup, 0, sizeof(zigbee_backup));   /* it held the network key */
+    if (!rules_ok) { (void)plc_zigbee_import(zb_backup); }
+    memset(zb_backup, 0, sizeof(zb_backup));    /* it holds the network key */
 #endif
     plc_wifi_factory_reset();   /* stored Wi-Fi credentials only; CLEAR_RULES alone never touches them */
     plc_mqtt_tls_factory_reset();/* stored TLS certificates (host clear()); CLEAR_RULES alone never touches them */

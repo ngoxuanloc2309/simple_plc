@@ -32,7 +32,7 @@
 #include "plc_mqtt_sub.h"   /* plc_mqtt_sub_export()/plc_mqtt_sub_import(): MQTT Subscribe blocks (decision 47) */
 #endif
 #if SPLC_ZIGBEE_ENABLE
-#include "plc_zigbee.h"     /* plc_zigbee_export()/plc_zigbee_import(): Zigbee configuration (decision 98) */
+#include "plc_zigbee.h"     /* plc_zigbee_export()/plc_zigbee_import(): Zigbee port config (decision 98) */
 #endif
 #include "plc_retain.h"     /* retain_flash_op_begin()/end(): keeps the PVD write off the Flash during this one */
 #include "splc_log.h"
@@ -48,6 +48,11 @@ _Static_assert(SPLC_RULE_FLASH_RECORD_MAX_SIZE ==
                 SPLC_RULE_FLASH_TYPES_RESERVE + SPLC_RULE_FLASH_SUB_RESERVE + SPLC_RULE_FLASH_MBW_RESERVE +
                 SPLC_RULE_FLASH_ZIGBEE_RESERVE),
                "SPLC_RULE_FLASH_RECORD_MAX_SIZE out of sync with MAX_RULES / FB / MQTT / MB / TYPES / SUB / MBW / ZIGBEE size");
+
+#if SPLC_ZIGBEE_ENABLE
+_Static_assert(SPLC_RULE_FLASH_ZIGBEE_SIZE == PLC_ZIGBEE_FLASH_SIZE,
+               "SPLC_RULE_FLASH_ZIGBEE_SIZE out of sync with PLC_ZIGBEE_FLASH_SIZE");
+#endif
 
 /* Same literal-duplication story for the FB image sizes. */
 _Static_assert(SPLC_RULE_FLASH_FB_SIZE == PLC_FB_FLASH_SIZE,
@@ -77,10 +82,6 @@ _Static_assert(SPLC_RULE_FLASH_MBW_SIZE == PLC_MBW_FLASH_SIZE,
 #if SPLC_MQTT_SUB_ENABLE
 _Static_assert(SPLC_RULE_FLASH_SUB_SIZE == PLC_MQTT_SUB_FLASH_SIZE,
                "SPLC_RULE_FLASH_SUB_SIZE out of sync with PLC_MQTT_SUB_FLASH_SIZE");
-#endif
-#if SPLC_ZIGBEE_ENABLE
-_Static_assert(SPLC_RULE_FLASH_ZIGBEE_SIZE == PLC_ZIGBEE_FLASH_SIZE,
-               "SPLC_RULE_FLASH_ZIGBEE_SIZE out of sync with PLC_ZIGBEE_FLASH_SIZE");
 #endif
 #define RULE_FLASH_FLAGS_OWNED (SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG | \
                                 SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_MB_OWNED_FLAG | \
@@ -318,7 +319,7 @@ static uint32_t rule_flash_build_record(uint32_t seq_num)
         .mbw_size   = SPLC_RULE_FLASH_MBW_RESERVE,    /* 512 with MB_WRITE */
 #endif
 #if SPLC_ZIGBEE_ENABLE
-        .zigbee_size = SPLC_RULE_FLASH_ZIGBEE_RESERVE, /* 64 with Zigbee */
+        .zigbee_size = SPLC_RULE_FLASH_ZIGBEE_RESERVE,/* 64 with Zigbee */
 #endif
     };
     uint16_t field = (uint16_t)(layout.rule_count | SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG);
@@ -673,7 +674,7 @@ static void rule_flash_apply_buffer(const rule_flash_layout_t *l, const char *fr
                                  l->mbw_size +
 #endif
                                  0U)) {
-        log_info(TAG, "Zigbee configuration restored from Flash %s", from);
+        log_info(TAG, "Zigbee config restored from Flash %s", from);
     } else {
         log_warn(TAG, "Zigbee section in Flash %s failed validation -- Zigbee left DISABLED", from);
     }
