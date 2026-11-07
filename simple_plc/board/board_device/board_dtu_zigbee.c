@@ -11,17 +11,15 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_DTU_ZIGBEE);
 #include "usart.h"   /* CubeMX-generated: huart1 / huart3 / huart7 / huart9 / huart10 */
 
 #include "sx_uart.h"
-#include "splc_usb_cdc.h"   /* USB-CDC port module: splc_usb_cdc_init(), splc_usb_irq() */
 #include "modbus_link.h"    /* splc_link_get_transport() */
 #include "splc_log.h"
 #include "logger.h"         /* logger_init(): this board uses the built-in logger */
 #if !SPLC_LOGGER_BUILTIN
 #error "board_dtu_zigbee.c initialises the built-in logger: SPLC_LOGGER_BUILTIN must be 1"
 #endif
-#if !SPLC_PORT_USB_CDC
-#error "DTU Zigbee: the App link is USB-CDC (SPLC_PORT_USB_CDC 1). The RS485 ports are for MB_READ / MB_WRITE / Slave."
+#if SPLC_PORT_USB_CDC
+#error "DTU Zigbee: the HOST owns USB (TinyUSB, decision 15): set SPLC_PORT_USB_CDC 0. The App link is registered by the host/port with splc_link_register() before plc_engine_init()."
 #endif
-#include "sx_os.h"
 
 #include "plc_tag.h"
 #include "plc_device.h"
@@ -38,12 +36,14 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_DTU_ZIGBEE);
  * board_dtu_zigbee.c - Layer 4
  *
  * board_hw_init() for the DTU Zigbee SKU (see board_dtu_zigbee.h): no local I/O, three RS485
- * ports, one Zigbee module, App link over USB-CDC. Same shape as board_zigbee_io.c (the board
- * owns its UARTs), without the DI/DO part.
+ * ports, one Zigbee module. Same shape as board_zigbee_io.c (the board owns its UARTs), without
+ * the DI/DO part.
+ *
+ * USB: this file does NOT touch USB (no TinyUSB, no USB_DRD_FS_IRQHandler). The host firmware
+ * owns the USB peripheral (handoff decision 15); the App link is a byte pipe the host/product
+ * port registers with splc_link_register() BEFORE plc_engine_init() (see board_get_modbus_transport()).
  *
  * Needs, in the CubeMX project (never edited from here, handoff decision 9):
- *   - USB peripheral NOT enabled: SimplePLC owns USB_DRD_FS through port/usb (TinyUSB) and this
- *     file defines USB_DRD_FS_IRQHandler below; CubeMX's own handler would be a duplicate symbol.
  *   - USART1 / USART3 / UART7 / UART9 / USART10 initialised (MX_*_Init) with RX interrupt
  *     capable NVIC settings, as RF_Gateway.ioc already does.
  */
@@ -74,9 +74,6 @@ static sx_uart_t        s_log_uart;
 static sx_uart_config_t s_log_uart_cfg;
 static uint8_t          s_log_rx_buf[128];
 static uint8_t          s_log_tx_buf[128];
-
-/* True once the App link (USB-CDC) has been registered. */
-static bool s_link_ok;
 
 static void board_log_write(const char *s)
 {
@@ -144,18 +141,6 @@ static void board_device_info_init(void)
      * backing is reported. The board does have a 32.768 kHz crystal (PC14/PC15) but it is not
      * used by the library's RTC. */
     g_rtc_caps.hw_present = false;
-}
-
-/* ---- App link: USB-CDC ---------------------------------------------------------------- */
-static void board_app_link_init(void)
-{
-    /* Registers the USB-CDC pipe with the App link and starts TinyUSB. A failure is logged and
-     * the board still runs; only the App cannot reach it (idle transport below). */
-    splc_link_err_t err = splc_usb_cdc_init();
-    s_link_ok = (err == SPLC_LINK_OK);
-    if (!s_link_ok) {
-        log_error(TAG, "USB-CDC App link init FAILED (%d)", (int)err);
-    }
 }
 
 /* ---- RS485 ports (MB_READ / MB_WRITE master, plc_mbs slave) ----------------------------- */
@@ -278,18 +263,6 @@ void board_hw_init(void)
     board_device_info_init();
     log_info(TAG, "device descriptor/resource info populated (class=GATEWAY, no DI/DO)");
 
-    board_app_link_init();
-    if (s_link_ok) {
-        log_info(TAG, "USB CDC initialized");
-
-        /* Let the host enumerate the device before the engine starts scanning. */
-        const uint32_t t0 = HAL_GetTick();
-        while ((HAL_GetTick() - t0) < 500U) {
-            splc_usb_cdc_process();
-            sx_os_yield_wait();   /* no-op bare-metal; 1-tick sleep under FreeRTOS */
-        }
-    }
-
 #if SPLC_MBM_ENABLE
     board_mbm_init();
 #endif
@@ -317,6 +290,10 @@ static int32_t idle_write(const uint8_t *buf, uint16_t count, int32_t timeout_ms
 
 modbus_transport_t board_get_modbus_transport(void)
 {
+    /* plc_engine_init() calls this AFTER splc_board_init(), as its last step before
+     * plc_modbus_cfg_init(). The host/product port must therefore have called
+     * splc_link_register() before plc_engine_init(); this board registers nothing itself.
+     * If it did not, say so instead of running a device the App can never reach. */
     modbus_transport_t t;
     if (splc_link_get_transport(&t)) {
         t.kind = MODBUS_TRANSPORT_KIND_RTU;   /* framing is chosen here, not by the byte link */
@@ -331,10 +308,4 @@ modbus_transport_t board_get_modbus_transport(void)
     t.kind    = MODBUS_TRANSPORT_KIND_RTU;
     t.unit_id = MODBUS_UNIT_ID;
     return t;
-}
-
-/* USB interrupt: forwarded to the USB-CDC port module (TinyUSB stays inside it). */
-void USB_DRD_FS_IRQHandler(void)
-{
-    splc_usb_irq();
 }

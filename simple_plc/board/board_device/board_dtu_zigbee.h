@@ -10,10 +10,12 @@
  * (main.h labels, usart.c handles) and cross-checked with the older SynaptiX firmware of the
  * same hardware (SynaptiX/board/board.c: DE high = transmit, LEDs active high).
  *
- * What this board file does: log UART, device identity, the App link (USB-CDC), the three
- * RS485 master/slave ports (MB_READ / MB_WRITE / plc_mbs), and it calls the product ports for
- * Zigbee and the indicator LEDs. It does NOT do Ethernet: Modbus TCP / MQTT / DTU belong to the
- * host (lwIP glue), same split as the gateway SKU.
+ * What this board file does: log UART, device identity, the three RS485 master/slave ports
+ * (MB_READ / MB_WRITE / plc_mbs), and it calls the product ports for Zigbee and the indicator
+ * LEDs. It does NOT do USB and does NOT do Ethernet: the host firmware owns USB (TinyUSB, one
+ * owner only, decision 15) and the lwIP glue (Modbus TCP / MQTT / DTU). The App link is registered
+ * by the host/product port with splc_link_register() before plc_engine_init(), same split as the
+ * gateway SKU. Requires SPLC_PORT_USB_CDC 0 (#error otherwise).
  */
 
 /* ---- tag layout: no DI / DO / AI, the fixed internal ranges every SKU gets ------------- */
