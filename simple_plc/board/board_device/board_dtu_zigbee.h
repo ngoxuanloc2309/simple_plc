@@ -18,6 +18,10 @@
 
 #define RS485_DE_ACTIVE_HIGH        1
 
+/*UART ZIGBEE*/
+#define UART_ZIGBEE                 huart
+#define UART_LOG                    huart?   
+
 /*LED INDICATORS*/
 #define LED_POWER_PORT              GPIOC
 #define LED_POWER_PIN               GPIO_PIN_6
