@@ -13,6 +13,7 @@
 #define BOARD_DATALOGGER            (SPLC_BOARD == SPLC_BOARD_DATALOGGER)
 #define BOARD_GATEWAY               (SPLC_BOARD == SPLC_BOARD_GATEWAY)
 #define BOARD_WIFI_IO               (SPLC_BOARD == SPLC_BOARD_WIFI_IO)
-#define BOARD_DTU                   (SPLC_BOARD == SPLC_BOARD_DTU)
+#define BOARD_DTU_ZIGBEE            (SPLC_BOARD == SPLC_BOARD_DTU_ZIGBEE)
+#define BOARD_DTU_WIFI              (SPLC_BOARD == SPLC_BOARD_DTU_WIFI)
 
 #endif

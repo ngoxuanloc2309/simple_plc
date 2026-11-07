@@ -49,4 +49,7 @@
 /* Turn on Zigbee*/
 #define SPLC_ZIGBEE_ENABLE            1
 
+/* Turn on Indicator*/
+#define SPLC_INDICATOR_ENABLE         0
+
 #endif /* SPLCOPTS_H */
