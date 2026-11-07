@@ -30,6 +30,9 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_WIFI_IO);
 
 #include "sx_gpio.h"
 #include "sx_uart.h"
+#if !SPLC_UART_BUILTIN
+#error "This board brings up its own UARTs with sx_uart: SPLC_UART_BUILTIN must be 1"
+#endif
 #if SPLC_PORT_USB_CDC
 #include "splc_usb_cdc.h"   /* optional USB-CDC port module: splc_usb_cdc_init(), splc_usb_irq() */
 #endif

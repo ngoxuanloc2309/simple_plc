@@ -47,7 +47,6 @@
 set(SPLC_PLATFORM_STM32H5_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/gpio/stm32h5_gpio.c
     ${CMAKE_CURRENT_SOURCE_DIR}/flash/stm32h5_flash.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/uart/stm32h5_uart.c
     ${CMAKE_CURRENT_SOURCE_DIR}/time/stm32h5_time.c
     ${CMAKE_CURRENT_SOURCE_DIR}/system/stm32h5_system.c
     ${CMAKE_CURRENT_SOURCE_DIR}/pwd/stm32h5_pwd.c
@@ -64,6 +63,11 @@ set(SPLC_PLATFORM_STM32H5_SRC
 # (splcopts.h, read in cmake_modules/splc_select.cmake) leaves them out; the
 # host then supplies sx_adc_init/read and sx_rtc_set_epoch/get_epoch/is_synced
 # itself (config/splc_opt.h). Without that the link fails -- on purpose.
+# stm32h5_uart.c (sx_uart + HAL_UART_RxCpltCallback): left out when the host owns the UARTs.
+# Inserted at its old list position, so the default build is unchanged.
+if(SPLC_UART_BUILTIN)
+    list(INSERT SPLC_PLATFORM_STM32H5_SRC 2 ${CMAKE_CURRENT_SOURCE_DIR}/uart/stm32h5_uart.c)
+endif()
 if(SPLC_ADC_BUILTIN)
     list(APPEND SPLC_PLATFORM_STM32H5_SRC ${CMAKE_CURRENT_SOURCE_DIR}/adc/stm32h5_adc.c)
 endif()

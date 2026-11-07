@@ -7,15 +7,10 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_DTU_ZIGBEE);
 
 #include "splc_opt.h"
 
-#include "main.h"    /* CubeMX-generated: GPIO ports/pins used by board_dtu_zigbee.h */
-#include "usart.h"   /* CubeMX-generated: huart1 / huart3 / huart7 / huart9 / huart10 */
-
-#include "sx_uart.h"
 #include "modbus_link.h"    /* splc_link_get_transport() */
 #include "splc_log.h"
-#include "logger.h"         /* logger_init(): this board uses the built-in logger */
-#if !SPLC_LOGGER_BUILTIN
-#error "board_dtu_zigbee.c initialises the built-in logger: SPLC_LOGGER_BUILTIN must be 1"
+#if SPLC_LOGGER_BUILTIN
+#error "DTU Zigbee: the HOST owns the logger (and every UART): set SPLC_LOGGER_BUILTIN 0. SimplePLC's log goes to the host's log_func()."
 #endif
 #if SPLC_PORT_USB_CDC
 #error "DTU Zigbee: the HOST owns USB (TinyUSB, decision 15): set SPLC_PORT_USB_CDC 0. The App link is registered by the host/port with splc_link_register() before plc_engine_init()."
@@ -30,22 +25,24 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_DTU_ZIGBEE);
 #include "plc_mbm.h"         /* splc_mbm_set_rs485_port() */
 #include "modbus_serial.h"   /* modbus_serial_port_t */
 #endif
-#include "stm32h5xx_hal.h"
 
 /*
  * board_dtu_zigbee.c - Layer 4
  *
  * board_hw_init() for the DTU Zigbee SKU (see board_dtu_zigbee.h): no local I/O, three RS485
- * ports, one Zigbee module. Same shape as board_zigbee_io.c (the board owns its UARTs), without
- * the DI/DO part.
+ * ports, one Zigbee module. SimplePLC is a LIBRARY here: it owns the logic, never the hardware.
+ * The host firmware owns the logger, every UART (RS485, Zigbee) and USB; this file touches no
+ * peripheral. What the host/product port plugs in, BEFORE plc_engine_init():
+ *   - RS485 byte ports : splc_dtu_set_rs485_port()  (this file, forwarded to plc_mbm)
+ *   - Zigbee byte pipe : splc_zigbee_register()     (plc_zigbee.h)
+ *   - App link         : splc_link_register()       (modbus_link.h)
+ * Same split as board_ethernet_wifi_gateway.c.
  *
  * USB: this file does NOT touch USB (no TinyUSB, no USB_DRD_FS_IRQHandler). The host firmware
  * owns the USB peripheral (handoff decision 15); the App link is a byte pipe the host/product
  * port registers with splc_link_register() BEFORE plc_engine_init() (see board_get_modbus_transport()).
  *
- * Needs, in the CubeMX project (never edited from here, handoff decision 9):
- *   - USART1 / USART3 / UART7 / UART9 / USART10 initialised (MX_*_Init) with RX interrupt
- *     capable NVIC settings, as RF_Gateway.ioc already does.
+ * Needs nothing from the CubeMX project (never edited from here, handoff decision 9).
  */
 
 static const char *TAG = "BOARD_DTU_ZIGBEE";
@@ -67,36 +64,6 @@ SPLC_BOARD_CHECK_TAG_COUNT(SPLC_TAG_LAYOUT_TOTAL(
 SPLC_TagLayout board_get_tag_layout(void)
 {
     return s_tag_layout;
-}
-
-/* ---- log UART (USART1) ---------------------------------------------------------------- */
-static sx_uart_t        s_log_uart;
-static sx_uart_config_t s_log_uart_cfg;
-static uint8_t          s_log_rx_buf[128];
-static uint8_t          s_log_tx_buf[128];
-
-static void board_log_write(const char *s)
-{
-    sx_uart_write(&s_log_uart, (const uint8_t *)s, (int)strlen(s), 100);
-}
-
-static void board_log_uart_init(void)
-{
-    s_log_uart_cfg.pDriver  = &UART_LOG;
-    s_log_uart_cfg.baudrate = 115200;
-    s_log_uart_cfg.bits     = 8;
-    s_log_uart_cfg.parity   = 0;
-    s_log_uart_cfg.stopbits = 1;
-
-    s_log_uart.rxBuffer     = s_log_rx_buf;
-    s_log_uart.rxBufferSize = (int)sizeof(s_log_rx_buf);
-    s_log_uart.txBuffer     = s_log_tx_buf;
-    s_log_uart.txBufferSize = (int)sizeof(s_log_tx_buf);
-
-    sx_uart_init(&s_log_uart, &s_log_uart_cfg);
-
-    logger_init((LOGGING_LEVELS)SPLC_LOG_LEVEL, board_log_write);
-    log_info(TAG, "DTU Zigbee board init start");
 }
 
 /* ---- device identity ------------------------------------------------------------------ */
@@ -137,119 +104,52 @@ static void board_device_info_init(void)
     g_device_resource_info.vreg_retain_count    = s_tag_layout.vreg_retain_count;
     g_device_resource_info.counter_count        = s_tag_layout.counter_count;
 
-    /* The library clock is the STM32 internal RTC on LSI (decision 2): no RTC IC, no battery
-     * backing is reported. The board does have a 32.768 kHz crystal (PC14/PC15) but it is not
-     * used by the library's RTC. */
+    /* Clock: with SPLC_RTC_EXTERNAL = 0 the library clock is the STM32 internal RTC on LSI
+     * (decision 2): no RTC IC, no battery backing is reported. With SPLC_RTC_EXTERNAL = 1 the
+     * product's RTC port registers the clock and sets hw_present itself; this board must not
+     * overwrite it. */
+#if !SPLC_RTC_EXTERNAL
     g_rtc_caps.hw_present = false;
+#endif
 }
 
 /* ---- RS485 ports (MB_READ / MB_WRITE master, plc_mbs slave) ----------------------------- */
 #if SPLC_MBM_ENABLE
-
 #if SPLC_MBM_PORT_COUNT > 3
 #error "DTU Zigbee has THREE RS-485 ports: set SPLC_MBM_PORT_COUNT 1..3."
 #endif
 
-#define MBM_DEFAULT_BAUD  9600U
+/* Byte ports the host registered. Index = the App's port number - 1 (0x1400 table). The struct
+ * is copied; port->ctx stays the host's. */
+static modbus_serial_port_t s_rs485_port[SPLC_MBM_PORT_COUNT];
+static plc_mbm_configure_fn s_rs485_configure[SPLC_MBM_PORT_COUNT];
+static bool                 s_rs485_set[SPLC_MBM_PORT_COUNT];
 
-/* One block per port: its UART, DE pin, and byte queues. */
-typedef struct {
-    UART_HandleTypeDef *huart;
-    GPIO_TypeDef       *de_port;
-    uint16_t            de_pin;
-    sx_uart_t           uart;
-    sx_uart_config_t    cfg;
-    uint8_t             rx_buf[256];   /* one full 125-register answer = 255 bytes */
-    uint8_t             tx_buf[1];     /* unused: the frame lives in the master */
-} rs485_port_t;
-
-static rs485_port_t s_rs485[3] = {
-    { .huart = &UART_485_PORT1, .de_port = RS485_DE_PORT1, .de_pin = RS485_DE_PIN1 },
-    { .huart = &UART_485_PORT2, .de_port = RS485_DE_PORT2, .de_pin = RS485_DE_PIN2 },
-    { .huart = &UART_485_PORT3, .de_port = RS485_DE_PORT3, .de_pin = RS485_DE_PIN3 },
-};
-
-static void rs485_de(const rs485_port_t *p, bool transmit)
+bool splc_dtu_set_rs485_port(uint8_t port_index, const modbus_serial_port_t *port,
+                             plc_mbm_configure_fn configure)
 {
-    HAL_GPIO_WritePin(p->de_port, p->de_pin,
-                      (transmit == (RS485_DE_ACTIVE_HIGH != 0)) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-}
-
-static int rs485_read(void *ctx, uint8_t *buf, uint16_t max_len)
-{
-    rs485_port_t *p = (rs485_port_t *)ctx;
-    return sx_uart_read(&p->uart, buf, (int)max_len);
-}
-
-/* Receiver off, DE up, blocking send (returns after the last bit left the UART), DE down,
- * receiver on again. Switching the receiver back on flushes it, so the echo of our own frame
- * never reaches rs485_read(). Blocking like Zigbee-IO (decision 46): the scan stalls for the
- * frame time. */
-static int rs485_write_start(void *ctx, const uint8_t *buf, uint16_t len)
-{
-    rs485_port_t *p = (rs485_port_t *)ctx;
-    /* Worst case 12 bit times per character (start + 8 data + parity + 2 stop), plus margin. */
-    const uint32_t baud = (p->cfg.baudrate != 0U) ? p->cfg.baudrate : MBM_DEFAULT_BAUD;
-    const uint32_t timeout_ms = (((uint32_t)len * 12U * 1000U) / baud) + 20U;
-
-    sx_uart_set_rx_enabled(&p->uart, false);
-    rs485_de(p, true);
-    const int rc = sx_uart_write(&p->uart, buf, (int)len, timeout_ms);
-    rs485_de(p, false);
-    sx_uart_set_rx_enabled(&p->uart, true);
-    return (rc == 0) ? 0 : -1;
-}
-
-/* The frame is already out when rs485_write_start() returns. */
-static bool rs485_tx_done(void *ctx)
-{
-    (void)ctx;
+    if (port == NULL || port_index >= (uint8_t)SPLC_MBM_PORT_COUNT) {
+        log_error(TAG, "set_rs485_port rejected (index %u)", (unsigned)port_index);
+        return false;
+    }
+    s_rs485_port[port_index]      = *port;
+    s_rs485_configure[port_index] = configure;
+    s_rs485_set[port_index]       = true;
     return true;
-}
-
-static int rs485_configure(void *ctx, const plc_mbm_serial_t *cfg)
-{
-    rs485_port_t *p = (rs485_port_t *)ctx;
-    p->cfg.baudrate = cfg->baud;
-    p->cfg.bits     = cfg->data_bits;
-    /* wire: 1 = even, 2 = odd (MBM-003); sx_uart: 1 = odd, 2 = even */
-    p->cfg.parity   = (cfg->parity == PLC_MBM_PARITY_EVEN) ? 2U :
-                      (cfg->parity == PLC_MBM_PARITY_ODD)  ? 1U : 0U;
-    p->cfg.stopbits = cfg->stop_bits;
-    return sx_uart_reconfigure(&p->uart);
 }
 
 static void board_mbm_init(void)
 {
     for (uint8_t i = 0; i < (uint8_t)SPLC_MBM_PORT_COUNT; i++) {
-        rs485_port_t *p = &s_rs485[i];
-
-        p->cfg.pDriver  = p->huart;
-        p->cfg.baudrate = MBM_DEFAULT_BAUD;
-        p->cfg.bits     = 8;
-        p->cfg.parity   = 0;
-        p->cfg.stopbits = 1;
-        p->uart.rxBuffer     = p->rx_buf;
-        p->uart.rxBufferSize = (int)sizeof(p->rx_buf);
-        p->uart.txBuffer     = p->tx_buf;
-        p->uart.txBufferSize = (int)sizeof(p->tx_buf);
-
-        rs485_de(p, false);   /* listen */
-        sx_uart_init(&p->uart, &p->cfg);
-
-        const modbus_serial_port_t port = {
-            .read        = rs485_read,
-            .write       = NULL,
-            .set_tx      = NULL,
-            .ctx         = p,
-            .baudrate    = MBM_DEFAULT_BAUD,
-            .write_start = rs485_write_start,
-            .tx_done     = rs485_tx_done,
-            .write_abort = NULL,
-        };
-        splc_mbm_set_rs485_port(i, &port, rs485_configure);   /* the struct is copied */
-        log_info(TAG, "RS485 port %u registered, blocking TX, %lu baud until the App sets it",
-                 (unsigned)(i + 1U), (unsigned long)MBM_DEFAULT_BAUD);
+        if (!s_rs485_set[i]) {
+            log_warn(TAG, "RS485 port %u not registered (splc_dtu_set_rs485_port): its blocks report err_code 1",
+                     (unsigned)(i + 1U));
+            continue;
+        }
+        splc_mbm_set_rs485_port(i, &s_rs485_port[i], s_rs485_configure[i]);   /* copied */
+        log_info(TAG, "RS485 port %u registered by the host, %lu baud%s", (unsigned)(i + 1U),
+                 (unsigned long)s_rs485_port[i].baudrate,
+                 (s_rs485_configure[i] != NULL) ? "" : " (line settings from the App ignored)");
     }
 }
 #endif /* SPLC_MBM_ENABLE */
@@ -257,7 +157,7 @@ static void board_mbm_init(void)
 /* ---- board init ----------------------------------------------------------------------- */
 void board_hw_init(void)
 {
-    board_log_uart_init();
+    log_info(TAG, "DTU Zigbee board init start (host owns logger, UARTs and USB)");
 
     /* Before the App can read DEVICE_DESCRIPTOR (it does so as soon as the link is up). */
     board_device_info_init();
@@ -266,11 +166,10 @@ void board_hw_init(void)
 #if SPLC_MBM_ENABLE
     board_mbm_init();
 #endif
-#if SPLC_ZIGBEE_ENABLE
-    splc_zigbee_port_init();       /* UART9 + module: product port splc_zigbee_port.c */
-#endif
+    /* Zigbee: nothing here. The host/product port calls splc_zigbee_register() before
+     * plc_engine_init(); the library declares the capability from then on. */
 #if SPLC_INDICATOR_ENABLE
-    splc_indicators_port_init();   /* 3 LEDs: product port splc_indicators_port.c (after the Zigbee port: it reads its state) */
+    splc_indicators_port_init();   /* 3 LEDs (after the Zigbee registration: it reads its state) */
 #endif
 }
 

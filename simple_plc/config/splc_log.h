@@ -44,6 +44,12 @@
     log_func((LOGGING_LEVELS)(level), (tag), __VA_ARGS__)
 #endif
 
+/* A host logger.h (SPLC_LOGGER_BUILTIN = 0) may define log_error()/... itself with the same
+ * meaning (e.g. SynaptiX): drop its definitions so ours win without a redefinition warning. */
+#undef log_error
+#undef log_warn
+#undef log_info
+#undef log_debug
 #define log_error(TAG, ...)  SPLC_LOG_OUTPUT(SPLC_LOG_LVL_ERROR, TAG, __VA_ARGS__)
 #define log_warn(TAG, ...)   SPLC_LOG_OUTPUT(SPLC_LOG_LVL_WARN,  TAG, __VA_ARGS__)
 #define log_info(TAG, ...)   SPLC_LOG_OUTPUT(SPLC_LOG_LVL_INFO,  TAG, __VA_ARGS__)

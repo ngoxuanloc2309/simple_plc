@@ -509,6 +509,16 @@
 #ifndef SPLC_ADC_BUILTIN
 #define SPLC_ADC_BUILTIN                 1
 #endif
+/* SPLC_UART_BUILTIN 1 (default): build the STM32H5 sx_uart driver (platforms/stm32/stm32h5/uart),
+ *   which owns HAL_UART_RxCpltCallback() and the UART RX interrupt flow. Boards that bring up
+ *   their own UARTs (board_zigbee_io, board_wifi_io) need it.
+ * 0: the HOST firmware owns every UART (and its own HAL_UART_RxCpltCallback()); SimplePLC builds
+ *   no UART driver and reaches the lines only through byte ports the product registers. Without
+ *   this the host and the library both define HAL_UART_RxCpltCallback() -> duplicate symbol.
+ *   CMake reads this option from splcopts.h. */
+#ifndef SPLC_UART_BUILTIN
+#define SPLC_UART_BUILTIN                1
+#endif
 
 /* --- External RTC (registered hooks) ----------------------------------
  * 0 (default) = the clock is the Layer 1 contract sx_rtc_*() (built-in STM32H5
@@ -737,6 +747,9 @@
 #endif
 #if (SPLC_ADC_BUILTIN != 0) && (SPLC_ADC_BUILTIN != 1)
 #error "SPLC_ADC_BUILTIN must be 0 or 1"
+#endif
+#if (SPLC_UART_BUILTIN != 0) && (SPLC_UART_BUILTIN != 1)
+#error "SPLC_UART_BUILTIN must be 0 or 1"
 #endif
 #if (SPLC_LOG_LEVEL < 0) || (SPLC_LOG_LEVEL > 4)
 #error "SPLC_LOG_LEVEL must be 0..4"

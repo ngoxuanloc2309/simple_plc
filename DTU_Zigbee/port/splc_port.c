@@ -9,6 +9,8 @@
 #include "splc_tcp_port.h"
 #include "splc_rtc_port.h"
 #include "splc_mqtt_port.h"
+#include "splc_host_rs485_port.h"
+#include "splc_host_zigbee_port.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -30,6 +32,10 @@ static const char *TAG = "SPLC_PORT";
 
 void splc_port_init(void)
 {
+    /* The host must already have initialised its logger and called uart_init() for the RS485 and
+     * RF ports (app_init()): SimplePLC owns no hardware. */
+    splc_host_rs485_port_init();
+    splc_host_zigbee_port_init();
     splc_rtc_port_init();
     splc_mqtt_port_init();
     if (!splc_usb_port_init()) {

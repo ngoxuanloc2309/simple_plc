@@ -40,14 +40,25 @@
 /* Clock: the host's STM32 RTC (hrtc) behind plc_rtc_register() (port/splc_rtc_port.c) */
 #define SPLC_RTC_EXTERNAL             1
 
-/* Zigbee DRF1609H on UART9; connection indicator LEDs PC6/PC7/PC8 (LED2/LED1/LED0 in main.h) */
+/* The HOST owns the logger and every UART (SimplePLC = logic only, no hardware): the library builds
+ * no logger.c and puts no logger.h of its own on the include path; its log goes to the host's
+ * log_func(). RS485 and Zigbee byte ports: port/splc_host_rs485_port.c, splc_host_zigbee_port.c
+ * (built on the host's uart_*()). */
+#define SPLC_LOGGER_BUILTIN           0
+/* No UART driver in the library (it would define HAL_UART_RxCpltCallback() a second time). */
+#define SPLC_UART_BUILTIN             0
+
+/* Zigbee DRF1609H (UART9 = the host's RF_PORT); connection indicator LEDs PC6/PC7/PC8
+ * (LED2/LED1/LED0 in main.h, GPIO writes only: the host's MX_GPIO_Init sets the pins up) */
 #define SPLC_ZIGBEE_ENABLE            1
-#define SPLC_ZIGBEE_PORT_UART         huart9
 #define SPLC_INDICATOR_ENABLE         1
 
 /* ---- product-port options (read by the port sources only) ---- */
 /* TCP port of the App link (assumption: standard Modbus TCP port; change if App Studio differs) */
 #define SPLC_TCP_PORT_NUMBER          502
+/* Line speed told to the library for the host-owned UARTs (must equal the real speed) */
+#define SPLC_HOST_RS485_BAUD          9600U
+#define SPLC_HOST_ZIGBEE_BAUD         115200U
 /* TinyUSB CDC instance used by SimplePLC (0 = host shell, 1 = added in usb_descriptors.c) */
 #define SPLC_USB_CDC_ITF              1
 #endif /* SPLCOPTS_H */
