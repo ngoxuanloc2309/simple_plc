@@ -16,7 +16,7 @@
 #define RS485_DE_PORT3              GPIOB
 #define RS485_DE_PIN3               GPIO_PIN_14
 
-#define RS485_DE_ACTIVE_HIGH        1
+#define RS485_DE_ACTIVE_HIGH        ?
 
 /*UART ZIGBEE*/
 #define UART_ZIGBEE                 huart
