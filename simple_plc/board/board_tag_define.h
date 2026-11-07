@@ -376,6 +376,15 @@
 #endif
 /*===========BOARD_WIFI_IO===========*/
 
+/*===========BOARD_DTU_ZIGBEE===========*/
+#if BOARD_DTU_ZIGBEE
+/* Tags 0..103: 0 DI + 0 DO + 0 AI + 32 VFLAG + 32 VREG + 32 VREG_RETAIN + 8 COUNTER = 104
+ * (must match s_tag_layout in board_dtu_zigbee.c). The board has no DI/DO at all, so no
+ * headroom is kept for them. Base indices are read at runtime with tag_*_base_index(). */
+#define MAX_TAGS 104
+#endif
+/*===========BOARD_DTU_ZIGBEE===========*/
+
 #ifndef MAX_TAGS
 #error "board_tag_define.h: no MAX_TAGS for the selected board (see board_config.h)"
 #endif

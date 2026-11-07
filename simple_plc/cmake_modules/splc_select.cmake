@@ -25,6 +25,8 @@ set(SPLC_BOARD_TABLE
     "SPLC_BOARD_DATALOGGER|datalogger"
     "SPLC_BOARD_GATEWAY|ethernet_wifi_gateway"
     "SPLC_BOARD_WIFI_IO|wifi_io"
+    "SPLC_BOARD_DTU_ZIGBEE|dtu_zigbee"
+    "SPLC_BOARD_DTU_WIFI|dtu_wifi"
 )
 # Row format: "<selector macro name>|<dir under platforms/>|<library target>"
 set(SPLC_PLATFORM_TABLE

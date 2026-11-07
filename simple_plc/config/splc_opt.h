@@ -48,6 +48,8 @@
 #define SPLC_BOARD_DATALOGGER            3
 #define SPLC_BOARD_GATEWAY               4
 #define SPLC_BOARD_WIFI_IO               5
+#define SPLC_BOARD_DTU_ZIGBEE            6
+#define SPLC_BOARD_DTU_WIFI              7
 
 /* Modbus protocol library behind the App link (plc_modbus_cfg). */
 #define SPLC_MODBUS_LIB_NANO             1   /* nanoMODBUS (libs/nanomodbus): RTU + TCP */
@@ -558,7 +560,7 @@
 #if (SPLC_PLATFORM < SPLC_PLATFORM_STM32H5) || (SPLC_PLATFORM > SPLC_PLATFORM_ESP32)
 #error "SPLC_PLATFORM must be one of the SPLC_PLATFORM_* selectors"
 #endif
-#if (SPLC_BOARD < SPLC_BOARD_ZIGBEE_IO_4DI_4DO) || (SPLC_BOARD > SPLC_BOARD_WIFI_IO)
+#if (SPLC_BOARD < SPLC_BOARD_ZIGBEE_IO_4DI_4DO) || (SPLC_BOARD > SPLC_BOARD_DTU_WIFI)
 #error "SPLC_BOARD must be one of the SPLC_BOARD_* selectors"
 #endif
 #if (SPLC_FLASH_SIZE_KB < 16)
