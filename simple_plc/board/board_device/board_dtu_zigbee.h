@@ -20,13 +20,14 @@
 
 /*LED INDICATORS*/
 #define LED_POWER_PORT              GPIOC
-#define LED_POWER_PIN               GPIO_PIN_15
+#define LED_POWER_PIN               GPIO_PIN_6
 
 #define LED_STATUS_PORT             GPIOC
-#define LED_STATUS_PIN              GPIO_PIN_14
+#define LED_STATUS_PIN              GPIO_PIN_7
 
 #define LED_LINK_PORT               GPIOC
-#define LED_LINK_PIN                GPIO_PIN_13
+#define LED_LINK_PIN                GPIO_PIN_8
+
 
 
 #endif
