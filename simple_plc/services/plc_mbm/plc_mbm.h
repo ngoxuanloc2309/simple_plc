@@ -102,8 +102,8 @@ extern "C" {
 #define PLC_MBM_PORT_TABLE_REGS   (PLC_MBM_PORT_MAX * PLC_MBM_PORT_REGS)   /* 64 */
 
 /* Raw value of the `port` field of an MB_READ / MB_WRITE block that selects the Zigbee byte pipe
- * instead of an RS-485 port (valid only when SPLC_ZIGBEE_ENABLE = 1). ASSUMPTION of the firmware,
- * not yet confirmed by the App team (handoff 98c1): "port 5" = raw 4, outside the 0..3 of the
+ * instead of an RS-485 port (valid only when SPLC_ZIGBEE_ENABLE = 1). Confirmed by the App team in
+ * SPLC-SPEC-ZIGBEE-006-ICD v2.0.0 ("PortIndex = 4"): "port 5" = raw 4, outside the 0..3 of the
  * four RS-485 ports. */
 #define PLC_MBM_PORT_ZIGBEE       4U
 

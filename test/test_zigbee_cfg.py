@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 """
-test_zigbee_cfg.py - Zigbee port block 0x1700..0x173F (SPLC-SPEC-ZIGBEE-006 v0.2, decision 98)
+test_zigbee_cfg.py - Zigbee port block 0x1700..0x173F (SPLC-SPEC-ZIGBEE-006-ICD v2.0.0, decision 98)
 and the MB_READ / MB_WRITE rules that name the Zigbee pipe (raw port field 4). Over the App link
 (USB-CDC), like test_port_role.py. No Zigbee module and no RS-485 dongle needed: only the
 configuration path is tested, NOT bytes on the radio.
 
 What it covers
-  1. Layout: 64 registers read; +37..+63 read 0; NET_KEY (+5..+12) reads 0; PRESERVE_KEY (bit 5)
-     and bits 6..15 of CONTROL_FLAGS read 0; STATUS_FLAGS bit 0 = KEY_SET.
+  1. Layout: 64 registers read; +32..+35 and +45..+63 read 0; NET_KEY (+16..+23) reads 0;
+     PRESERVE_KEY (bit 5) and bits 6..15 of CONTROL_FLAGS read 0; STATUS_FLAGS (+36) bit 0 =
+     KEY_SET; the telemetry (+37..+44) is sane (LINK_STATE 0..3, LQI 0..255, ERROR_CODE 0..6).
   2. Read-only part: a write to +32..+63 is ACKed and ignored; a write that runs past 0x173F or
      starts below 0x1700 is refused with Modbus exception 0x02.
   3. A COMMIT that does not write the block keeps the running configuration.
-  4. Disabled configuration is stored and read back verbatim (+0..+4, +13..+31 incl. reserved).
+  4. Disabled configuration is stored and read back verbatim (any RF values, +14..+15, the name).
   5. COMMIT refusals (status 4 / error 2), all-or-nothing, and the draft is DROPPED after a
      refused COMMIT: FRAMING = 1, bits 6..15, bit 5 PRESERVE_KEY is never stored.
-  6. A partial write (only SLAVE_ID) keeps the rest of the block.
+  6. A partial write (only SLAVE_ID, +13) keeps the rest of the block.
+  6b. Range checks while ENABLED (channel, PAN, addresses, power, UART index, parity, data / stop
+     bits, timeouts, retries, NETWORK_NAME): each limit and the value next to it; a disabled block
+     is not judged.
   7. Network key rules (spec section 5), only the ones that can be checked: SECURITY without a new
      key, with an all-zero key, PRESERVE_KEY with no key stored; a stored key reads 0 but
      KEY_SET = 1; a partial write while SECURITY is running needs PRESERVE_KEY; SECURITY = 0 keeps
@@ -70,19 +74,39 @@ Z_CFG = 32
 CFG_ERROR = 4                    # CONFIG_STATUS_ERROR
 ERR_INVALID = 2                  # CONFIG_ERROR_CODE INVALID_PARAMETER
 ERR_SLAVE_PORT_CONFLICT = 7
-ZB_PORT_RAW = 4                  # raw port field of an MB block that names the Zigbee pipe (assumption)
+ZB_PORT_RAW = 4                  # raw port field of an MB block that names the Zigbee pipe (ICD: PortIndex = 4)
 
 CTRL_ENABLE, CTRL_SLAVE, CTRL_ASCII = 0x0001, 0x0002, 0x0004
 CTRL_SECURITY, CTRL_ANT, CTRL_PRESERVE = 0x0008, 0x0010, 0x0020
 CAP_ZIGBEE, CAP_SLAVE = 0x8000, 0x4000
+# register offsets inside the block (ICD v2.0.0 section 3)
+O_CTRL, O_CH, O_PAN, O_LOCAL, O_DEST, O_PWR, O_BAUD, O_PAR, O_DATA, O_STOP = 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+O_RTO, O_IFD, O_RETRY, O_SID, O_RES1 = 10, 11, 12, 13, 14          # O_RES1 = +14..+15
+O_KEY, O_NAME, O_RES2, O_STATUS, O_LINK, O_ERR, O_RES3 = 16, 24, 32, 36, 37, 44, 45
+ERR_CODE_MAX = 6
+# a COMPLETE valid RF / UART setup: an enabled block is range-checked, so every image carries one
+RF_DEFAULT = dict(local=0x0001, dest=0x0000, power=2, baud=4, parity=0, data=8, stop=1,
+                  rto=1500, ifd=150, retry=3)
 KEY_A = [0x0102, 0x0304, 0x0506, 0x0708, 0x090A, 0x0B0C, 0x0D0E, 0x0F10]
 KEY_B = [0xF1E2, 0xD3C4, 0xB5A6, 0x9788, 0x796A, 0x5B4C, 0x3D2E, 0x1F00]
 
 
 # ------------------------------------------------------------------ helpers
-def image(ctrl=0, sid=0, pan=0, ch=0, r4=0, key=None, rest=None):
-    """The 32 registers a host writes (+0..+31). `rest` = 19 values for +13..+31."""
-    img = [ctrl, sid, pan, ch, r4] + list(key if key else [0] * 8) + list(rest if rest else [0] * 19)
+def name_regs(name):
+    """16 ASCII bytes -> 8 registers, high byte first (cut / NUL-padded to 16 bytes)."""
+    b = name.encode("latin-1")[:16].ljust(16, b"\0")
+    return [(b[2 * i] << 8) | b[2 * i + 1] for i in range(8)]
+
+
+def image(ctrl=0, sid=0, pan=0, ch=0, key=None, name="", res1=None, **rf):
+    """The 32 registers a host writes (+0..+31). `rf` overrides RF_DEFAULT (local, dest, power,
+    baud, parity, data, stop, rto, ifd, retry); `name` is a str or 8 raw registers."""
+    v = dict(RF_DEFAULT)
+    v.update(rf)
+    nm = name if isinstance(name, list) else name_regs(name)
+    img = ([ctrl, ch, pan, v["local"], v["dest"], v["power"], v["baud"], v["parity"], v["data"],
+            v["stop"], v["rto"], v["ifd"], v["retry"], sid] + list(res1 if res1 else [0, 0])
+           + list(key if key else [0] * 8) + list(nm))
     assert len(img) == Z_CFG
     return img
 
@@ -97,7 +121,7 @@ def zput(d, regs, offset=0):
 
 def visible(regs):
     """What a read shows of the config part (the key part always reads 0)."""
-    return regs[0:5] + regs[13:Z_CFG]
+    return regs[0:O_KEY] + regs[O_NAME:Z_CFG]
 
 
 def commit_zb(d, rule, regs, what, expect=None):
@@ -117,7 +141,7 @@ def must_refuse(d, rule, regs, what, err=ERR_INVALID):
     commit_zb(d, rule, regs, what, expect=err)
     check(P.version(d) == v0, f"{what}: the active rule version did not move")
     after = zread(d)
-    check(after[0:Z_CFG] == before[0:Z_CFG] and after[36] == before[36],
+    check(after[0:Z_CFG] == before[0:Z_CFG] and after[O_STATUS] == before[O_STATUS],
           f"{what}: the running Zigbee block is unchanged (all-or-nothing)")
 
 
@@ -154,13 +178,13 @@ def reserved_id_checks(d, rule, mode, master_ok):
                 "Slave id 236 together with a valid PAN / channel change")
     P.expect_ready(d, rule, "plain COMMIT right after the refused 236 (carries no draft)")
     z = zread(d)
-    check(z[1] == 5 and z[2] == 0x1234 and z[3] == 15,
-          f"the refused draft is gone (id {z[1]}, PAN 0x{z[2]:04X}, ch {z[3]}; expect 5 / 0x1234 / 15)")
+    check(z[O_SID] == 5 and z[O_PAN] == 0x1234 and z[O_CH] == 15,
+          f"the refused draft is gone (id {z[O_SID]}, PAN 0x{z[O_PAN]:04X}, ch {z[O_CH]}; expect 5 / 0x1234 / 15)")
 
     # The hook only looks at an ENABLED Slave.
     commit_zb(d, rule, image(ctrl=CTRL_SLAVE, sid=236, **base),
               "disabled with ROLE = Slave and id 236 (hook only checks an enabled Slave)", expect="ok")
-    check(zread(d)[1] == 236, "the disabled block keeps id 236 verbatim")
+    check(zread(d)[O_SID] == 236, "the disabled block keeps id 236 verbatim")
     if master_ok:
         commit_zb(d, rule, image(ctrl=CTRL_ENABLE, sid=236, **base),
                   "enabled as Master with id 236 (Slave ID is not used by a Master)", expect="ok")
@@ -190,8 +214,8 @@ def run(d, args):
     slave_ok = bool(capv & CAP_SLAVE)
     info(f"0x0A08 = 0x{capv:08X}: Zigbee port {'registered' if registered else 'NOT registered'}"
          f"{', Slave role' if slave_ok else ''}")
-    key_set = bool(orig[36] & 1)
-    print(f"  saved block: control 0x{orig[0]:04X} id {orig[1]} pan 0x{orig[2]:04X} ch {orig[3]} KEY_SET {int(key_set)}")
+    key_set = bool(orig[O_STATUS] & 1)
+    print(f"  saved block: control 0x{orig[O_CTRL]:04X} id {orig[O_SID]} pan 0x{orig[O_PAN]:04X} ch {orig[O_CH]} KEY_SET {int(key_set)}")
     if key_set and not args.allow_key_loss:
         print("  The board already holds a network key; this test replaces it and cannot restore it.")
         print("  Run again with --allow-key-loss if that is fine. Stopping.")
@@ -210,19 +234,28 @@ def run(d, args):
         print("\n1. Layout and read-back rules")
         z = zread(d)
         check(len(z) == Z_REGS, "64 registers readable at 0x1700")
-        check(all(v == 0 for v in z[37:64]), "+37..+63 read 0")
-        check(all(v == 0 for v in z[5:13]), "NET_KEY (+5..+12) reads 0")
+        check(all(v == 0 for v in z[O_RES2:O_STATUS]) and all(v == 0 for v in z[O_RES3:Z_REGS]),
+              "+32..+35 and +45..+63 read 0")
+        check(all(v == 0 for v in z[O_KEY:O_NAME]), "NET_KEY (+16..+23) reads 0")
         check(z[0] & 0xFFC0 == 0 and z[0] & CTRL_PRESERVE == 0, "CONTROL_FLAGS bit 5 and bits 6..15 read 0")
-        check(z[36] & 0xFFFE == 0, "STATUS_FLAGS: only bit 0 (KEY_SET) may be set")
-        check(d.read(Z_BASE, 32) == z[0:32] and d.read(Z_BASE + 32, 32) == z[32:64],
-              "two half reads agree with the full read")
+        check(z[O_STATUS] & 0xFFFE == 0, "STATUS_FLAGS: only bit 0 (KEY_SET) may be set")
+        check(z[O_LINK] <= 3 and z[O_LINK + 2] <= 255 and z[O_ERR] <= ERR_CODE_MAX,
+              f"telemetry is sane: LINK_STATE {z[O_LINK]} (0..3), LQI {z[O_LINK + 2]} (0..255), "
+              f"ERROR_CODE {z[O_ERR]} (0..6)")
+        h1, h2 = d.read(Z_BASE, 32), d.read(Z_BASE + 32, 32)
+        check(h1 == z[0:32] and h2[0:5] == z[32:37] and h2[13:] == z[45:64],
+              "two half reads agree with the full read (the live counters may move between reads)")
 
         # ------------------------------------------------------------ 2
         print("\n2. Read-only part and address limits")
         before = zread(d)
-        check(zput(d, [0xFFFF] * 4, 32) is None, "write to +32..+35 ACKed (ignored)")
+        check(zput(d, [0xFFFF] * 4, O_RES2) is None, "write to +32..+35 (reserved) ACKed (ignored)")
+        check(zput(d, [0xFFFF] * 19, O_RES3) is None, "write to +45..+63 (read-only) ACKed (ignored)")
+        check(zput(d, [0xFFFF] * 9, O_STATUS) is None, "write to +36..+44 (STATUS_FLAGS and telemetry) ACKed (ignored)")
         after = zread(d)
-        check(after[36:64] == before[36:64], "STATUS_FLAGS and +37..+63 did not change")
+        check(after[O_RES2:O_STATUS] == [0] * 4 and after[O_RES3:] == [0] * 19 and after[O_STATUS] == before[O_STATUS],
+              "+32..+35 read 0, STATUS_FLAGS and +45..+63 did not change")
+        check(after[O_LINK] <= 3 and after[O_ERR] <= ERR_CODE_MAX, "the telemetry did not take the written 0xFFFF")
         check(after[0:Z_CFG] == before[0:Z_CFG], "the config part did not change (no draft was opened)")
         resp = d.fc16(Z_BASE + 63, [0, 0])
         check(resp.isError() and exc(resp) == 2, f"FC16 at 0x173F x2 refused with exception 0x02 (got {exc(resp)})")
@@ -233,20 +266,23 @@ def run(d, args):
 
         # ------------------------------------------------------------ 3-4
         print("\n3. Disabled configuration is stored and read back verbatim")
-        rest = [0x2222] + [0] * 17 + [0x3333]
-        img = image(ctrl=CTRL_ANT, sid=9, pan=0x1234, ch=15, r4=0x1111, rest=rest)
+        # a disabled block is not judged: out-of-range RF values, a name with no NUL, reserved words
+        rest = [0x2222, 0x3333]
+        wild = name_regs("ABCDEFGHIJKLMNOP")          # 16 characters, no NUL: fine only while disabled
+        img = image(ctrl=CTRL_ANT, sid=9, pan=0x1234, ch=99, res1=rest, name=wild, local=0xFFFF, dest=0x4321,
+                    power=77, baud=9, parity=5, data=7, stop=0, rto=1, ifd=1, retry=99)
         commit_zb(d, rule, img, "disabled config", expect="ok")
         z = zread(d)
-        check(visible(z) == visible(img), "+0..+4 and +13..+31 read back as written")
-        check(all(v == 0 for v in z[5:13]), "NET_KEY still reads 0")
+        check(visible(z) == visible(img), "+0..+15 and the name read back as written")
+        check(all(v == 0 for v in z[O_KEY:O_NAME]), "NET_KEY still reads 0")
         base = zread(d)
         s, e = T.commit(d, [rule])
         check(s == T.CFG_READY and zread(d)[0:Z_CFG] == base[0:Z_CFG],
               "a COMMIT that does not write the block keeps the running configuration")
 
-        # ------------------------------------------------------------ 5
+        # ------------------------------------------------------------ 4
         print("\n4. Refusals (error 2), all-or-nothing, draft dropped")
-        run_img = image(ctrl=0, sid=9, pan=0x1234, ch=15, r4=0x1111, rest=rest)
+        run_img = image(ctrl=0, sid=9, pan=0x1234, ch=15, res1=rest, name="Node-A", dest=0x0007)
         commit_zb(d, rule, run_img, "reference config", expect="ok")
         must_refuse(d, rule, image(ctrl=CTRL_ASCII, sid=9, pan=0x1234, ch=15), "FRAMING = 1 (ASCII)")
         must_refuse(d, rule, image(ctrl=0x0040, sid=9, pan=0x1234, ch=15), "CONTROL_FLAGS bit 6")
@@ -254,19 +290,21 @@ def run(d, args):
         # a valid change next to a bad flag must not be applied, and must not linger as a draft
         must_refuse(d, rule, image(ctrl=CTRL_ASCII, sid=9, pan=0x4321, ch=15), "valid PAN change + FRAMING = 1")
         P.expect_ready(d, rule, "plain COMMIT right after a refused one")
-        check(zread(d)[2] == 0x1234, "the refused draft is gone (PAN is still 0x1234, not 0x4321)")
+        check(zread(d)[O_PAN] == 0x1234, "the refused draft is gone (PAN is still 0x1234, not 0x4321)")
         commit_zb(d, rule, image(ctrl=CTRL_PRESERVE, sid=9, pan=0x1234, ch=15), "PRESERVE_KEY with SECURITY = 0", expect="ok")
         check(zread(d)[0] & CTRL_PRESERVE == 0, "PRESERVE_KEY is a command: it reads back 0")
 
         # ------------------------------------------------------------ 6
         print("\n5. A partial write keeps the rest of the block")
-        commit_zb(d, rule, image(ctrl=0, sid=9, pan=0x1234, ch=15, r4=0x1111, rest=rest), "reference config", expect="ok")
-        check(d.fc06(Z_BASE + 1, 77).isError() is False, "FC06 on +1 (SLAVE_ID) ACKed")
+        ref5 = image(ctrl=0, sid=9, pan=0x1234, ch=15, res1=rest, name="Node-A", dest=0x0007)
+        commit_zb(d, rule, ref5, "reference config", expect="ok")
+        check(d.fc06(Z_BASE + O_SID, 77).isError() is False, "FC06 on +13 (SLAVE_ID) ACKed")
         s, e = T.commit(d, [rule])
         z = zread(d)
         check(s == T.CFG_READY and e == 0, f"COMMIT accepted (status {s}, error {e})")
-        check(z[1] == 77 and z[2] == 0x1234 and z[3] == 15 and z[4] == 0x1111 and z[13] == 0x2222 and z[31] == 0x3333,
-              "SLAVE_ID changed, PAN / CHANNEL / reserved registers kept")
+        check(z[O_SID] == 77 and visible(z)[:O_SID] == visible(ref5)[:O_SID] and z[O_RES1:O_KEY] == rest
+              and z[O_NAME:Z_CFG] == ref5[O_NAME:Z_CFG],
+              "SLAVE_ID changed, every other field (RF, reserved, name) kept")
 
         # ------------------------------------------------------------ 7
         print("\n6. Network key rules")
@@ -276,21 +314,61 @@ def run(d, args):
             must_refuse(d, rule, image(ctrl=CTRL_SECURITY), "SECURITY without a key and without PRESERVE_KEY")
             must_refuse(d, rule, image(ctrl=CTRL_SECURITY, key=[0] * 8), "SECURITY with an all-zero key")
             must_refuse(d, rule, image(ctrl=CTRL_SECURITY | CTRL_PRESERVE), "SECURITY + PRESERVE_KEY with no key stored")
-            check(zread(d)[36] & 1 == 0, "KEY_SET is still 0 after those refusals")
+            check(zread(d)[O_STATUS] & 1 == 0, "KEY_SET is still 0 after those refusals")
         commit_zb(d, rule, image(ctrl=CTRL_SECURITY, sid=9, pan=0x1234, ch=15, key=KEY_A), "SECURITY with a new key", expect="ok")
         z = zread(d)
-        check(all(v == 0 for v in z[5:13]), "the stored key reads back 0")
-        check(z[36] & 1 == 1, "KEY_SET = 1")
+        check(all(v == 0 for v in z[O_KEY:O_NAME]), "the stored key reads back 0")
+        check(z[O_STATUS] == 1, f"STATUS_FLAGS = 0x0001 (KEY_SET only), got 0x{z[O_STATUS]:04X}")
         check(z[0] & CTRL_SECURITY != 0 and z[0] & CTRL_PRESERVE == 0, "SECURITY reads 1, PRESERVE_KEY reads 0")
-        check(d.fc06(Z_BASE + 1, 5).isError() is False, "partial write of SLAVE_ID only")
+        check(d.fc06(Z_BASE + O_SID, 5).isError() is False, "partial write of SLAVE_ID only")
         must_refuse(d, rule, image(ctrl=CTRL_SECURITY, sid=5, pan=0x1234, ch=15),
                     "SECURITY running + draft without PRESERVE_KEY and without a key")
         commit_zb(d, rule, image(ctrl=CTRL_SECURITY | CTRL_PRESERVE, sid=5, pan=0x1234, ch=15), "SECURITY + PRESERVE_KEY", expect="ok")
-        check(zread(d)[36] & 1 == 1, "the stored key was kept (KEY_SET = 1)")
+        check(zread(d)[O_STATUS] & 1 == 1, "the stored key was kept (KEY_SET = 1)")
         commit_zb(d, rule, image(ctrl=CTRL_SECURITY, sid=5, pan=0x1234, ch=15, key=KEY_B), "replace the key", expect="ok")
-        check(zread(d)[36] & 1 == 1 and all(v == 0 for v in zread(d)[5:13]), "KEY_SET = 1, key still reads 0")
+        check(zread(d)[O_STATUS] & 1 == 1 and all(v == 0 for v in zread(d)[O_KEY:O_NAME]), "KEY_SET = 1, key still reads 0")
         commit_zb(d, rule, image(ctrl=0, sid=5, pan=0x1234, ch=15), "SECURITY = 0", expect="ok")
-        check(zread(d)[36] & 1 == 1, "SECURITY = 0 keeps the stored key (KEY_SET = 1) [spec assumption 9]")
+        check(zread(d)[O_STATUS] & 1 == 1, "SECURITY = 0 keeps the stored key (KEY_SET = 1) [spec assumption 9]")
+
+        # ------------------------------------------------------------ 7b
+        print("\n6b. Range checks while ENABLED (a disabled block is not judged: see 3)")
+        role_ctrl = CTRL_SLAVE if slave_ok else (0 if args.port_roles in ("master", "both") else None)
+        if not registered or role_ctrl is None:
+            info("no role to enable (port not registered, or --port-roles does not say Master): skipped")
+        else:
+            ectrl = CTRL_ENABLE | role_ctrl
+            ok_base = dict(sid=5, pan=0x1234, ch=15)
+
+            def probe(label, key, bad, good):
+                for v in bad:
+                    must_refuse(d, rule, image(ctrl=ectrl, **{**ok_base, key: v}), f"{label} = {v:#x}")
+                for v in good:
+                    commit_zb(d, rule, image(ctrl=ectrl, **{**ok_base, key: v}), f"{label} = {v:#x}", expect="ok")
+
+            commit_zb(d, rule, image(ctrl=ectrl, **ok_base), "a complete valid enabled configuration", expect="ok")
+            probe("CHANNEL", "ch", (0, 10, 27, 0xFFFF), (11, 26))
+            probe("PAN_ID", "pan", (0, 0xFFFF), (1, 0xFFFE))
+            probe("LOCAL_ADDR", "local", (0xFFFE, 0xFFFF), (0, 0xFFFD))
+            probe("DEST_ADDR (any value, 0xFFFF = broadcast)", "dest", (), (0, 0xFFFF))
+            probe("POWER_LEVEL", "power", (5, 0xFFFF), (0, 4))
+            probe("BAUD_RATE_IDX", "baud", (5, 0xFFFF), (0, 4))
+            probe("PARITY", "parity", (3, 0xFFFF), (0, 1, 2))
+            probe("DATA_BITS", "data", (0, 7, 9), (8,))
+            probe("STOP_BITS", "stop", (0, 3), (1, 2))
+            probe("RESPONSE_TIMEOUT_MS", "rto", (0, 49, 5001), (50, 5000))
+            probe("INTER_FRAME_DELAY_MS", "ifd", (0, 9, 501), (10, 500))
+            probe("RETRY_COUNT", "retry", (6, 0xFFFF), (0, 5))
+            print("   NETWORK_NAME: printable ASCII, at most 15 characters + NUL")
+            for label, nm in (("16 characters (no NUL)", "ABCDEFGHIJKLMNOP"), ("a control character", "\x01Hi"),
+                              ("DEL (0x7F)", "H\x7Fi"), ("a non-ASCII byte", "Caf\xe9")):
+                must_refuse(d, rule, image(ctrl=ectrl, name=nm, **ok_base), f"name with {label}")
+            for label, nm in (("15 characters", "ABCDEFGHIJKLMNO"), ("empty", ""), ("spaces and symbols", "Node A-1_#")):
+                commit_zb(d, rule, image(ctrl=ectrl, name=nm, **ok_base), f"name: {label}", expect="ok")
+                check(zread(d)[O_NAME:Z_CFG] == name_regs(nm), f"name '{nm}' reads back as written")
+            # one bad field next to good ones: the whole COMMIT goes, the running block stays
+            must_refuse(d, rule, image(ctrl=ectrl, **{**ok_base, "pan": 0x4321, "retry": 6}),
+                        "valid PAN change + RETRY_COUNT = 6")
+            commit_zb(d, rule, image(ctrl=0, **ok_base), "disable again", expect="ok")
 
         # ------------------------------------------------------------ 8
         print("\n7. Roles the port supports")
@@ -377,12 +455,14 @@ def run(d, args):
         # ------------------------------------------------------------ 10
         print("\n9. CLEAR_RULES keeps Zigbee; REBOOT and FACTORY_RESET")
         T.run_syscmd(d, T.SYS_CLEAR_RULES)
-        commit_zb(d, rule, image(ctrl=CTRL_ANT, sid=11, pan=0x2468, ch=20, key=KEY_A), "reference for persistence", expect="ok")
+        commit_zb(d, rule, image(ctrl=CTRL_ANT, sid=11, pan=0x2468, ch=20, key=KEY_A, name="Persist-1", res1=[0x0A0B, 0x0C0D],
+                                 local=0x0042, dest=0xFFFF, power=3, baud=2, parity=1, stop=2, rto=2000, ifd=200, retry=5),
+                  "reference for persistence", expect="ok")
         ref = visible(zread(d))
         s, e = T.run_syscmd(d, T.SYS_CLEAR_RULES)
         check(s == T.ST_DONE and e == 0, f"CLEAR_RULES result {s}/{e}")
         z = zread(d)
-        check(visible(z) == ref and z[36] & 1 == 1, "CLEAR_RULES did not touch the Zigbee block or the key")
+        check(visible(z) == ref and z[O_STATUS] & 1 == 1, "CLEAR_RULES did not touch the Zigbee block or the key")
         if args.reboot:
             nd = d.reboot(args)
             if nd is None:
@@ -390,12 +470,12 @@ def run(d, args):
                 return
             d.c, d.kw = nd.c, nd.kw
             z = zread(d)
-            check(visible(z) == ref and z[36] & 1 == 1, "after REBOOT the block and KEY_SET are as they were")
+            check(visible(z) == ref and z[O_STATUS] & 1 == 1, "after REBOOT the block and KEY_SET are as they were")
         if args.factory_reset:
             s, e = T.run_syscmd(d, T.SYS_FACTORY)
             check(s == T.ST_DONE and e == 0, f"FACTORY_RESET result {s}/{e}")
             z = zread(d)
-            check(all(v == 0 for v in z[0:Z_CFG]) and z[36] & 1 == 0, "FACTORY_RESET wiped the block and the key")
+            check(all(v == 0 for v in z[0:Z_CFG]) and z[O_STATUS] & 1 == 0, "FACTORY_RESET wiped the block and the key")
         else:
             info("FACTORY_RESET not run (--factory-reset)")
     finally:
@@ -404,14 +484,14 @@ def run(d, args):
         try:
             T.run_syscmd(d, T.SYS_CLEAR_RULES)
             back = list(orig[0:Z_CFG])
-            for i in range(5, 13):
+            for i in range(O_KEY, O_NAME):
                 back[i] = 0
             back[0] = (back[0] & ~CTRL_PRESERVE) | (CTRL_PRESERVE if back[0] & CTRL_SECURITY else 0)
             commit_zb(d, rule, back, "restore the starting configuration", expect="ok")
             z = zread(d)
             check(visible(z) == visible([orig[0] & ~CTRL_PRESERVE] + orig[1:]),
                   "the Zigbee block reads as it did at the start (the key cannot be compared)")
-            if not key_set and z[36] & 1:
+            if not key_set and z[O_STATUS] & 1:
                 info("a test key is still stored (KEY_SET = 1); run with --factory-reset to wipe it")
             s, e = T.run_syscmd(d, T.SYS_CLEAR_RULES)
             check(s == T.ST_DONE and e == 0, f"CLEAR_RULES result {s}/{e} (expect DONE/0)")

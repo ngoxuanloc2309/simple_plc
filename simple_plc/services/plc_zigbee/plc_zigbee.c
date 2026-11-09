@@ -1,5 +1,5 @@
 /*
- * plc_zigbee.c - Zigbee port configuration (see plc_zigbee.h, SPLC-SPEC-ZIGBEE-006 v0.2).
+ * plc_zigbee.c - Zigbee port configuration (see plc_zigbee.h, SPLC-SPEC-ZIGBEE-006-ICD v2.0.0).
  * Compiled only with SPLC_ZIGBEE_ENABLE = 1.
  */
 #include "plc_zigbee.h"
@@ -15,18 +15,34 @@ static const char *TAG = "PLC_ZIGBEE";
 #define CFG   PLC_ZIGBEE_CFG_REGS
 #define REGS  PLC_ZIGBEE_REGS
 
-/* register offsets */
-#define R_CTRL     0U
-#define R_SLAVE_ID 1U
-#define R_PAN_ID   2U
-#define R_CHANNEL  3U
-#define R_KEY      5U     /* 8 regs = 16 bytes */
-#define KEY_REGS   8U
-#define R_LINK     32U
-#define R_ERROR    33U
-#define R_NODES    34U
-#define R_RSSI     35U
-#define R_STATUS   36U
+/* register offsets (ICD section 3) */
+#define R_CTRL       0U
+#define R_CHANNEL    1U
+#define R_PAN_ID     2U
+#define R_LOCAL      3U
+#define R_DEST       4U
+#define R_POWER      5U
+#define R_BAUD       6U
+#define R_PARITY     7U
+#define R_DATA_BITS  8U
+#define R_STOP_BITS  9U
+#define R_RESP_TO    10U
+#define R_IFD        11U
+#define R_RETRY      12U
+#define R_SLAVE_ID   13U
+#define R_KEY        16U    /* 8 regs = 16 bytes */
+#define KEY_REGS     8U
+#define R_NAME       24U    /* 8 regs = 16 bytes */
+#define NAME_REGS    8U
+#define R_STATUS     36U
+#define R_LINK       37U
+#define R_RSSI       38U
+#define R_LQI        39U
+#define R_TX_PKT     40U
+#define R_RX_PKT     41U
+#define R_TX_ERR     42U
+#define R_RX_ERR     43U
+#define R_ERROR      44U
 
 /* CONTROL_FLAGS bits that exist (0..5); 6..15 must be 0 */
 #define CTRL_KNOWN_MASK  0x003FU
@@ -130,14 +146,58 @@ static void decode_config(const uint16_t *r, splc_zigbee_config_t *out)
     out->role_slave  = (c & PLC_ZIGBEE_CTRL_ROLE_SLAVE) != 0U;
     out->security    = (c & PLC_ZIGBEE_CTRL_SECURITY) != 0U;
     out->antenna_ext = (c & PLC_ZIGBEE_CTRL_ANTENNA_EXT) != 0U;
-    out->slave_id    = r[R_SLAVE_ID];
-    out->pan_id      = r[R_PAN_ID];
-    out->channel     = r[R_CHANNEL];
+    out->channel              = r[R_CHANNEL];
+    out->pan_id               = r[R_PAN_ID];
+    out->local_addr           = r[R_LOCAL];
+    out->dest_addr            = r[R_DEST];
+    out->power_level          = r[R_POWER];
+    out->baud_rate_idx        = r[R_BAUD];
+    out->parity               = r[R_PARITY];
+    out->data_bits            = r[R_DATA_BITS];
+    out->stop_bits            = r[R_STOP_BITS];
+    out->response_timeout_ms  = r[R_RESP_TO];
+    out->inter_frame_delay_ms = r[R_IFD];
+    out->retry_count          = r[R_RETRY];
+    out->slave_id             = r[R_SLAVE_ID];
+    for (unsigned i = 0U; i < NAME_REGS; i++) {
+        out->name[2U * i]      = (char)(r[R_NAME + i] >> 8);
+        out->name[2U * i + 1U] = (char)(r[R_NAME + i] & 0xFFU);
+    }
+    out->name[PLC_ZIGBEE_NAME_BYTES - 1U] = '\0';   /* a consumer can always treat it as a string */
     for (unsigned i = 0U; i < KEY_REGS; i++) {
         out->net_key[2U * i]      = (uint8_t)(r[R_KEY + i] >> 8);
         out->net_key[2U * i + 1U] = (uint8_t)(r[R_KEY + i] & 0xFFU);
     }
     out->key_set = key_nonzero(r);
+}
+
+/* What is wrong with the RF / UART / name / ID fields of an ENABLED block (NULL = fine). One
+ * function judges a COMMIT draft and a Flash image. A disabled block is never judged. */
+static const char *enabled_fields_error(const uint16_t *r)
+{
+    const bool slave = (r[R_CTRL] & PLC_ZIGBEE_CTRL_ROLE_SLAVE) != 0U;
+    if (r[R_CHANNEL] < 11U || r[R_CHANNEL] > 26U)             { return "CHANNEL outside 11..26"; }
+    if (r[R_PAN_ID] < 0x0001U || r[R_PAN_ID] > 0xFFFEU)       { return "PAN_ID outside 0x0001..0xFFFE"; }
+    if (r[R_LOCAL] > 0xFFFDU)                                 { return "LOCAL_ADDR outside 0..0xFFFD"; }
+    if (r[R_POWER] > 4U)                                      { return "POWER_LEVEL outside 0..4"; }
+    if (r[R_BAUD] > 4U)                                       { return "BAUD_RATE_IDX outside 0..4"; }
+    if (r[R_PARITY] > 2U)                                     { return "PARITY outside 0..2"; }
+    if (r[R_DATA_BITS] != 8U)                                 { return "DATA_BITS must be 8"; }
+    if (r[R_STOP_BITS] < 1U || r[R_STOP_BITS] > 2U)           { return "STOP_BITS outside 1..2"; }
+    if (r[R_RESP_TO] < 50U || r[R_RESP_TO] > 5000U)           { return "RESPONSE_TIMEOUT_MS outside 50..5000"; }
+    if (r[R_IFD] < 10U || r[R_IFD] > 500U)                    { return "INTER_FRAME_DELAY_MS outside 10..500"; }
+    if (r[R_RETRY] > 5U)                                      { return "RETRY_COUNT outside 0..5"; }
+    if (slave && (r[R_SLAVE_ID] < 1U || r[R_SLAVE_ID] > 247U)) { return "SLAVE_ID outside 1..247"; }
+    /* NETWORK_NAME: printable ASCII up to the first NUL, and the 16th byte is the NUL */
+    if ((r[R_NAME + NAME_REGS - 1U] & 0xFFU) != 0U)           { return "NETWORK_NAME not NUL-terminated within 16 bytes"; }
+    bool ended = false;
+    for (unsigned i = 0U; i < PLC_ZIGBEE_NAME_BYTES && !ended; i++) {
+        const uint8_t ch = (i % 2U == 0U) ? (uint8_t)(r[R_NAME + i / 2U] >> 8)
+                                          : (uint8_t)(r[R_NAME + i / 2U] & 0xFFU);
+        if (ch == 0U) { ended = true; }
+        else if (ch < 0x20U || ch > 0x7EU) { return "NETWORK_NAME is not printable ASCII"; }
+    }
+    return NULL;
 }
 
 bool splc_zigbee_get_config(splc_zigbee_config_t *out, uint32_t *generation)
@@ -175,23 +235,25 @@ uint32_t plc_zigbee_capability(void)
 void plc_zigbee_read(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
 {
     splc_zigbee_status_t st;
-    bool have_st = false;
     memset(&st, 0, sizeof(st));
-    if ((unsigned)offset + quantity > R_LINK && s_registered && s_ops.status != NULL) {
-        have_st = s_ops.status(s_ops.ctx, &st);
-        if (!have_st) { memset(&st, 0, sizeof(st)); }
+    if ((unsigned)offset + quantity > R_LINK && (unsigned)offset <= R_ERROR &&
+        s_registered && s_ops.status != NULL) {
+        if (!s_ops.status(s_ops.ctx, &st)) { memset(&st, 0, sizeof(st)); }
     }
     for (uint16_t k = 0U; k < quantity; k++) {
         const unsigned i = (unsigned)offset + k;
         uint16_t v = 0U;
-        if (i < CFG) {
-            v = is_key_reg(i) ? 0U : s_run[i];                  /* the key is write-only */
-        } else if (i == R_LINK)   { v = st.link_state;
-        } else if (i == R_ERROR)  { v = st.error_code;
-        } else if (i == R_NODES)  { v = st.node_count;
-        } else if (i == R_RSSI)   { v = (uint16_t)st.rssi;
-        } else if (i == R_STATUS) { v = key_nonzero(s_run) ? PLC_ZIGBEE_STATUS_KEY_SET : 0U;
-        }
+        if (i < CFG)                { v = is_key_reg(i) ? 0U : s_run[i]; }   /* the key is write-only */
+        else if (i == R_STATUS)     { v = key_nonzero(s_run) ? PLC_ZIGBEE_STATUS_KEY_SET : 0U; }
+        else if (i == R_LINK)       { v = st.link_state; }
+        else if (i == R_RSSI)       { v = (uint16_t)st.rssi_dbm; }
+        else if (i == R_LQI)        { v = st.lqi; }
+        else if (i == R_TX_PKT)     { v = st.tx_packets; }
+        else if (i == R_RX_PKT)     { v = st.rx_packets; }
+        else if (i == R_TX_ERR)     { v = st.tx_errors; }
+        else if (i == R_RX_ERR)     { v = st.rx_errors; }
+        else if (i == R_ERROR)      { v = st.error_code; }
+        /* +32..+35, +45..+63: 0 */
         registers_out[k] = v;
     }
 }
@@ -255,8 +317,9 @@ bool plc_zigbee_validate_draft(void)
                      s_registered ? "does not support that role" : "is not registered");
             return false;
         }
-        if (slave && (s_draft[R_SLAVE_ID] < 1U || s_draft[R_SLAVE_ID] > 247U)) {
-            log_warn(TAG, "COMMIT rejected: Slave ID %u outside 1..247", (unsigned)s_draft[R_SLAVE_ID]);
+        const char *why = enabled_fields_error(s_draft);
+        if (why != NULL) {
+            log_warn(TAG, "COMMIT rejected: %s", why);
             return false;
         }
     }
@@ -336,10 +399,12 @@ bool plc_zigbee_import(const uint8_t *in)
         log_warn(TAG, "import rejected: CONTROL_FLAGS 0x%04X", (unsigned)c);
         return false;
     }
-    if ((c & PLC_ZIGBEE_CTRL_ENABLE) != 0U && (c & PLC_ZIGBEE_CTRL_ROLE_SLAVE) != 0U &&
-        (n[R_SLAVE_ID] < 1U || n[R_SLAVE_ID] > 247U)) {
-        log_warn(TAG, "import rejected: Slave ID %u", (unsigned)n[R_SLAVE_ID]);
-        return false;
+    if ((c & PLC_ZIGBEE_CTRL_ENABLE) != 0U) {
+        const char *why = enabled_fields_error(n);
+        if (why != NULL) {
+            log_warn(TAG, "import rejected: %s", why);
+            return false;
+        }
     }
     if (memcmp(n, s_run, sizeof(n)) != 0) {
         memcpy(s_run, n, sizeof(s_run));

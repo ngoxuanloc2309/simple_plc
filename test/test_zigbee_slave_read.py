@@ -69,6 +69,28 @@ Z_CFG = 32
 CAP_ZIGBEE, CAP_SLAVE = 0x8000, 0x4000
 CTRL_ENABLE, CTRL_SLAVE, CTRL_SECURITY, CTRL_PRESERVE = 0x0001, 0x0002, 0x0008, 0x0020
 REG_CAPS = 0x0A08
+# 0x1700 block (SPLC-SPEC-ZIGBEE-006-ICD v2.0.0): offsets used here
+O_CTRL, O_CH, O_PAN, O_SID, O_KEY, O_NAME, O_STATUS, O_LINK, O_ERR = 0, 1, 2, 13, 16, 24, 36, 37, 44
+# (offset, low, high, default): an ENABLED block is range-checked, so the image written here keeps
+# what the board has when that is valid and falls back to these when it is not
+RF_FIELDS = ((3, 0, 0xFFFD, 0x0001), (5, 0, 4, 2), (6, 0, 4, 4), (7, 0, 2, 0), (8, 8, 8, 8),
+             (9, 1, 2, 1), (10, 50, 5000, 1500), (11, 10, 500, 150), (12, 0, 5, 3))
+
+
+def zigbee_image(orig, ctrl, unit, pan, chan):
+    """32 registers that enable the Slave: the saved block's fields where valid, defaults where
+    not, the key part zero (the key is write-only: PRESERVE_KEY keeps the stored one)."""
+    img = list(orig[0:Z_CFG])
+    img[O_CTRL], img[O_CH], img[O_PAN], img[O_SID] = ctrl, chan, pan, unit
+    never_on = not (orig[O_CTRL] & CTRL_ENABLE)      # a block that was never enabled holds zeros, not a setup
+    for off, lo, hi, dflt in RF_FIELDS:
+        if never_on or not lo <= img[off] <= hi:
+            img[off] = dflt
+    for i in range(O_KEY, O_NAME):
+        img[i] = 0
+    if (img[O_NAME + 7] & 0xFF) != 0:                 # the name must end in NUL
+        img[O_NAME:Z_CFG] = [0] * 8
+    return img
 
 _failures = 0
 
@@ -304,16 +326,16 @@ def phase_config(app, args):
         print("  -> the port dropped the Slave role (needs SLAVE_ENABLE=1 and LIB=MB). Stopping.")
         return None, False
     orig = d.read(Z_BASE, 64)
-    info(f"saved block: control 0x{orig[0]:04X} slave_id {orig[1]} pan 0x{orig[2]:04X} "
-         f"channel {orig[3]} KEY_SET {orig[36] & 1} link_state {orig[32]} error {orig[33]}")
+    info(f"saved block: control 0x{orig[O_CTRL]:04X} slave_id {orig[O_SID]} pan 0x{orig[O_PAN]:04X} "
+         f"channel {orig[O_CH]} KEY_SET {orig[O_STATUS] & 1} link_state {orig[O_LINK]} error {orig[O_ERR]}")
 
     if args.no_config:
-        run = d.read(Z_BASE, 2)
+        run = d.read(Z_BASE, O_SID + 1)
         on = bool(run[0] & CTRL_ENABLE) and bool(run[0] & CTRL_SLAVE)
         check(on, f"--no-config: the board is already an enabled Slave (control 0x{run[0]:04X})")
-        if on and run[1] != args.unit:
-            info(f"the board's Slave ID is {run[1]}, not --unit {args.unit}: using {run[1]}")
-            args.unit = run[1]
+        if on and run[O_SID] != args.unit:
+            info(f"the board's Slave ID is {run[O_SID]}, not --unit {args.unit}: using {run[O_SID]}")
+            args.unit = run[O_SID]
         return orig, on
 
     print("\n1. Switch the Zigbee Slave on (draft + COMMIT)")
@@ -323,17 +345,17 @@ def phase_config(app, args):
     if orig[0] & CTRL_SECURITY:
         info("security is ON in the saved block: kept (PRESERVE_KEY), the stored key is not touched")
         ctrl |= CTRL_SECURITY | CTRL_PRESERVE
-    pan = args.pan if args.pan is not None else (orig[2] or 0x1234)
-    chan = args.channel if args.channel is not None else (orig[3] or 15)
-    img = [ctrl, args.unit, pan, chan, 0] + [0] * 8 + list(orig[13:Z_CFG])
+    pan = args.pan if args.pan is not None else (orig[O_PAN] or 0x1234)
+    chan = args.channel if args.channel is not None else (orig[O_CH] or 15)
+    img = zigbee_image(orig, ctrl, args.unit, pan, chan)
     check(write_zigbee_block(app, img) is None, "draft write of 0x1700..0x171F ACKed")
     s, e = app.commit_keep_rules(rules)
     if not check(s == app.T.CFG_READY and e == 0, f"COMMIT accepted (status {s}, error {e})"):
         return orig, False
     run = d.read(Z_BASE, 64)
     check(run[0] & 0x1F == (ctrl & 0x1F), f"running CONTROL_FLAGS = 0x{run[0]:04X} (Enable + Slave)")
-    check(run[1] == args.unit, f"running SLAVE_ID = {run[1]}")
-    info(f"LINK_STATE {run[32]}  ERROR_CODE {run[33]} (the port reports 0 unless the Slave ID is 236/237)")
+    check(run[O_SID] == args.unit, f"running SLAVE_ID = {run[O_SID]}")
+    info(f"LINK_STATE {run[O_LINK]}  ERROR_CODE {run[O_ERR]} (the port reports 0 unless the Slave ID is 236/237)")
     time.sleep(0.3)      # let plc_mbs open the server on the next scan
     return orig, True
 
@@ -467,13 +489,16 @@ def phase_restore(app, orig):
     ctrl = orig[0] & 0x1F
     if orig[0] & CTRL_SECURITY:
         ctrl |= CTRL_PRESERVE
-    img = [ctrl, orig[1], orig[2], orig[3], orig[4]] + [0] * 8 + list(orig[13:Z_CFG])
+    img = list(orig[0:Z_CFG])               # exactly what was saved: a block that was valid stays valid
+    img[O_CTRL] = ctrl
+    for i in range(O_KEY, O_NAME):
+        img[i] = 0                          # the key reads 0 and is kept by PRESERVE_KEY
     rules = app.rules()
     write_zigbee_block(app, img)
     s, e = app.commit_keep_rules(rules)
     check(s == app.T.CFG_READY and e == 0, f"COMMIT of the original block (status {s}, error {e})")
-    now = app.d.read(Z_BASE, 5)
-    check(now[0] == orig[0] & 0x1F and now[1] == orig[1], "the original block reads back")
+    now = app.d.read(Z_BASE, O_SID + 1)
+    check(now[O_CTRL] == orig[O_CTRL] & 0x1F and now[O_SID] == orig[O_SID], "the original block reads back")
 
 
 def main():

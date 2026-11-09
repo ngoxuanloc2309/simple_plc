@@ -18,12 +18,13 @@
 #define SPLC_HOST_ZIGBEE_BAUD 115200U
 #endif
 
-#define ZB_ERR_BAD_SLAVE_ID   1U    /* port-defined ERROR_CODE (0x1721) */
-
 static const char *TAG = "HOST_ZIGBEE";
 
 static bool     s_rx_seen;
 static uint32_t s_rx_tick;
+/* same counters as Zigbee_IO/port/splc_zigbee_port.c: frames written, non-empty reads (a traffic
+ * indicator, not a count of Zigbee packets); the host's UART write returns no error here. */
+static uint16_t s_tx_pkts, s_rx_pkts;
 
 uint32_t splc_zigbee_port_ms_since_rx(void)
 {
@@ -47,6 +48,7 @@ static int zb_read(void *ctx, uint8_t *buf, uint16_t max_len)
     }
     s_rx_seen = true;
     s_rx_tick = sx_get_tick_ms();
+    s_rx_pkts++;
     return r;
 }
 
@@ -57,11 +59,12 @@ static int zb_write(void *ctx, const uint8_t *buf, uint16_t len, uint32_t timeou
     (void)ctx;
     (void)timeout_ms;
     uart_write_bytes(RF_PORT, buf, len);
+    s_tx_pkts++;
     return 0;
 }
 
 /* Slave ID 236 / 237 start the module's own point-to-point commands (DRF guide 5.4/5.5). The
- * COMMIT is refused by zb_validate() below; zb_status() still SAYS so (same as Zigbee_IO) for an
+ * COMMIT is refused by zb_validate() below; zb_status() still SAYS so (ERROR_CODE 3 = RESTRICTED_ID, same as Zigbee_IO) for an
  * image already stored in Flash, which the library loads without asking the port. */
 static bool zb_validate(void *ctx, const splc_zigbee_config_t *draft)
 {
@@ -78,18 +81,15 @@ static bool zb_validate(void *ctx, const splc_zigbee_config_t *draft)
 static bool zb_status(void *ctx, splc_zigbee_status_t *out)
 {
     (void)ctx;
+    out->tx_packets = s_tx_pkts;
+    out->rx_packets = s_rx_pkts;
     splc_zigbee_config_t cfg;
-    if (!splc_zigbee_get_config(&cfg, NULL) || !cfg.enable || !cfg.role_slave) {
-        return false;
-    }
-    if (cfg.slave_id == 236U || cfg.slave_id == 237U) {
+    if (splc_zigbee_get_config(&cfg, NULL) && cfg.enable && cfg.role_slave &&
+        (cfg.slave_id == 236U || cfg.slave_id == 237U)) {
         out->link_state = PLC_ZIGBEE_LINK_ERROR;
-        out->error_code = ZB_ERR_BAD_SLAVE_ID;
-        out->node_count = 0U;
-        out->rssi       = 0;
-        return true;
+        out->error_code = PLC_ZIGBEE_ERR_RESTRICTED_ID;
     }
-    return false;
+    return true;
 }
 
 void splc_host_zigbee_port_init(void)
