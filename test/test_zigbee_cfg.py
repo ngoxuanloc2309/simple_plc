@@ -22,6 +22,9 @@ What it covers
   8. Port dependent rules: no port registered (capability 0x8000 absent) => ENABLE = 1 is refused
      for both roles; registered => Slave ID 1..247 accepted, 0 and 248 refused (Slave ID is only
      checked when ENABLE = 1 and ROLE = Slave).
+     Slave IDs 236 / 237 (the DRF module's own 0xEC / 0xED commands) are refused by the PORT's
+     `validate` hook: the Zigbee-IO and DTU ports do, so that is checked by default; a port with
+     no hook accepts them (--reserved-ids accept), or skip the check (--reserved-ids skip).
   9. MB_READ / MB_WRITE on the Zigbee pipe (raw port field 4, "port 5" in the Studio):
        accepted while the block is enabled and Zigbee is off (it reports err_code 1 at run time);
        raw 5..15 refused with error 2; an enabled block naming Zigbee while Zigbee is an enabled
@@ -47,6 +50,7 @@ Usage:
     python test_zigbee_cfg.py COM14
     python test_zigbee_cfg.py COM14 --port-roles both --reboot
     python test_zigbee_cfg.py COM14 --factory-reset
+    python test_zigbee_cfg.py COM14 --reserved-ids skip     # a port with no validate hook
 
 Exit codes: 0 = ALL PASS, 1 = a check failed, 2 = cannot open port, 3 = link error.
 """
@@ -119,6 +123,48 @@ def must_refuse(d, rule, regs, what, err=ERR_INVALID):
 
 def exc(resp):
     return T.exc_code(resp) if resp is not None else None
+
+
+def reserved_id_checks(d, rule, mode, master_ok):
+    """Slave IDs 236 / 237: refused by the port's validate hook (4 / 2), only when the block is
+    ENABLED as Slave. mode: 'refuse' (port has the hook), 'accept' (it has none), 'skip'."""
+    print("   Slave IDs 236 / 237 (reserved by the DRF module, refused by the port hook)")
+    if mode == "skip":
+        info("--reserved-ids skip: not checked")
+        return
+    base = dict(pan=0x1234, ch=15)
+    en_slave = CTRL_ENABLE | CTRL_SLAVE
+    if mode == "accept":
+        for sid in (236, 237):
+            commit_zb(d, rule, image(ctrl=en_slave, sid=sid, **base),
+                      f"Slave id {sid} (port without a validate hook)", expect="ok")
+        commit_zb(d, rule, image(ctrl=0, sid=5, **base), "disable again", expect="ok")
+        return
+
+    # Boundaries first: the neighbours are fine, so a refusal below is about 236 / 237 only.
+    for sid in (235, 238):
+        commit_zb(d, rule, image(ctrl=en_slave, sid=sid, **base), f"Slave id {sid} (next to the reserved ones)",
+                  expect="ok")
+    for sid in (236, 237):
+        must_refuse(d, rule, image(ctrl=en_slave, sid=sid, **base), f"Slave id {sid} (reserved by the module)")
+
+    # All-or-nothing, and the refused draft must not survive into the next COMMIT.
+    commit_zb(d, rule, image(ctrl=en_slave, sid=5, **base), "reference: Slave id 5", expect="ok")
+    must_refuse(d, rule, image(ctrl=en_slave, sid=236, pan=0x4321, ch=20),
+                "Slave id 236 together with a valid PAN / channel change")
+    P.expect_ready(d, rule, "plain COMMIT right after the refused 236 (carries no draft)")
+    z = zread(d)
+    check(z[1] == 5 and z[2] == 0x1234 and z[3] == 15,
+          f"the refused draft is gone (id {z[1]}, PAN 0x{z[2]:04X}, ch {z[3]}; expect 5 / 0x1234 / 15)")
+
+    # The hook only looks at an ENABLED Slave.
+    commit_zb(d, rule, image(ctrl=CTRL_SLAVE, sid=236, **base),
+              "disabled with ROLE = Slave and id 236 (hook only checks an enabled Slave)", expect="ok")
+    check(zread(d)[1] == 236, "the disabled block keeps id 236 verbatim")
+    if master_ok:
+        commit_zb(d, rule, image(ctrl=CTRL_ENABLE, sid=236, **base),
+                  "enabled as Master with id 236 (Slave ID is not used by a Master)", expect="ok")
+    commit_zb(d, rule, image(ctrl=0, sid=5, **base), "disable again", expect="ok")
 
 
 # ---------------------------------------------------------------------- run
@@ -274,6 +320,7 @@ def run(d, args):
                               f"Slave id {sid}", expect="ok")
                 for sid in (0, 248):
                     must_refuse(d, rule, image(ctrl=CTRL_ENABLE | CTRL_SLAVE, sid=sid, pan=0x1234, ch=15), f"Slave id {sid}")
+                reserved_id_checks(d, rule, args.reserved_ids, m_ok)
                 commit_zb(d, rule, image(ctrl=CTRL_SLAVE, sid=0, pan=0x1234, ch=15),
                           "disabled with ROLE = Slave and id 0 (ID only checked when enabled)", expect="ok")
             else:
@@ -381,6 +428,9 @@ def main():
     p.add_argument("--baudrate", type=int, default=115200)
     p.add_argument("--port-roles", choices=["auto", "master", "slave", "both"], default="auto",
                    help="roles the registered Zigbee port supports (default auto: Slave from 0x0A08, Master only printed)")
+    p.add_argument("--reserved-ids", choices=["refuse", "accept", "skip"], default="refuse",
+                   help="Slave IDs 236/237: refuse = the port has the validate hook (Zigbee-IO, DTU; default), "
+                        "accept = a port without it, skip = do not check")
     p.add_argument("--allow-key-loss", action="store_true", help="run even if the board already holds a network key")
     p.add_argument("--reboot", action="store_true", help="also check persistence across a REBOOT")
     p.add_argument("--factory-reset", action="store_true", help="also run FACTORY_RESET (wipes everything it wipes)")
