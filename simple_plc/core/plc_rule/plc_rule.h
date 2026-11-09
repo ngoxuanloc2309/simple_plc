@@ -56,9 +56,11 @@ extern "C" {
  * Every valid tag index (0..MAX_TAGS-1) is therefore always distinguishable
  * from "no guard".
  *
- * rule_table_commit() does not currently reject a guard_tag whose index
- * bits fall in 128..32766 (a value that is neither a valid tag nor this
- * sentinel) -- see the TODO in plc_rule.c's rule_state_machine_step().
+ * A guard_tag whose index bits fall in MAX_TAGS..32766 (neither a valid tag
+ * nor this sentinel) is refused at COMMIT by rule_table_find_bad_tag()
+ * (below), which plc_modbus_cfg.c calls before rule_table_commit().
+ * rule_table_commit() itself does NOT check it: it also loads the rule table
+ * from Flash at boot, and a table stored by an older firmware must still load.
  */
 #define GUARD_TAG_NONE         0x7FFFu
 
@@ -284,6 +286,41 @@ void rule_runtime_reset(void);
  *              MAX_RULES)
  */
 bool rule_table_commit(const uint8_t *raw_data, uint16_t rule_count);
+
+/* Which tag field of a rule rule_table_find_bad_tag() complains about. */
+typedef enum {
+    RULE_TAG_FIELD_TRIGGER = 0,   /* trigger_tag */
+    RULE_TAG_FIELD_ACTION,        /* action_tag */
+    RULE_TAG_FIELD_GUARD          /* guard_tag (index bits; the NEGATE bit is ignored) */
+} SPLC_RuleTagField;
+
+/*
+ * Find the first ENABLED rule that names a tag index outside 0 .. MAX_TAGS-1 in a field
+ * the engine really uses. Such a rule would not crash anything: tag_read() returns 0 and
+ * tag_write() does nothing for an out-of-range index, so the rule just never does what
+ * its author meant, with no error anywhere. Layer 3 calls this before rule_table_commit()
+ * and refuses the COMMIT (plc_modbus_cfg.c).
+ *
+ * A field is checked only when the engine reads or writes it:
+ *   trigger_tag : edge triggers (ON_CHANGE / ON_RISE / ON_FALL); any other trigger except
+ *                 TIME_WINDOW when compare_op != NONE; always for ADD_TAG / SCALE_TAG (it is
+ *                 their source). Ignored for TIME_WINDOW and for INTERVAL without a compare.
+ *   action_tag  : SET_TAG, TOGGLE_TAG, INC_COUNTER, SEND_ALARM, ADD_TAG, SCALE_TAG.
+ *                 Ignored for WRITE_REMOTE and LOG_EVENT (not implemented yet) and for an
+ *                 unknown action type.
+ *   guard_tag   : always, except the "no guard" sentinel (index bits == GUARD_TAG_NONE).
+ * A DISABLED rule is skipped (the engine never evaluates it).
+ * Only the index range is checked, not the tag kind: a slot of kind TAG_NONE inside the
+ * range is accepted.
+ *
+ * table, rule_count : the table to check (rule_count is clamped to MAX_RULES)
+ * field, tag_value  : optional (may be NULL); set only when a bad rule is found:
+ *                     the field and the offending raw value (for guard_tag the full 16 bits)
+ * returns           : index of the first bad rule, or -1 when every rule is fine
+ *                     (also -1 for table == NULL)
+ */
+int rule_table_find_bad_tag(const SPLC_RuleRecord *table, uint16_t rule_count,
+                            SPLC_RuleTagField *field, uint16_t *tag_value);
 
 #ifdef __cplusplus
 }

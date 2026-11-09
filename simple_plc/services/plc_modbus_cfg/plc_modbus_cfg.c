@@ -1134,6 +1134,47 @@ static void write_commit_command(uint16_t value)
         return;
     }
 
+    /*
+     * Tag indices of the staged rules: an ENABLED rule that names a tag outside 0..MAX_TAGS-1 in a
+     * field the engine uses would never do what its author meant and nothing would say so
+     * (tag_read() gives 0 and tag_write() is a no-op out of range). Refuse the whole COMMIT instead,
+     * before anything is applied. rule_table_commit() cannot do it: it also loads the stored table
+     * at boot, and a table written by an older firmware must still load.
+     */
+    {
+        SPLC_RuleTagField bad_field = RULE_TAG_FIELD_TRIGGER;
+        uint16_t          bad_value = 0U;
+        const int bad_rule = rule_table_find_bad_tag(s_staging_rule_table, s_rule_count_staged,
+                                                     &bad_field, &bad_value);
+        if (bad_rule >= 0) {
+            log_warn(TAG, "commit rejected: rule %d %s = 0x%04X is outside the tag table (MAX_TAGS=%u)",
+                     bad_rule,
+                     (bad_field == RULE_TAG_FIELD_TRIGGER) ? "trigger_tag" :
+                     (bad_field == RULE_TAG_FIELD_ACTION)  ? "action_tag"  : "guard_tag",
+                     (unsigned)bad_value, (unsigned)MAX_TAGS);
+            s_config_status     = CONFIG_STATUS_ERROR;
+            s_config_error_code = SPLC_ERROR_INVALID_PARAMETER;
+            plc_fb_discard_draft();
+#if SPLC_MQTT_ENABLE
+            plc_mqtt_discard_draft();
+#endif
+#if SPLC_REAL_ENABLE
+            plc_tagtype_discard_draft();
+#endif
+#if SPLC_MBM_ENABLE
+            plc_mbm_discard_draft();
+#if SPLC_MBW_ENABLE
+            plc_mbw_discard_draft();
+#endif
+#endif
+#if SPLC_MQTT_SUB_ENABLE
+            plc_mqtt_sub_discard_draft();
+#endif
+            ZB_DISCARD_DRAFT();
+            return;
+        }
+    }
+
 #if SPLC_MQTT_ENABLE
     /*
      * MQTT draft: checked as a whole BEFORE anything is applied, so a bad

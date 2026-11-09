@@ -96,6 +96,81 @@ bool rule_table_commit(const uint8_t *raw_data, uint16_t rule_count)
     return true;
 }
 
+/* ---- tag index check used at COMMIT (see plc_rule.h) -------------------------------- */
+
+static bool trigger_tag_is_used(const SPLC_RuleRecord *r)
+{
+    /* ADD_TAG / SCALE_TAG read trigger_tag as their source, whatever the trigger type is. */
+    if (r->action_type == (uint8_t)SPLC_ACT_ADD_TAG || r->action_type == (uint8_t)SPLC_ACT_SCALE_TAG) {
+        return true;
+    }
+    if (r->trigger_type == (uint8_t)SPLC_TRG_TIME_WINDOW) {
+        return false;                       /* the window is on the clock, trigger_tag is ignored */
+    }
+    if (r->trigger_type == (uint8_t)SPLC_TRG_ON_CHANGE ||
+        r->trigger_type == (uint8_t)SPLC_TRG_ON_RISE   ||
+        r->trigger_type == (uint8_t)SPLC_TRG_ON_FALL) {
+        return true;
+    }
+    /* INTERVAL (and an unknown type, which the engine runs as INTERVAL): the tag only matters
+     * through the compare. */
+    return r->compare_op != (uint8_t)SPLC_OP_NONE;
+}
+
+static bool action_tag_is_used(const SPLC_RuleRecord *r)
+{
+    switch ((SPLC_ActionType)r->action_type) {
+        case SPLC_ACT_SET_TAG:
+        case SPLC_ACT_TOGGLE_TAG:
+        case SPLC_ACT_INC_COUNTER:
+        case SPLC_ACT_SEND_ALARM:
+        case SPLC_ACT_ADD_TAG:
+        case SPLC_ACT_SCALE_TAG:
+            return true;
+        case SPLC_ACT_WRITE_REMOTE:         /* stubs today: they do not touch action_tag */
+        case SPLC_ACT_LOG_EVENT:
+        default:
+            return false;
+    }
+}
+
+int rule_table_find_bad_tag(const SPLC_RuleRecord *table, uint16_t rule_count,
+                            SPLC_RuleTagField *field, uint16_t *tag_value)
+{
+    if (table == NULL) {
+        return -1;
+    }
+    if (rule_count > MAX_RULES) {
+        rule_count = MAX_RULES;
+    }
+    for (uint16_t i = 0; i < rule_count; i++) {
+        const SPLC_RuleRecord *r = &table[i];
+        if (!r->enabled) {
+            continue;
+        }
+        SPLC_RuleTagField bad_field;
+        uint16_t          bad_value;
+        if (trigger_tag_is_used(r) && r->trigger_tag >= MAX_TAGS) {
+            bad_field = RULE_TAG_FIELD_TRIGGER;
+            bad_value = r->trigger_tag;
+        } else if (action_tag_is_used(r) && r->action_tag >= MAX_TAGS) {
+            bad_field = RULE_TAG_FIELD_ACTION;
+            bad_value = r->action_tag;
+        } else {
+            const uint16_t guard_idx = (uint16_t)(r->guard_tag & GUARD_TAG_INDEX_MASK);
+            if (guard_idx == GUARD_TAG_NONE || guard_idx < MAX_TAGS) {
+                continue;
+            }
+            bad_field = RULE_TAG_FIELD_GUARD;
+            bad_value = r->guard_tag;
+        }
+        if (field != NULL)     { *field = bad_field; }
+        if (tag_value != NULL) { *tag_value = bad_value; }
+        return (int)i;
+    }
+    return -1;
+}
+
 /*
  * compare_op of one rule against the value read from trigger_tag. A rule that
  * carries SPLC_RULE_FLAG_TRIGGER_FLOAT (only possible when SPLC_REAL_ENABLE=1;
