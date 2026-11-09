@@ -41,7 +41,8 @@
  *
  * COMMIT rejects (CONFIG_ERROR_CODE 2) when: FRAMING = 1; a bit 6..15 of CONTROL_FLAGS
  * is set; ENABLE = 1 and the port is not registered or does not support the role asked
- * for; ENABLE = 1, ROLE = Slave and SLAVE_ID outside 1..247; or a key rule below fails.
+ * for; ENABLE = 1, ROLE = Slave and SLAVE_ID outside 1..247; a key rule below fails; or the
+ * port's `validate` hook (if any) returns false.
  *
  * Network key rules at COMMIT (spec section 5):
  *   SECURITY = 0            PRESERVE_KEY and NET_KEY are ignored, the stored key is kept
@@ -54,7 +55,8 @@
  * "A key is stored" means "the stored key is not all zero".
  *
  * Slave ID 236 / 237 (the DRF module treats 0xEC / 0xED as commands) is the PORT's to
- * refuse, not the library's (spec section 8).
+ * refuse, not the library's (spec section 8): the port does it in the optional `validate`
+ * hook of splc_zigbee_ops_t, which runs at COMMIT after the checks above.
  *
  * Zigbee as a Modbus Master (decision 98): an MB_READ / MB_WRITE block selects the Zigbee pipe with
  * port field PLC_MBM_PORT_ZIGBEE (4, a firmware ASSUMPTION not yet confirmed by the App team).
@@ -124,6 +126,21 @@ typedef enum {
 #define SPLC_ZIGBEE_ROLE_SLAVE   0x01U   /* the port can be a Router = Modbus Slave */
 #define SPLC_ZIGBEE_ROLE_MASTER  0x02U   /* the port can be the Coordinator = Modbus Master */
 
+/* Decoded configuration handed to the port: the RUNNING one (splc_zigbee_get_config) or, in
+ * the `validate` hook, the DRAFT as a COMMIT would store it. For the draft `net_key` / `key_set`
+ * are the key that WOULD be stored (the new one, or the stored one when it is kept). */
+typedef struct {
+    bool     enable;
+    bool     role_slave;     /* false = Master (Coordinator) */
+    bool     security;
+    bool     antenna_ext;
+    uint16_t slave_id;
+    uint16_t pan_id;
+    uint16_t channel;
+    uint8_t  net_key[PLC_ZIGBEE_KEY_BYTES];
+    bool     key_set;        /* a (non-zero) key is stored */
+} splc_zigbee_config_t;
+
 /* Live values of 0x1720..0x1723, filled by the port. Must not block. */
 typedef struct {
     uint16_t link_state;     /* PLC_ZIGBEE_LINK_* */
@@ -137,6 +154,17 @@ typedef struct {
     uint8_t roles;           /* SPLC_ZIGBEE_ROLE_* the port supports; at least one bit */
     /* optional; return false = no information (all zero is shown) */
     bool  (*status)(void *ctx, splc_zigbee_status_t *out);
+    /*
+     * optional. Called at COMMIT with the decoded DRAFT that is about to become the running
+     * configuration, AFTER the library's own checks passed (and only when the draft exists).
+     * Return false = reject the COMMIT (CONFIG_ERROR_CODE 2, nothing changes, every draft is
+     * dropped). For what only the port knows: Slave IDs the module reserves (DRF 236 / 237),
+     * PAN / channel / antenna limits of the module. It sees the whole draft, so check
+     * `enable` (and `role_slave`) before judging a field the draft does not use. Must not
+     * block and must not call back into the library. NOT called for a Flash image at boot
+     * (plc_zigbee_import): the port has to cope with whatever is stored.
+     */
+    bool  (*validate)(void *ctx, const splc_zigbee_config_t *draft);
     /*
      * Byte pipe to the module (e.g. the USART that talks to the DRF module), REQUIRED
      * when `roles` has SLAVE. Same contract as modbus_serial_port_t (modbus_serial.h):
@@ -153,18 +181,6 @@ typedef struct {
     uint32_t baudrate;       /* real UART speed to the module, for the library's timing */
 } splc_zigbee_ops_t;
 
-/* Decoded running configuration for the port. */
-typedef struct {
-    bool     enable;
-    bool     role_slave;     /* false = Master (Coordinator) */
-    bool     security;
-    bool     antenna_ext;
-    uint16_t slave_id;
-    uint16_t pan_id;
-    uint16_t channel;
-    uint8_t  net_key[PLC_ZIGBEE_KEY_BYTES];
-    bool     key_set;        /* a (non-zero) key is stored */
-} splc_zigbee_config_t;
 
 /* Register the port (kind of netif_add; the struct is copied). Returns false (nothing
  * registered) if ops is NULL or no role bit is set. Call before plc_engine_init() or

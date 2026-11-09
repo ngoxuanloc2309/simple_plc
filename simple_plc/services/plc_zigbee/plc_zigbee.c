@@ -121,24 +121,30 @@ bool plc_zigbee_is_slave_after_commit(void)
     return (c & PLC_ZIGBEE_CTRL_ENABLE) != 0U && (c & PLC_ZIGBEE_CTRL_ROLE_SLAVE) != 0U;
 }
 
-bool splc_zigbee_get_config(splc_zigbee_config_t *out, uint32_t *generation)
+/* Decode 32 configuration registers (running, or the result of a COMMIT) for the port. */
+static void decode_config(const uint16_t *r, splc_zigbee_config_t *out)
 {
-    if (generation != NULL) { *generation = s_gen; }
-    if (out == NULL) { return false; }
     memset(out, 0, sizeof(*out));
-    const uint16_t c = s_run[R_CTRL];
+    const uint16_t c = r[R_CTRL];
     out->enable      = (c & PLC_ZIGBEE_CTRL_ENABLE) != 0U;
     out->role_slave  = (c & PLC_ZIGBEE_CTRL_ROLE_SLAVE) != 0U;
     out->security    = (c & PLC_ZIGBEE_CTRL_SECURITY) != 0U;
     out->antenna_ext = (c & PLC_ZIGBEE_CTRL_ANTENNA_EXT) != 0U;
-    out->slave_id    = s_run[R_SLAVE_ID];
-    out->pan_id      = s_run[R_PAN_ID];
-    out->channel     = s_run[R_CHANNEL];
+    out->slave_id    = r[R_SLAVE_ID];
+    out->pan_id      = r[R_PAN_ID];
+    out->channel     = r[R_CHANNEL];
     for (unsigned i = 0U; i < KEY_REGS; i++) {
-        out->net_key[2U * i]      = (uint8_t)(s_run[R_KEY + i] >> 8);
-        out->net_key[2U * i + 1U] = (uint8_t)(s_run[R_KEY + i] & 0xFFU);
+        out->net_key[2U * i]      = (uint8_t)(r[R_KEY + i] >> 8);
+        out->net_key[2U * i + 1U] = (uint8_t)(r[R_KEY + i] & 0xFFU);
     }
-    out->key_set = key_nonzero(s_run);
+    out->key_set = key_nonzero(r);
+}
+
+bool splc_zigbee_get_config(splc_zigbee_config_t *out, uint32_t *generation)
+{
+    if (generation != NULL) { *generation = s_gen; }
+    if (out == NULL) { return false; }
+    decode_config(s_run, out);
     return true;
 }
 
@@ -213,6 +219,20 @@ plc_zigbee_write_result_t plc_zigbee_write(uint16_t offset, uint16_t quantity,
     return PLC_ZIGBEE_WRITE_OK;
 }
 
+/* The 32 registers a COMMIT of the draft would store: the stored key is kept unless a new one is
+ * taken, and PRESERVE_KEY (a command) is dropped. Used by validate (port hook) and commit. */
+static void draft_result(uint16_t *n)
+{
+    memcpy(n, s_draft, CFG * sizeof(uint16_t));
+    const uint16_t c = s_draft[R_CTRL];
+    const bool take_new_key = ((c & PLC_ZIGBEE_CTRL_SECURITY) != 0U) &&
+                              ((c & PLC_ZIGBEE_CTRL_PRESERVE_KEY) == 0U);
+    if (!take_new_key) {                           /* SECURITY = 0, or PRESERVE_KEY: keep the stored key */
+        for (unsigned i = 0U; i < KEY_REGS; i++) { n[R_KEY + i] = s_run[R_KEY + i]; }
+    }
+    n[R_CTRL] = (uint16_t)(c & CTRL_STORE_MASK);   /* PRESERVE_KEY is a command, never stored */
+}
+
 bool plc_zigbee_validate_draft(void)
 {
     if (!s_draft_open) { return true; }
@@ -251,6 +271,17 @@ bool plc_zigbee_validate_draft(void)
             return false;
         }
     }
+    /* Last: what only the port knows (e.g. Slave IDs the module reserves). */
+    if (s_registered && s_ops.validate != NULL) {
+        uint16_t n[CFG];
+        splc_zigbee_config_t cfg;
+        draft_result(n);
+        decode_config(n, &cfg);
+        if (!s_ops.validate(s_ops.ctx, &cfg)) {
+            log_warn(TAG, "COMMIT rejected: the port refused the configuration");
+            return false;
+        }
+    }
     return true;
 }
 
@@ -258,15 +289,7 @@ void plc_zigbee_commit_draft(void)
 {
     if (!s_draft_open) { return; }
     uint16_t n[CFG];
-    memcpy(n, s_draft, sizeof(n));
-
-    const uint16_t c = s_draft[R_CTRL];
-    const bool take_new_key = ((c & PLC_ZIGBEE_CTRL_SECURITY) != 0U) &&
-                              ((c & PLC_ZIGBEE_CTRL_PRESERVE_KEY) == 0U);
-    if (!take_new_key) {                           /* SECURITY = 0, or PRESERVE_KEY: keep the stored key */
-        for (unsigned i = 0U; i < KEY_REGS; i++) { n[R_KEY + i] = s_run[R_KEY + i]; }
-    }
-    n[R_CTRL] = (uint16_t)(c & CTRL_STORE_MASK);   /* PRESERVE_KEY is a command, never stored */
+    draft_result(n);
 
     if (memcmp(n, s_run, sizeof(n)) != 0) {
         memcpy(s_run, n, sizeof(s_run));

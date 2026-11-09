@@ -60,8 +60,21 @@ static int zb_write(void *ctx, const uint8_t *buf, uint16_t len, uint32_t timeou
     return 0;
 }
 
-/* Slave ID 236 / 237 start the module's own point-to-point commands (DRF guide 5.4/5.5): the
- * library cannot refuse them, so the port only SAYS so (same as Zigbee_IO). */
+/* Slave ID 236 / 237 start the module's own point-to-point commands (DRF guide 5.4/5.5). The
+ * COMMIT is refused by zb_validate() below; zb_status() still SAYS so (same as Zigbee_IO) for an
+ * image already stored in Flash, which the library loads without asking the port. */
+static bool zb_validate(void *ctx, const splc_zigbee_config_t *draft)
+{
+    (void)ctx;
+    if (draft->enable && draft->role_slave &&
+        (draft->slave_id == 236U || draft->slave_id == 237U)) {
+        log_warn(TAG, "Slave ID %u refused: the module uses 0xEC/0xED as its own commands",
+                 (unsigned)draft->slave_id);
+        return false;
+    }
+    return true;
+}
+
 static bool zb_status(void *ctx, splc_zigbee_status_t *out)
 {
     (void)ctx;
@@ -85,6 +98,7 @@ void splc_host_zigbee_port_init(void)
         .ctx      = NULL,
         .roles    = SPLC_ZIGBEE_ROLE_SLAVE | SPLC_ZIGBEE_ROLE_MASTER,
         .status   = zb_status,
+        .validate = zb_validate,
         .read     = zb_read,
         .write    = zb_write,
         .baudrate = SPLC_HOST_ZIGBEE_BAUD,
