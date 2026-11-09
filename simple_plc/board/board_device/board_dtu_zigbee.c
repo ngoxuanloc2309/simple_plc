@@ -13,7 +13,9 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_DTU_ZIGBEE);
 #error "DTU Zigbee: the HOST owns the logger (and every UART): set SPLC_LOGGER_BUILTIN 0. SimplePLC's log goes to the host's log_func()."
 #endif
 #if SPLC_PORT_USB_CDC
-#error "DTU Zigbee: the HOST owns USB (TinyUSB, decision 15): set SPLC_PORT_USB_CDC 0. The App link is registered by the host/port with splc_link_register() before plc_engine_init()."
+#include "main.h"            /* HAL_GetTick() for the enumeration settle loop */
+#include "sx_os.h"           /* sx_os_yield_wait() */
+#include "splc_usb_cdc.h"    /* splc_usb_cdc_init(), splc_usb_cdc_process(), splc_usb_irq() */
 #endif
 
 #include "plc_tag.h"
@@ -30,19 +32,18 @@ SPLC_BOARD_CHECK_SELECTED(BOARD_DTU_ZIGBEE);
  * board_dtu_zigbee.c - Layer 4
  *
  * board_hw_init() for the DTU Zigbee SKU (see board_dtu_zigbee.h): no local I/O, three RS485
- * ports, one Zigbee module. SimplePLC is a LIBRARY here: it owns the logic, never the hardware.
- * The host firmware owns the logger, every UART (RS485, Zigbee) and USB; this file touches no
- * peripheral. What the host/product port plugs in, BEFORE plc_engine_init():
+ * ports, one Zigbee module. SimplePLC is a LIBRARY here: the host firmware owns the logger and
+ * every UART (RS485, Zigbee); this file touches no UART. What the host/product port plugs in,
+ * BEFORE plc_engine_init():
  *   - RS485 byte ports : splc_dtu_set_rs485_port()  (this file, forwarded to plc_mbm)
- *   - Zigbee byte pipe : splc_zigbee_register()     (plc_zigbee.h)
- *   - App link         : splc_link_register()       (modbus_link.h)
- * Same split as board_ethernet_wifi_gateway.c.
+ *   - Zigbee           : splc_zigbee_register()     (plc_zigbee.h)
+ * The App link over USB is owned by the library (SPLC_PORT_USB_CDC = 1, port/usb): this file
+ * starts it in board_hw_init() and forwards the USB interrupt, like board_zigbee_io.c. Modbus TCP
+ * is a second transport attached by the product port after plc_engine_init().
  *
- * USB: this file does NOT touch USB (no TinyUSB, no USB_DRD_FS_IRQHandler). The host firmware
- * owns the USB peripheral (handoff decision 15); the App link is a byte pipe the host/product
- * port registers with splc_link_register() BEFORE plc_engine_init() (see board_get_modbus_transport()).
- *
- * Needs nothing from the CubeMX project (never edited from here, handoff decision 9).
+ * Host-side requirement: the CubeMX USB_DRD_FS interrupt handler must not be generated
+ * (.ioc, NVIC), because USB_DRD_FS_IRQHandler() is defined at the end of this file. Needs
+ * nothing else from the CubeMX project (never edited from here, handoff decision 9).
  */
 
 static const char *TAG = "BOARD_DTU_ZIGBEE";
@@ -154,10 +155,32 @@ static void board_mbm_init(void)
 }
 #endif /* SPLC_MBM_ENABLE */
 
+/* ---- App link over USB-CDC (library-owned) ------------------------------------------- */
+#if SPLC_PORT_USB_CDC
+static bool s_link_ok;
+
+static void board_usb_init(void)
+{
+    const splc_link_err_t err = splc_usb_cdc_init();     /* registers the link, starts TinyUSB */
+    s_link_ok = (err == SPLC_LINK_OK);
+    if (!s_link_ok) {
+        log_error(TAG, "USB-CDC App link init FAILED (%d)", (int)err);
+        return;
+    }
+    log_info(TAG, "USB CDC initialized");
+    /* Let the PC enumerate the device before the engine starts scanning. */
+    const uint32_t t0 = HAL_GetTick();
+    while ((HAL_GetTick() - t0) < 500U) {
+        splc_usb_cdc_process();
+        sx_os_yield_wait();
+    }
+}
+#endif
+
 /* ---- board init ----------------------------------------------------------------------- */
 void board_hw_init(void)
 {
-    log_info(TAG, "DTU Zigbee board init start (host owns logger, UARTs and USB)");
+    log_info(TAG, "DTU Zigbee board init start (host owns logger and UARTs, library owns USB)");
 
     /* Before the App can read DEVICE_DESCRIPTOR (it does so as soon as the link is up). */
     board_device_info_init();
@@ -166,10 +189,13 @@ void board_hw_init(void)
 #if SPLC_MBM_ENABLE
     board_mbm_init();
 #endif
-    /* Zigbee: nothing here. The host/product port calls splc_zigbee_register() before
+    /* Zigbee: nothing here. The product port calls splc_zigbee_register() before
      * plc_engine_init(); the library declares the capability from then on. */
 #if SPLC_INDICATOR_ENABLE
     splc_indicators_port_init();   /* 3 LEDs (after the Zigbee registration: it reads its state) */
+#endif
+#if SPLC_PORT_USB_CDC
+    board_usb_init();
 #endif
 }
 
@@ -191,8 +217,9 @@ modbus_transport_t board_get_modbus_transport(void)
 {
     /* plc_engine_init() calls this AFTER splc_board_init(), as its last step before
      * plc_modbus_cfg_init(). The host/product port must therefore have called
-     * splc_link_register() before plc_engine_init(); this board registers nothing itself.
-     * If it did not, say so instead of running a device the App can never reach. */
+     * splc_link_register() before plc_engine_init(): with SPLC_PORT_USB_CDC = 1 that is done by
+     * splc_usb_cdc_init() in board_hw_init() above. If no link exists, say so instead of running
+     * a device the App can never reach (Modbus TCP is attached later, as a second transport). */
     modbus_transport_t t;
     if (splc_link_get_transport(&t)) {
         t.kind = MODBUS_TRANSPORT_KIND_RTU;   /* framing is chosen here, not by the byte link */
@@ -208,3 +235,12 @@ modbus_transport_t board_get_modbus_transport(void)
     t.unit_id = MODBUS_UNIT_ID;
     return t;
 }
+
+#if SPLC_PORT_USB_CDC
+/* USB interrupt: forwarded to the USB-CDC port module (TinyUSB stays inside it). The CubeMX one
+ * (stm32h5xx_it.c) must not be generated, or the linker reports a duplicate definition. */
+void USB_DRD_FS_IRQHandler(void)
+{
+    splc_usb_irq();
+}
+#endif

@@ -5,7 +5,6 @@
 
 #include "splc_log.h"
 #include "plc_engine.h"
-#include "splc_usb_port.h"
 #include "splc_tcp_port.h"
 #include "splc_rtc_port.h"
 #include "splc_mqtt_port.h"
@@ -28,19 +27,15 @@
 #define SPLC_ENGINE_TASK_PRIORITY    (tskIDLE_PRIORITY + 2U)
 #endif
 
-static const char *TAG = "SPLC_PORT";
-
 void splc_port_init(void)
 {
-    /* The host must already have initialised its logger and called uart_init() for the RS485 and
-     * RF ports (app_init()): SimplePLC owns no hardware. */
+    /* The host must already have initialised its logger and installed the RS485 UARTs with
+     * sx_uart (SimplePLC owns no UART). The USB-CDC App link is registered by the library itself
+     * in board_hw_init() (SPLC_PORT_USB_CDC = 1). */
     splc_host_rs485_port_init();
     splc_host_zigbee_port_init();
     splc_rtc_port_init();
     splc_mqtt_port_init();
-    if (!splc_usb_port_init()) {
-        log_error(TAG, "no App link over USB: board_get_modbus_transport() will report it");
-    }
 }
 
 static void engine_task(void *arg)
