@@ -178,7 +178,7 @@ static void board_di_do_init(void)
 static void board_device_info_init(void)
 {
     g_device_descriptor.device_class        = SPLC_DEVICE_CLASS_REMOTE_IO;
-    g_device_descriptor.device_variant      = SPLC_REMOTE_IO_VARIANT_4DI_4DO;
+    g_device_descriptor.device_variant      = SPLC_REMOTE_IO_VARIANT_WIFI_IO;
 
     g_device_descriptor.hw_version_major    = 1;
     g_device_descriptor.hw_version_minor    = 0;
@@ -431,7 +431,7 @@ void board_hw_init(void)
     /* Must run before the App can read DEVICE_DESCRIPTOR (the moment the link
      * is up). */
     board_device_info_init();
-    log_info(TAG, "device descriptor/resource info populated (class=REMOTE_IO, variant=4DI_4DO)");
+    log_info(TAG, "device descriptor/resource info populated (class=REMOTE_IO, variant=WIFI_IO)");
 
     board_di_do_init();
     if (s_di_do_register_failures == 0) {

@@ -226,7 +226,7 @@ static void board_di_do_init(void)
  * device_variant is a separate, purely identity/diagnostic field
  * (docs/SimplePLC_App_MCU_Structs_v2.0_Self_Describing_Profile.md section
  * 3.1: device_variant is identity only, it does not drive the App's
- * resource layout) -- it is set to SPLC_REMOTE_IO_VARIANT_4DI_4DO (3) so
+ * resource layout) -- it is set to SPLC_REMOTE_IO_VARIANT_ZIGBEE_IO (3) so
  * App-side diagnostics can tell this board apart from a fully-populated
  * 8DI_8DO_4AI unit, without that value affecting how the App builds its
  * resource/tag catalog (that always comes from DEVICE_RESOURCE_INFO alone).
@@ -249,7 +249,7 @@ static void board_di_do_init(void)
 static void board_device_info_init(void)
 {
     g_device_descriptor.device_class        = SPLC_DEVICE_CLASS_REMOTE_IO;
-    g_device_descriptor.device_variant      = SPLC_REMOTE_IO_VARIANT_4DI_4DO;
+    g_device_descriptor.device_variant      = SPLC_REMOTE_IO_VARIANT_ZIGBEE_IO;
 
     g_device_descriptor.hw_version_major    = 1;
     g_device_descriptor.hw_version_minor    = 0;
@@ -548,7 +548,7 @@ void board_hw_init(void)
      * board_log_uart_init() only so the confirmation log line below is
      * actually emitted (logger_init() runs inside board_log_uart_init()). */
     board_device_info_init();
-    log_info(TAG, "device descriptor/resource info populated (class=REMOTE_IO, variant=4DI_4DO)");
+    log_info(TAG, "device descriptor/resource info populated (class=REMOTE_IO, variant=ZIGBEE_IO)");
 
     board_di_do_init();
     if (s_di_do_register_failures == 0) {

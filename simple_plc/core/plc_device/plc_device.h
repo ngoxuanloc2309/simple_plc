@@ -69,7 +69,8 @@ typedef enum {
     SPLC_REMOTE_IO_VARIANT_UNKNOWN     = 0,
     SPLC_REMOTE_IO_VARIANT_8DI_8DO_4AI = 1,
     SPLC_REMOTE_IO_VARIANT_16DI_16DO   = 2,
-    SPLC_REMOTE_IO_VARIANT_4DI_4DO     = 3
+    SPLC_REMOTE_IO_VARIANT_ZIGBEE_IO   = 3,   /* Zigbee-IO board (4DI/4DO + Zigbee radio) */
+    SPLC_REMOTE_IO_VARIANT_WIFI_IO     = 4    /* Wi-Fi IO board (4DI/4DO + ST67 Wi-Fi)    */
 } SPLC_RemoteIoVariant;
 
 /* Datalogger variant: only meaningful when device_class == SPLC_DEVICE_CLASS_DATALOGGER. */
