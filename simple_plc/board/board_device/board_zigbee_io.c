@@ -249,7 +249,7 @@ static void board_di_do_init(void)
 static void board_device_info_init(void)
 {
     g_device_descriptor.device_class        = SPLC_DEVICE_CLASS_REMOTE_IO;
-    g_device_descriptor.device_variant      = SPLC_REMOTE_IO_VARIANT_ZIGBEE_IO;
+    g_device_descriptor.device_variant      = SPLC_RIO_VARIANT_RIO_440_ZB;
 
     g_device_descriptor.hw_version_major    = 1;
     g_device_descriptor.hw_version_minor    = 0;
