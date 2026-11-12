@@ -60,6 +60,19 @@ static const char *TAG = "PLC_MQTT";
 #define BK_ST_TXBYTE_LO 89U
 #define BK_ST_LAST_ERR  90U
 
+/* ---- Last Will layout (registers inside the 32-register area at 0x0E60; SPLC-SPEC-MQTT-004) ---- */
+#define WL_CONTROL      0U
+#define WL_TOPIC        1U     /* 16 registers = 32 chars */
+#define WL_PAYLOAD      17U    /* 15 registers = 30 chars */
+
+#define WL_TOPIC_CHARS    PLC_MQTT_WILL_TOPIC_MAX_CHARS
+#define WL_PAYLOAD_CHARS  PLC_MQTT_WILL_PAYLOAD_MAX_CHARS
+
+_Static_assert(WL_TOPIC + (WL_TOPIC_CHARS / 2U) == WL_PAYLOAD, "Will payload must follow the Will topic");
+_Static_assert(WL_PAYLOAD + (WL_PAYLOAD_CHARS / 2U) == PLC_MQTT_WILL_REGS,
+               "Will layout must end exactly at register 32");
+_Static_assert(PLC_MQTT_WILL_REGS * 2U == PLC_MQTT_WILL_FLASH_SIZE, "Will Flash image is 2 bytes per register");
+
 _Static_assert(SPLC_MQTT_REGS_PER_BLOCK == 96U, "telemetry block layout assumes 96 registers");
 _Static_assert(SPLC_MQTT_BROKER_CONFIG_REGS == 96U, "broker layout assumes 96 registers");
 _Static_assert(TB_TEMPLATE + (TB_TMPL_CHARS / 2U) == SPLC_MQTT_REGS_PER_BLOCK,
@@ -81,6 +94,12 @@ static uint16_t s_tel_draft[BLOCKS][BLOCK_REGS];
 static uint16_t s_brk_draft[PLC_MQTT_BROKER_CFG_REGS];
 static uint8_t  s_draft_mask;
 #define DRAFT_BROKER_BIT   (1U << BLOCKS)
+#define DRAFT_WILL_BIT     (1U << (BLOCKS + 1U))      /* bit 5 with 4 telemetry blocks */
+_Static_assert(BLOCKS + 1U < 8U, "the draft mask is 8 bits: blocks + broker + Will must fit");
+
+/* Last Will: running image (what FC03 at 0x0E60 returns) and its draft. */
+static uint16_t s_will[PLC_MQTT_WILL_REGS];
+static uint16_t s_will_draft[PLC_MQTT_WILL_REGS];
 
 /* Broker bookkeeping (docs/plc_mqtt_design.md decision 31). */
 static bool     s_app_configured;
@@ -215,6 +234,8 @@ void plc_mqtt_init(void)
     memset(s_brk, 0, sizeof(s_brk));
     memset(s_tel_draft, 0, sizeof(s_tel_draft));
     memset(s_brk_draft, 0, sizeof(s_brk_draft));
+    memset(s_will, 0, sizeof(s_will));
+    memset(s_will_draft, 0, sizeof(s_will_draft));
     memset(&s_status, 0, sizeof(s_status));
     s_draft_mask     = 0U;
     s_app_configured = false;
@@ -313,6 +334,33 @@ plc_mqtt_write_result_t plc_mqtt_broker_write(uint16_t offset, uint16_t quantity
             s_draft_mask |= (uint8_t)DRAFT_BROKER_BIT;
         }
         s_brk_draft[idx] = registers[i];
+    }
+    return PLC_MQTT_WRITE_OK;
+}
+
+void plc_mqtt_will_read(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
+{
+    for (uint16_t i = 0; i < quantity; i++) {
+        uint16_t idx = (uint16_t)(offset + i);
+        registers_out[i] = (idx < PLC_MQTT_WILL_REGS) ? s_will[idx] : 0U;
+    }
+}
+
+plc_mqtt_write_result_t plc_mqtt_will_write(uint16_t offset, uint16_t quantity,
+                                            const uint16_t *registers)
+{
+    log_debug(TAG, "will write: offset=%u quantity=%u", offset, quantity);
+    if ((uint32_t)offset + quantity > PLC_MQTT_WILL_REGS) {
+        log_warn(TAG, "will write rejected: offset=%u quantity=%u runs past 0x0E7F", offset, quantity);
+        return PLC_MQTT_WRITE_BAD_ADDRESS;
+    }
+    for (uint16_t i = 0; i < quantity; i++) {
+        if ((s_draft_mask & DRAFT_WILL_BIT) == 0U) {
+            /* First write: start from the running Will so a single-register write keeps the rest. */
+            memcpy(s_will_draft, s_will, sizeof(s_will_draft));
+            s_draft_mask |= (uint8_t)DRAFT_WILL_BIT;
+        }
+        s_will_draft[offset + i] = registers[i];
     }
     return PLC_MQTT_WRITE_OK;
 }
@@ -444,6 +492,66 @@ static bool broker_valid(const uint16_t *brk)
     return true;
 }
 
+/* Printable ASCII only (0x20..0x7E): the Will strings travel through a text AT command on the ST67
+ * and are shown in logs; an unprintable byte is always a mistake. */
+static bool ascii_printable(const char *str)
+{
+    for (size_t i = 0; str[i] != '\0'; i++) {
+        const unsigned char c = (unsigned char)str[i];
+        if (c < 0x20U || c > 0x7EU) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool will_enabled_img(const uint16_t *w)
+{
+    return (w[WL_CONTROL] & PLC_MQTT_WILL_CTRL_ENABLED_BIT) != 0U;
+}
+
+static bool will_topic_empty(const uint16_t *w)
+{
+    return (w[WL_TOPIC] >> 8) == 0U;           /* first character is NUL */
+}
+
+/* Enabled=1: QoS <= 2, topic not empty / printable / no wildcard (a Will topic is a topic NAME), payload
+ * printable (empty is legal MQTT). Enabled=0: kept as written, nothing is checked. */
+static bool will_valid(const uint16_t *w)
+{
+    if (!will_enabled_img(w)) {
+        return true;
+    }
+    const unsigned qos = (w[WL_CONTROL] & PLC_MQTT_WILL_CTRL_QOS_MASK) >> PLC_MQTT_WILL_CTRL_QOS_SHIFT;
+    if (qos > SPLC_MQTT_QOS_2) {
+        log_warn(TAG, "COMMIT: Will: bad QOS %u", qos);
+        return false;
+    }
+    char topic[WL_TOPIC_CHARS + 1U];
+    regs_to_str(&w[WL_TOPIC], WL_TOPIC_CHARS, topic);
+    if (topic[0] == '\0') {
+        log_warn(TAG, "COMMIT: Will: Enabled but topic is empty");
+        return false;
+    }
+    if (!ascii_printable(topic)) {
+        log_warn(TAG, "COMMIT: Will: topic has a non-printable character");
+        return false;
+    }
+    for (size_t i = 0; topic[i] != '\0'; i++) {
+        if (topic[i] == '+' || topic[i] == '#') {
+            log_warn(TAG, "COMMIT: Will: topic must not contain wildcards (+ #)");
+            return false;
+        }
+    }
+    char payload[WL_PAYLOAD_CHARS + 1U];
+    regs_to_str(&w[WL_PAYLOAD], WL_PAYLOAD_CHARS, payload);
+    if (!ascii_printable(payload)) {
+        log_warn(TAG, "COMMIT: Will: payload has a non-printable character");
+        return false;
+    }
+    return true;
+}
+
 bool plc_mqtt_validate_draft(void)
 {
     for (unsigned i = 0; i < BLOCKS; i++) {
@@ -452,6 +560,9 @@ bool plc_mqtt_validate_draft(void)
         }
     }
     if ((s_draft_mask & DRAFT_BROKER_BIT) != 0U && !broker_valid(s_brk_draft)) {
+        return false;
+    }
+    if ((s_draft_mask & DRAFT_WILL_BIT) != 0U && !will_valid(s_will_draft)) {
         return false;
     }
     return true;
@@ -474,6 +585,16 @@ static void broker_apply(const uint16_t *image)
     s_app_configured = now;
 }
 
+/* Replace the running Will. `generation` moves when the content really changes: the connection has
+ * to be rebuilt for the broker to learn the new Will (it is part of CONNECT). */
+static void will_apply(const uint16_t *image)
+{
+    if (memcmp(s_will, image, sizeof(s_will)) != 0) {
+        s_generation++;
+    }
+    memcpy(s_will, image, sizeof(s_will));
+}
+
 void plc_mqtt_commit_draft(void)
 {
     /* Diagnostic: what the COMMIT is about to apply (draft_mask bit 4 = broker, bits 0..3 = blocks). */
@@ -488,6 +609,12 @@ void plc_mqtt_commit_draft(void)
     if ((s_draft_mask & DRAFT_BROKER_BIT) != 0U) {
         broker_apply(s_brk_draft);
     }
+    if ((s_draft_mask & DRAFT_WILL_BIT) != 0U) {
+        will_apply(s_will_draft);
+        log_info(TAG, "COMMIT: Will applied (enabled=%d retain=%d qos=%u)", (int)will_enabled_img(s_will),
+                 (int)((s_will[WL_CONTROL] & PLC_MQTT_WILL_CTRL_RETAIN_BIT) != 0U),
+                 (unsigned)((s_will[WL_CONTROL] & PLC_MQTT_WILL_CTRL_QOS_MASK) >> PLC_MQTT_WILL_CTRL_QOS_SHIFT));
+    }
     s_draft_mask = 0U;
     log_info(TAG, "COMMIT: MQTT config applied (app_configured=%d generation=%lu)",
              (int)s_app_configured, (unsigned long)s_generation);
@@ -501,10 +628,12 @@ void plc_mqtt_discard_draft(void)
 void plc_mqtt_clear_all(void)
 {
     static const uint16_t zero_brk[PLC_MQTT_BROKER_CFG_REGS];   /* all zero */
+    static const uint16_t zero_will[PLC_MQTT_WILL_REGS];        /* all zero */
 
     memset(s_tel, 0, sizeof(s_tel));
     rt_prepare_all();
     broker_apply(zero_brk);
+    will_apply(zero_will);
     s_draft_mask = 0U;
 }
 
@@ -565,6 +694,38 @@ bool plc_mqtt_import(const uint8_t *in)
     rt_prepare_all();
     broker_apply(s_brk_draft);
     s_draft_mask = 0U;
+    return true;
+}
+
+void plc_mqtt_will_export(uint8_t *out)
+{
+    put_regs_be(out, s_will, PLC_MQTT_WILL_REGS);
+}
+
+bool plc_mqtt_will_is_default(void)
+{
+    for (size_t i = 0; i < PLC_MQTT_WILL_REGS; i++) {
+        if (s_will[i] != 0U) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool plc_mqtt_will_import(const uint8_t *in)
+{
+    /* Same order as plc_mqtt_import(): decode into the Will draft (free scratch), validate, and only
+     * then touch the running Will. The draft is dropped either way (it was just used as scratch). */
+    get_regs_be(in, s_will_draft, PLC_MQTT_WILL_REGS);
+    s_draft_mask &= (uint8_t)~DRAFT_WILL_BIT;
+
+    if (!will_valid(s_will_draft)) {
+        log_warn(TAG, "Flash Will image failed validation -- Last Will left as it was");
+        return false;
+    }
+    will_apply(s_will_draft);
+    log_debug(TAG, "Will restored from Flash: enabled=%d generation=%lu", (int)will_enabled_img(s_will),
+              (unsigned long)s_generation);
     return true;
 }
 
@@ -843,6 +1004,12 @@ void splc_mqtt_get_broker(splc_mqtt_broker_t *out, bool *app_configured, uint32_
         out->clean_session     = (s_brk[BK_CONTROL] & SPLC_BROKER_CTRL_CLEAN_SESSION_BIT) != 0U;
         out->version           = (uint8_t)((s_brk[BK_CONTROL] & SPLC_BROKER_CTRL_VERSION_MASK) >>
                                        SPLC_BROKER_CTRL_VERSION_SHIFT);
+        regs_to_str(&s_will[WL_TOPIC],   WL_TOPIC_CHARS,   out->will_topic);
+        regs_to_str(&s_will[WL_PAYLOAD], WL_PAYLOAD_CHARS, out->will_payload);
+        out->will_enabled = will_enabled_img(s_will) && !will_topic_empty(s_will);
+        out->will_retain  = (s_will[WL_CONTROL] & PLC_MQTT_WILL_CTRL_RETAIN_BIT) != 0U;
+        out->will_qos     = (uint8_t)((s_will[WL_CONTROL] & PLC_MQTT_WILL_CTRL_QOS_MASK) >>
+                                      PLC_MQTT_WILL_CTRL_QOS_SHIFT);
     }
     if (app_configured != NULL) {
         *app_configured = s_app_configured;

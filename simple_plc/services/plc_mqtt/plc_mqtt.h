@@ -18,6 +18,7 @@
  *   0x0C00 + i*96   (i = 0..3)  Telemetry block i, 96 registers   R/W
  *   0x0E00..0x0E53              Broker config, 84 registers       R/W
  *   0x0E54..0x0E5F              Broker status, 12 registers       RO
+ *   0x0E60..0x0E7F              Last Will (LWT), 32 registers     R/W   (SPLC-SPEC-MQTT-004, see below)
  *
  * Staging (same idea as plc_fb, Step 8b):
  *   Host writes do NOT touch the running config. They go to a DRAFT and each
@@ -31,6 +32,17 @@
  *     plc_mqtt_discard_draft()  : throw the draft away.
  *   The draft is also dropped by plc_mqtt_init() (boot) and
  *   plc_mqtt_clear_all() (CLEAR_RULES / FACTORY_RESET).
+ *
+ * The Last Will region (0x0E60..0x0E7F) is staged the same way as the broker region: its own
+ * draft + draft bit, checked in plc_mqtt_validate_draft(), promoted in plc_mqtt_commit_draft(),
+ * kept by a COMMIT that did not write it. Layout (offsets inside the 32 registers):
+ *   +0        control: bit0 Enabled, bit1 Retain, bits2..3 QoS (0..2); the other bits are stored as written
+ *   +1..+16   topic, 32 characters, two per register, first character in the high byte
+ *   +17..+31  payload, 30 characters, same packing
+ * COMMIT rule: Enabled=1 -> topic not empty, printable ASCII (0x20..0x7E) without the MQTT
+ * wildcards '+' and '#', payload printable ASCII (it may be empty), QoS <= 2. Enabled=0 -> nothing
+ * is checked and the content is kept as written. The layout was derived from the App's
+ * MqttWillConfigCodec (no ICD yet) -- if the ICD differs, only plc_mqtt.c needs to follow.
  *
  * Content errors are caught at COMMIT, not at write time: the broker region
  * and the telemetry blocks always ACK a write that stays inside the map.
@@ -66,6 +78,15 @@ extern "C" {
 #define PLC_MQTT_BROKER_BASE         0x0E00U
 #define PLC_MQTT_BROKER_CFG_REGS     84U     /* 0x0E00..0x0E53, writable */
 #define PLC_MQTT_BROKER_REGS         96U     /* 0x0E00..0x0E5F, incl. 12 RO status registers */
+#define PLC_MQTT_WILL_BASE           0x0E60U
+#define PLC_MQTT_WILL_REGS           32U     /* 0x0E60..0x0E7F */
+
+#define PLC_MQTT_WILL_CTRL_ENABLED_BIT  0x0001U
+#define PLC_MQTT_WILL_CTRL_RETAIN_BIT   0x0002U
+#define PLC_MQTT_WILL_CTRL_QOS_MASK     0x000CU
+#define PLC_MQTT_WILL_CTRL_QOS_SHIFT    2U
+#define PLC_MQTT_WILL_TOPIC_MAX_CHARS   32U  /* +1..+16 */
+#define PLC_MQTT_WILL_PAYLOAD_MAX_CHARS 30U  /* +17..+31 */
 
 /* ------------------------------------------------------------------ lifecycle */
 
@@ -101,6 +122,14 @@ plc_mqtt_write_result_t plc_mqtt_telemetry_write(uint16_t offset, uint16_t quant
 plc_mqtt_write_result_t plc_mqtt_broker_write(uint16_t offset, uint16_t quantity,
                                               const uint16_t *registers);
 
+/* FC03 inside the Last Will area, offset 0..31 (0x0E60..0x0E7F): the RUNNING Will. */
+void plc_mqtt_will_read(uint16_t offset, uint16_t quantity, uint16_t *registers_out);
+
+/* FC16 (FC06 as quantity 1) into the Last Will DRAFT, offset 0..31. A request that runs past
+ * the end of the area is BAD_ADDRESS and changes nothing. No content check here. */
+plc_mqtt_write_result_t plc_mqtt_will_write(uint16_t offset, uint16_t quantity,
+                                            const uint16_t *registers);
+
 /* ------------------------------------------------------------------ COMMIT */
 
 /* Check the whole draft (blocks/broker the Host wrote this time; the rest of
@@ -121,6 +150,12 @@ void plc_mqtt_discard_draft(void);
  * plc_rule_flash.c cross-checks it with SPLC_RULE_FLASH_MQTT_SIZE. */
 #define PLC_MQTT_FLASH_SIZE   960U
 
+/* Last Will image: 32 registers x 2 B, big-endian, exactly the words FC03 returns. It is a
+ * SEPARATE section of the Rule Table record (SPLC_RULE_FLASH_WILL_FLAG, the last section) and
+ * is not part of the 960-byte image above, whose 12 reserved registers must stay zero.
+ * plc_rule_flash.c cross-checks the size with SPLC_RULE_FLASH_WILL_SIZE. */
+#define PLC_MQTT_WILL_FLASH_SIZE   64U
+
 /* Serialise the RUNNING config (never the draft) into `out`
  * (PLC_MQTT_FLASH_SIZE bytes): 4 x 96 telemetry registers, then 96 broker
  * registers (84 config + 12 zero), each register big-endian, exactly the
@@ -135,6 +170,18 @@ void plc_mqtt_export(uint8_t *out);
  * draft is dropped. Used at boot (before the engine runs) and to roll back a
  * failed CLEAR_RULES. */
 bool plc_mqtt_import(const uint8_t *in);
+
+/* Serialise the RUNNING Last Will (never the draft) into `out` (PLC_MQTT_WILL_FLASH_SIZE bytes). */
+void plc_mqtt_will_export(uint8_t *out);
+
+/* true when the running Will is all-zero (= nothing configured): plc_rule_flash then leaves the
+ * Will section out of the record, so the record stays what it was before the Will existed. */
+bool plc_mqtt_will_is_default(void);
+
+/* Load an image written by plc_mqtt_will_export(), same rules as COMMIT (a Will with Enabled=1 and
+ * a bad topic/QoS is refused: nothing is applied, false is returned). On success the running Will is
+ * replaced, `generation` moves if its content changed, and any Will draft is dropped. */
+bool plc_mqtt_will_import(const uint8_t *in);
 
 /* CLEAR_RULES / FACTORY_RESET: every block DISABLED, broker "not configured"
  * (generation moves if app_configured was true), draft dropped. */
@@ -212,6 +259,15 @@ typedef struct {                 /* copy of the running broker config, NUL-termi
     bool     allow_self_signed;  /* App asked to accept a self-signed server certificate; same */
     bool     clean_session;
     uint8_t  version;            /* 0 = MQTT 3.1.1, 1 = MQTT 5.0 */
+    /* Last Will (0x0E60..0x0E7F). Filled whether or not the App configured a broker: the host
+     * applies it to whichever broker it connects to. will_enabled is true only for Enabled=1 AND a
+     * non-empty topic (COMMIT guarantees both together); while false the other will_* fields still
+     * carry what the App stored. */
+    bool     will_enabled;
+    bool     will_retain;
+    uint8_t  will_qos;           /* 0..2 */
+    char     will_topic[PLC_MQTT_WILL_TOPIC_MAX_CHARS + 1U];
+    char     will_payload[PLC_MQTT_WILL_PAYLOAD_MAX_CHARS + 1U];
 } splc_mqtt_broker_t;
 
 /*
@@ -220,6 +276,8 @@ typedef struct {                 /* copy of the running broker config, NUL-termi
  * port then uses this config instead of the gateway's own default.
  * *generation moves when app_configured flips (either way) or, while it is
  * true, when the broker content really changes (status registers excluded).
+ * It also moves whenever the Last Will content changes, whether or not a broker
+ * is app_configured: the connection must be rebuilt to carry the new Will.
  * Any pointer may be NULL.
  */
 void splc_mqtt_get_broker(splc_mqtt_broker_t *out, bool *app_configured, uint32_t *generation);

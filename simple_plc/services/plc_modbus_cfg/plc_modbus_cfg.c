@@ -10,7 +10,7 @@
 #include "plc_retain.h"     /* retain_snapshot_write(), called from CMD_COMMIT_RETAIN */
 #include "plc_rtc.h"        /* RTC block 0x0810..0x0813, see cb_write_multiple_registers() */
 #include "plc_fb.h"         /* FB block 0x0B00..0x0B7F, see cb_write_multiple_registers() */
-#include "plc_mqtt.h"       /* MQTT blocks 0x0C00..0x0D7F / 0x0E00..0x0E5F (SPLC_MQTT_ENABLE=1 only) */
+#include "plc_mqtt.h"       /* MQTT blocks 0x0C00..0x0D7F / 0x0E00..0x0E5F / Last Will 0x0E60..0x0E7F (SPLC_MQTT_ENABLE=1 only) */
 #include "plc_tagtype.h"    /* Tag DataType Registry 0x0080..0x00BF (SPLC_REAL_ENABLE=1 only) */
 #include "plc_mbm.h"        /* MB_READ blocks 0x1000..0x10FF (SPLC_MBM_ENABLE=1 only) */
 #include "plc_mbw.h"        /* MB_WRITE blocks 0x1100..0x11FF (SPLC_MBW_ENABLE=1 only) */
@@ -1517,6 +1517,7 @@ static const modbus_block_t s_blocks[] = {
 #if SPLC_MQTT_ENABLE
     { 0x0C00, 0x0D7F, true,  plc_mqtt_telemetry_read,     NULL },   /* FC16 writes handled in cb_write_multiple_registers */
     { 0x0E00, 0x0E5F, true,  plc_mqtt_broker_read,        NULL },   /* 0x0E54..0x0E5F read-only status; FC16 writes handled in cb_write_multiple_registers */
+    { 0x0E60, 0x0E7F, true,  plc_mqtt_will_read,          NULL },   /* Last Will (MQTT-004); RUNNING config; FC16/FC06 writes go to the draft in cb_write_multiple_registers */
 #endif
 #if SPLC_MQTT_TLS_CERT_ENABLE
     { 0x0F00, 0x0F43, true,  plc_mqtt_tls_read,           NULL },   /* TLS certificate (MQTT-003); FC16/FC06 writes handled in cb_write_multiple_registers */
@@ -1713,6 +1714,13 @@ static nmbs_error cb_write_multiple_registers(uint16_t address, uint16_t quantit
     if (address >= PLC_MQTT_BROKER_BASE &&
         address < PLC_MQTT_BROKER_BASE + PLC_MQTT_BROKER_REGS) {
         return (plc_mqtt_broker_write((uint16_t)(address - PLC_MQTT_BROKER_BASE), quantity, registers)
+                == PLC_MQTT_WRITE_OK) ? NMBS_ERROR_NONE : NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+    }
+    /* Last Will 0x0E60..0x0E7F: same draft / COMMIT path; only a request that runs past 0x0E7F is
+     * rejected (0x02). */
+    if (address >= PLC_MQTT_WILL_BASE &&
+        address < PLC_MQTT_WILL_BASE + PLC_MQTT_WILL_REGS) {
+        return (plc_mqtt_will_write((uint16_t)(address - PLC_MQTT_WILL_BASE), quantity, registers)
                 == PLC_MQTT_WRITE_OK) ? NMBS_ERROR_NONE : NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
     }
 #endif

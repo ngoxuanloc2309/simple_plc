@@ -46,8 +46,8 @@ _Static_assert(SPLC_RULE_FLASH_RECORD_MAX_SIZE ==
                (SPLC_RULE_FLASH_HEADER_SIZE + (uint32_t)MAX_RULES * SPLC_RULE_FLASH_RECORD_WIRE_SIZE +
                 SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE + SPLC_RULE_FLASH_MB_RESERVE +
                 SPLC_RULE_FLASH_TYPES_RESERVE + SPLC_RULE_FLASH_SUB_RESERVE + SPLC_RULE_FLASH_MBW_RESERVE +
-                SPLC_RULE_FLASH_ZIGBEE_RESERVE),
-               "SPLC_RULE_FLASH_RECORD_MAX_SIZE out of sync with MAX_RULES / FB / MQTT / MB / TYPES / SUB / MBW / ZIGBEE size");
+                SPLC_RULE_FLASH_ZIGBEE_RESERVE + SPLC_RULE_FLASH_WILL_RESERVE),
+               "SPLC_RULE_FLASH_RECORD_MAX_SIZE out of sync with MAX_RULES / FB / MQTT / MB / TYPES / SUB / MBW / ZIGBEE / WILL size");
 
 #if SPLC_ZIGBEE_ENABLE
 _Static_assert(SPLC_RULE_FLASH_ZIGBEE_SIZE == PLC_ZIGBEE_FLASH_SIZE,
@@ -66,6 +66,8 @@ _Static_assert(SPLC_RULE_FLASH_FB_SIZE_V1 == PLC_FB_FLASH_SIZE_V1,
 #if SPLC_MQTT_ENABLE
 _Static_assert(SPLC_RULE_FLASH_MQTT_SIZE == PLC_MQTT_FLASH_SIZE,
                "SPLC_RULE_FLASH_MQTT_SIZE out of sync with PLC_MQTT_FLASH_SIZE");
+_Static_assert(SPLC_RULE_FLASH_WILL_SIZE == PLC_MQTT_WILL_FLASH_SIZE,
+               "SPLC_RULE_FLASH_WILL_SIZE out of sync with PLC_MQTT_WILL_FLASH_SIZE");
 #endif
 #if SPLC_MBM_ENABLE
 _Static_assert(SPLC_RULE_FLASH_MB_SIZE == PLC_MBM_FLASH_SIZE,
@@ -86,7 +88,17 @@ _Static_assert(SPLC_RULE_FLASH_SUB_SIZE == PLC_MQTT_SUB_FLASH_SIZE,
 #define RULE_FLASH_FLAGS_OWNED (SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG | \
                                 SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_MB_OWNED_FLAG | \
                                 SPLC_RULE_FLASH_TYPES_OWNED_FLAG | SPLC_RULE_FLASH_SUB_OWNED_FLAG | \
-                                SPLC_RULE_FLASH_MBW_OWNED_FLAG | SPLC_RULE_FLASH_ZIGBEE_OWNED_FLAG)
+                                SPLC_RULE_FLASH_MBW_OWNED_FLAG | SPLC_RULE_FLASH_ZIGBEE_OWNED_FLAG | \
+                                SPLC_RULE_FLASH_WILL_OWNED_FLAG)
+/* The Last Will flag is a new bit: it must not collide with any other owned flag, and the rule count
+ * (at most MAX_RULES = 100) must still fit in what is left of the field (0x007F with every flag owned). */
+_Static_assert((SPLC_RULE_FLASH_WILL_OWNED_FLAG & (SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG |
+                                                   SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_MB_OWNED_FLAG |
+                                                   SPLC_RULE_FLASH_TYPES_OWNED_FLAG | SPLC_RULE_FLASH_SUB_OWNED_FLAG |
+                                                   SPLC_RULE_FLASH_MBW_OWNED_FLAG | SPLC_RULE_FLASH_ZIGBEE_OWNED_FLAG)) == 0U,
+               "the Last Will flag overlaps another flag");
+_Static_assert((uint32_t)MAX_RULES <= (uint32_t)SPLC_RULE_FLASH_COUNT_MASK,
+               "MAX_RULES does not fit in the rule_count bits left after the flags");
 /* The Zigbee flag is a new bit: it must not collide with any other owned flag. */
 _Static_assert((SPLC_RULE_FLASH_ZIGBEE_OWNED_FLAG & (SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG |
                                                      SPLC_RULE_FLASH_MQTT_OWNED_FLAG | SPLC_RULE_FLASH_MB_OWNED_FLAG |
@@ -181,6 +193,9 @@ typedef struct {
 #if SPLC_ZIGBEE_ENABLE
     uint32_t zigbee_size; /* 0 (none) or 64; the member does not exist when SPLC_ZIGBEE_ENABLE = 0 */
 #endif
+#if SPLC_MQTT_ENABLE
+    uint32_t will_size;   /* 0 (none) or 64; the member does not exist when SPLC_MQTT_ENABLE = 0 */
+#endif
 } rule_flash_layout_t;
 
 /*
@@ -231,6 +246,9 @@ static void rule_flash_split_field(uint16_t field, rule_flash_layout_t *l)
 #if SPLC_ZIGBEE_ENABLE
     l->zigbee_size = ((field & SPLC_RULE_FLASH_ZIGBEE_FLAG) != 0U) ? SPLC_RULE_FLASH_ZIGBEE_SIZE : 0U;
 #endif
+#if SPLC_MQTT_ENABLE
+    l->will_size = ((field & SPLC_RULE_FLASH_WILL_FLAG) != 0U) ? SPLC_RULE_FLASH_WILL_SIZE : 0U;
+#endif
 }
 
 /* Total bytes of a record: header + rules [+ FB section] [+ MQTT section] [+ TYPES].
@@ -256,6 +274,9 @@ static uint32_t rule_flash_record_size(const rule_flash_layout_t *l)
 #endif
 #if SPLC_ZIGBEE_ENABLE
     size += l->zigbee_size;
+#endif
+#if SPLC_MQTT_ENABLE
+    size += l->will_size;
 #endif
     return size;
 }
@@ -321,6 +342,11 @@ static uint32_t rule_flash_build_record(uint32_t seq_num)
 #if SPLC_ZIGBEE_ENABLE
         .zigbee_size = SPLC_RULE_FLASH_ZIGBEE_RESERVE,/* 64 with Zigbee */
 #endif
+#if SPLC_MQTT_ENABLE
+        /* The Last Will section is written only when a Will is configured (not all-zero), so a device
+         * that never uses it keeps writing the same records as before this section existed. */
+        .will_size   = plc_mqtt_will_is_default() ? 0U : SPLC_RULE_FLASH_WILL_SIZE,
+#endif
     };
     uint16_t field = (uint16_t)(layout.rule_count | SPLC_RULE_FLASH_FB_FLAG | SPLC_RULE_FLASH_FB_V2_FLAG);
 #if SPLC_MQTT_ENABLE
@@ -340,6 +366,11 @@ static uint32_t rule_flash_build_record(uint32_t seq_num)
 #endif
 #if SPLC_ZIGBEE_ENABLE
     field |= SPLC_RULE_FLASH_ZIGBEE_FLAG; /* every save of a Zigbee build carries the Zigbee section */
+#endif
+#if SPLC_MQTT_ENABLE
+    if (layout.will_size != 0U) {
+        field |= SPLC_RULE_FLASH_WILL_FLAG;   /* only a save with a configured Last Will carries its section */
+    }
 #endif
 
     write_u32_be(&s_rule_flash_buf[RULE_FLASH_SEQ_OFFSET], seq_num);
@@ -389,8 +420,19 @@ static uint32_t rule_flash_build_record(uint32_t seq_num)
                                         SPLC_RULE_FLASH_MB_RESERVE + SPLC_RULE_FLASH_TYPES_RESERVE +
                                         SPLC_RULE_FLASH_SUB_RESERVE + SPLC_RULE_FLASH_MBW_RESERVE]);
 #endif
+#if SPLC_MQTT_ENABLE
+    if (layout.will_size != 0U) {
+        /* Last Will section (the very last one): the RUNNING Will (plc_mqtt_commit_draft() has already
+         * run). Its offset adds up the RESERVE of every section that is compiled in, because each of
+         * those sections is written in full by every save of its build. */
+        plc_mqtt_will_export(&s_rule_flash_buf[fb_off + SPLC_RULE_FLASH_FB_SIZE + SPLC_RULE_FLASH_MQTT_RESERVE +
+                                               SPLC_RULE_FLASH_MB_RESERVE + SPLC_RULE_FLASH_TYPES_RESERVE +
+                                               SPLC_RULE_FLASH_SUB_RESERVE + SPLC_RULE_FLASH_MBW_RESERVE +
+                                               SPLC_RULE_FLASH_ZIGBEE_RESERVE]);
+    }
+#endif
 
-    /* The one CRC covers header + rules + FB + MQTT + MB + TYPES + SUB + MBW + ZIGBEE sections. */
+    /* The one CRC covers header + rules + FB + MQTT + MB + TYPES + SUB + MBW + ZIGBEE + WILL sections. */
     uint32_t record_size = rule_flash_record_size(&layout);
     uint16_t crc = rule_flash_record_crc(s_rule_flash_buf, record_size);
     write_u16_be(&s_rule_flash_buf[RULE_FLASH_CRC_OFFSET], crc);
@@ -677,6 +719,31 @@ static void rule_flash_apply_buffer(const rule_flash_layout_t *l, const char *fr
         log_info(TAG, "Zigbee config restored from Flash %s", from);
     } else {
         log_warn(TAG, "Zigbee section in Flash %s failed validation -- Zigbee left DISABLED", from);
+    }
+#endif
+#if SPLC_MQTT_ENABLE
+    if (l->will_size == 0U) {
+        log_debug(TAG, "Flash %s has no Last Will section -- Last Will left DISABLED", from);
+    } else if (plc_mqtt_will_import(fb + l->fb_size + l->mqtt_size +
+#if SPLC_MBM_ENABLE
+                                    l->mb_size +
+#endif
+#if SPLC_REAL_ENABLE
+                                    l->types_size +
+#endif
+#if SPLC_MQTT_SUB_ENABLE
+                                    l->sub_size +
+#endif
+#if SPLC_MBW_ENABLE
+                                    l->mbw_size +
+#endif
+#if SPLC_ZIGBEE_ENABLE
+                                    l->zigbee_size +
+#endif
+                                    0U)) {
+        log_info(TAG, "Last Will restored from Flash %s", from);
+    } else {
+        log_warn(TAG, "Last Will section in Flash %s failed validation -- Last Will left DISABLED", from);
     }
 #endif
 }
