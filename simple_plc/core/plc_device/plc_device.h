@@ -67,9 +67,11 @@ typedef enum {
 /* Remote I/O variant: only meaningful when device_class == SPLC_DEVICE_CLASS_REMOTE_IO. */
 typedef enum {
     SPLC_REMOTE_IO_VARIANT_UNKNOWN     = 0,
-    SPLC_REMOTE_IO_VARIANT_8DI_8DO_4AI = 1,
-    SPLC_REMOTE_IO_VARIANT_16DI_16DO   = 2,
-    SPLC_REMOTE_IO_VARIANT_4DI_4DO     = 3
+    SPLC_RIO_VARIANT_RIO_884     = 1,   /* SYNX-RIO-884: 8DI, 8DO, 4AI (RS-485 Modbus RTU) */
+    SPLC_RIO_VARIANT_RIO_440_WF  = 2,   /* SYNX-RIO-440-WF: 4DI, 4DO Relay (Wi-Fi Wireless) */
+    SPLC_RIO_VARIANT_RIO_440     = 3,   /* SYNX-RIO-440: 4DI, 4DO Compact (RS-485 Modbus RTU) */
+    SPLC_RIO_VARIANT_RIO_880     = 4,   /* SYNX-RIO-880: 8DI, 8DO Relay (RS-485 Modbus RTU) */
+    SPLC_RIO_VARIANT_RIO_440_ZB  = 5    /* SYNX-RIO-440-ZB: 4DI, 4DO Relay (Zigbee Mesh Wireless) */
 } SPLC_RemoteIoVariant;
 
 /* Datalogger variant: only meaningful when device_class == SPLC_DEVICE_CLASS_DATALOGGER. */
