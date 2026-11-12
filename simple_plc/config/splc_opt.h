@@ -439,7 +439,7 @@
 #define SPLC_WIFI_ENABLE                 0
 #endif
 
-/* 1 = build the MQTT TLS certificate block 0x0F00..0x0F43 (plc_mqtt_tls.h, ICD MQTT-003):
+/* 1 = build the MQTT TLS certificate block 0x0F00..0x0F46 (plc_mqtt_tls.h, ICD MQTT-003):
  * the App sends the Root CA / client certificate / client key in chunks, SimplePLC checks
  * every chunk and hands it straight to the host (splc_mqtt_tls_register()); the host stores
  * it and loads it into its TLS stack. SimplePLC buffers no certificate and owns no TLS.

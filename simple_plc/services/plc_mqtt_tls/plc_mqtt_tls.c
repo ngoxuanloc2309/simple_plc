@@ -1,5 +1,5 @@
 /*
- * plc_mqtt_tls.c - MQTT TLS certificate block 0x0F00..0x0F43 (see plc_mqtt_tls.h for the
+ * plc_mqtt_tls.c - MQTT TLS certificate block 0x0F00..0x0F46 (see plc_mqtt_tls.h for the
  * design and the rules; ICD SPLC-SPEC-MQTT-003).
  *
  * The library keeps NO certificate bytes: one chunk is decoded into a 120-byte stack
@@ -26,6 +26,7 @@ typedef struct {
     uint8_t  total_chunks;
     uint16_t total_size;
     uint16_t received;           /* bytes accepted so far */
+    uint16_t crc;                /* CRC-16/MODBUS over the bytes the host accepted so far (-> commit()) */
     uint8_t  next;               /* index of the next chunk expected */
     uint16_t last_crc;           /* of the chunk acknowledged last, for the resend rule */
     uint8_t  last_len;
@@ -84,8 +85,8 @@ static void check_watchdog(uint32_t now_ms)
 bool splc_mqtt_tls_register(const splc_mqtt_tls_ops_t *ops)
 {
     if (ops == NULL || ops->begin == NULL || ops->chunk == NULL || ops->commit == NULL ||
-        ops->abort == NULL || ops->active_mask == NULL) {
-        log_error(TAG, "register: begin, chunk, commit, abort and active_mask are required");
+        ops->abort == NULL || ops->active_mask == NULL || ops->crc16_get == NULL) {
+        log_error(TAG, "register: begin, chunk, commit, abort, active_mask and crc16_get are required");
         return false;
     }
     drop_transfer();
@@ -129,6 +130,14 @@ void plc_mqtt_tls_read(uint16_t offset, uint16_t quantity, uint16_t *registers_o
             v = s_status;
         } else if (reg == PLC_MQTT_TLS_REG_MASK && s_registered) {
             v = (uint16_t)(s_ops.active_mask(s_ops.ctx) & 0x0007U);
+        } else if (reg >= PLC_MQTT_TLS_REG_CRC_ROOT && reg <= PLC_MQTT_TLS_REG_CRC_KEY && s_registered) {
+            /* 0x0F44..0x0F46: asked of the host only while the certificate is live; 0 = none / unknown,
+             * which makes the App send it again (never a CRC that might not match the stored bytes). */
+            const uint8_t type = (uint8_t)(PLC_MQTT_TLS_TYPE_ROOT_CA + (reg - PLC_MQTT_TLS_REG_CRC_ROOT));
+            const uint16_t live = (uint16_t)(s_ops.active_mask(s_ops.ctx) & 0x0007U);
+            if ((live & (1U << (type - 1U))) != 0U) {
+                v = s_ops.crc16_get(s_ops.ctx, type);
+            }
         }
         registers_out[i] = v;
     }
@@ -184,6 +193,7 @@ static plc_mqtt_tls_write_result_t write_chunk(const uint16_t *r)
         s_x.total_size   = size;
         s_x.received     = 0U;
         s_x.next         = 0U;
+        s_x.crc          = 0xFFFFU;
     } else {
         if (!s_x.active || type != s_x.type || total != s_x.total_chunks || size != s_x.total_size) {
             log_warn(TAG, "chunk %u rejected: no open transfer or it does not match", idx);
@@ -212,6 +222,9 @@ static plc_mqtt_tls_write_result_t write_chunk(const uint16_t *r)
         drop_transfer();                                    /* host abort; the old certificate stays */
         return PLC_MQTT_TLS_WRITE_OK;
     }
+    for (uint8_t k = 0; k < len; k++) {
+        s_x.crc = crc16_modbus_update(s_x.crc, data[k]);    /* the bytes the host really took, in order */
+    }
     s_x.received = (uint16_t)(s_x.received + len);
     s_x.next     = (uint8_t)(idx + 1U);
     s_x.last_crc = crc;
@@ -239,7 +252,7 @@ static plc_mqtt_tls_write_result_t write_commit(uint16_t value)
                  s_x.received, s_x.total_size);
         return PLC_MQTT_TLS_WRITE_VALUE;                    /* an open transfer stays open */
     }
-    const int rc = s_ops.commit(s_ops.ctx, s_x.type);
+    const int rc = s_ops.commit(s_ops.ctx, s_x.type, s_x.crc);
     if (rc != 0) {
         log_warn(TAG, "host commit() failed: %d; the previous certificate stays", rc);
         s_status = host_status(rc);
@@ -248,7 +261,7 @@ static plc_mqtt_tls_write_result_t write_commit(uint16_t value)
     }
     s_x.active = false;                                     /* committed: nothing left to abort */
     s_status   = PLC_MQTT_TLS_ST_OK;
-    log_info(TAG, "certificate type %u committed (%u bytes)", s_x.type, s_x.total_size);
+    log_info(TAG, "certificate type %u committed (%u bytes, crc16 0x%04X)", s_x.type, s_x.total_size, s_x.crc);
     return PLC_MQTT_TLS_WRITE_OK;
 }
 

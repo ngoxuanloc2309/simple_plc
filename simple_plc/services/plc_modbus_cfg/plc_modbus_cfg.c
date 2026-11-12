@@ -15,7 +15,7 @@
 #include "plc_mbm.h"        /* MB_READ blocks 0x1000..0x10FF (SPLC_MBM_ENABLE=1 only) */
 #include "plc_mbw.h"        /* MB_WRITE blocks 0x1100..0x11FF (SPLC_MBW_ENABLE=1 only) */
 #include "plc_wifi.h"       /* Wi-Fi block 0x1300..0x13FF (SPLC_WIFI_ENABLE=1 only) */
-#include "plc_mqtt_tls.h"   /* TLS certificate block 0x0F00..0x0F43 (SPLC_MQTT_TLS_CERT_ENABLE=1 only) */
+#include "plc_mqtt_tls.h"   /* TLS certificate block 0x0F00..0x0F46 (SPLC_MQTT_TLS_CERT_ENABLE=1 only) */
 #if SPLC_ZIGBEE_ENABLE
 #include "plc_zigbee.h"     /* Zigbee port block 0x1700..0x173F (SPLC_ZIGBEE_ENABLE=1 only) */
 #endif
@@ -1520,7 +1520,7 @@ static const modbus_block_t s_blocks[] = {
     { 0x0E60, 0x0E7F, true,  plc_mqtt_will_read,          NULL },   /* Last Will (MQTT-004); RUNNING config; FC16/FC06 writes go to the draft in cb_write_multiple_registers */
 #endif
 #if SPLC_MQTT_TLS_CERT_ENABLE
-    { 0x0F00, 0x0F43, true,  plc_mqtt_tls_read,           NULL },   /* TLS certificate (MQTT-003); FC16/FC06 writes handled in cb_write_multiple_registers */
+    { 0x0F00, 0x0F46, true,  plc_mqtt_tls_read,           NULL },   /* TLS certificate (MQTT-003): staging..mask + 3 CRC-16; FC16/FC06 writes (0x0F00..0x0F43 only) handled in cb_write_multiple_registers */
 #endif
 #if SPLC_MQTT_SUB_ENABLE
     { 0x0D80, 0x0DFF, true,  plc_mqtt_sub_read,           NULL },   /* RUNNING blocks; FC16 writes handled in cb_write_multiple_registers (go to the draft) */

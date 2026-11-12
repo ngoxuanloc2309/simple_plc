@@ -4,13 +4,16 @@
 /*
  * plc_mqtt_tls.h - Layer 3 (PLC Application Services)
  *
- * MQTT TLS certificate block 0x0F00..0x0F43 of Wire V2.0 (ICD SPLC-SPEC-MQTT-003).
+ * MQTT TLS certificate block 0x0F00..0x0F46 of Wire V2.0 (ICD SPLC-SPEC-MQTT-003 v1.0).
  *
  *   0x0F00..0x0F3F  staging buffer   64 regs  W   one SPLC_CertChunk_t (128 B)
  *   0x0F40          ACK chunk index   1 reg   R   index of the last chunk accepted (0xFFFF = none yet)
  *   0x0F41          STATUS            1 reg   R   0 OK, 1 chunk CRC, 2 overflow, 3 Flash write
  *   0x0F42          COMMIT            1 reg   W   0xA5A5 (reads 0)
  *   0x0F43          ACTIVE MASK       1 reg   R   bit0 Root CA, bit1 client cert, bit2 client key
+ *   0x0F44          CRC-16 Root CA    1 reg   R   CRC-16/MODBUS of the stored file (0 = none / unknown)
+ *   0x0F45          CRC-16 client cert 1 reg  R   same, client certificate
+ *   0x0F46          CRC-16 client key 1 reg   R   same, client private key
  *
  * Chunk image (registers big-endian, payload two bytes per register, high byte first):
  *   reg 0  cert_type << 8 | chunk_index          (1 Root CA, 2 Client Cert, 3 Client Key)
@@ -58,12 +61,16 @@
 #include "splc_opt.h"
 
 #define PLC_MQTT_TLS_BASE             0x0F00U
-#define PLC_MQTT_TLS_REGS             68U          /* 0x0F00..0x0F43 */
+#define PLC_MQTT_TLS_REGS             68U          /* 0x0F00..0x0F43: the WRITABLE/stateful part */
+#define PLC_MQTT_TLS_READ_REGS        71U          /* 0x0F00..0x0F46: what FC03 may read */
 #define PLC_MQTT_TLS_STAGING_REGS     64U
 #define PLC_MQTT_TLS_REG_ACK          64U          /* offsets relative to PLC_MQTT_TLS_BASE */
 #define PLC_MQTT_TLS_REG_STATUS       65U
 #define PLC_MQTT_TLS_REG_COMMIT       66U
 #define PLC_MQTT_TLS_REG_MASK         67U
+#define PLC_MQTT_TLS_REG_CRC_ROOT     68U          /* read-only: 68 = Root CA, 69 = client cert, 70 = client key */
+#define PLC_MQTT_TLS_REG_CRC_CERT     69U
+#define PLC_MQTT_TLS_REG_CRC_KEY      70U
 
 #define PLC_MQTT_TLS_COMMIT_MAGIC     0xA5A5U
 #define PLC_MQTT_TLS_CHUNK_BYTES      120U
@@ -90,9 +97,15 @@ typedef enum {
 } plc_mqtt_tls_write_result_t;
 
 /*
- * Host functions. begin, chunk, commit, abort and active_mask are REQUIRED, clear is optional.
- * int-returning callbacks: 0 = done; PLC_MQTT_TLS_ST_OVERFLOW (2) = no room; any other
+ * Host functions. begin, chunk, commit, abort, active_mask and crc16_get are REQUIRED, clear is
+ * optional. int-returning callbacks: 0 = done; PLC_MQTT_TLS_ST_OVERFLOW (2) = no room; any other
  * value = storage error (reported as STATUS 3).
+ *
+ * CRC-16 (0x0F44..0x0F46): the library computes CRC-16/MODBUS (poly 0xA001, init 0xFFFF) over
+ * EXACTLY the total_cert_size bytes it received (no NUL, no padding) and hands it to commit().
+ * The host must store it TOGETHER with the certificate (one atomic record) or derive it from
+ * the stored bytes, and return it from crc16_get(). The library keeps no copy, so the value
+ * read by the App can never disagree with what is in the host's storage.
  */
 typedef struct {
     void *ctx;
@@ -102,15 +115,20 @@ typedef struct {
     int  (*begin)(void *ctx, uint8_t type, uint8_t total_chunks, uint16_t total_size);
     /* the next chunk, in order, CRC already checked. */
     int  (*chunk)(void *ctx, uint8_t type, uint8_t index, const uint8_t *data, uint8_t len);
-    /* all chunks received and COMMIT 0xA5A5: store it for good and load it. On failure the
-     * previous certificate must stay valid. */
-    int  (*commit)(void *ctx, uint8_t type);
+    /* all chunks received and COMMIT 0xA5A5: store it for good and load it. `crc16` is the
+     * CRC-16/MODBUS of the received bytes: a host that computed its own CRC while storing should
+     * compare it and fail (return != 0) on a mismatch. On failure the previous certificate must
+     * stay valid. */
+    int  (*commit)(void *ctx, uint8_t type, uint16_t crc16);
     /* the transfer was abandoned (restart, host failure, 30 s without a chunk). */
     void (*abort)(void *ctx);
     /* Optional: erase all stored certificates (FACTORY_RESET). */
     void (*clear)(void *ctx);
     /* bit0 Root CA, bit1 client cert, bit2 client key: which certificates are active. */
     uint16_t (*active_mask)(void *ctx);
+    /* CRC-16/MODBUS of the live certificate of `type` (1..3) as committed; 0 when it is not
+     * stored or its CRC is not known. The library only calls it while the matching mask bit is set. */
+    uint16_t (*crc16_get)(void *ctx, uint8_t type);
 } splc_mqtt_tls_ops_t;
 
 #if SPLC_MQTT_TLS_CERT_ENABLE
@@ -124,7 +142,7 @@ extern "C" {
 bool splc_mqtt_tls_register(const splc_mqtt_tls_ops_t *ops);
 void splc_mqtt_tls_unregister(void);
 
-/* FC03 of 0x0F00..0x0F43; `offset` is relative to PLC_MQTT_TLS_BASE. */
+/* FC03 of 0x0F00..0x0F46; `offset` is relative to PLC_MQTT_TLS_BASE. */
 void plc_mqtt_tls_read(uint16_t offset, uint16_t quantity, uint16_t *registers_out);
 
 /* FC16/FC06 of 0x0F00..0x0F43 (see the header comment for the rules). */

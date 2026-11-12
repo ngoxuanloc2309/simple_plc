@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_mqtt_tls.py - Verify the MQTT TLS certificate block 0x0F00..0x0F43 of SimplePLC
+test_mqtt_tls.py - Verify the MQTT TLS certificate block 0x0F00..0x0F46 of SimplePLC
 (decision 51 in docs/handoff.md, plc_mqtt_tls, ICD SPLC-SPEC-MQTT-003) over Modbus.
 
 Requires: pip install pymodbus pyserial
@@ -36,10 +36,14 @@ CHECKED (all on the wire, nothing needs a broker):
     total size, or more bytes than the total size -> 0x03.
   * COMMIT: missing chunk -> 0x03 and the transfer stays open; wrong magic -> 0x03.
   * Register shapes: 63 registers -> 0x03; a write running into ACK, FC06 to a read-only
-    register, a 2-register write at COMMIT, a write past 0x0F43 -> 0x02.
+    register, a 2-register write at COMMIT, a write to the CRC registers 0x0F44..0x0F46 -> 0x02.
+  * CRC-16 registers 0x0F44..0x0F46 (ICD MQTT-003 v1.0, read together with the mask: FC03 of
+    4 registers from 0x0F43): a type whose mask bit is clear reads 0.
   * Chunk 0 in the middle of a transfer restarts it.
   * --wait-abort: a transfer idle for 30 s is abandoned (takes ~32 s).
-  * --commit: complete transfer + COMMIT, STATUS 0, MASK bit of the type, a second COMMIT
+  * --commit: complete transfer + COMMIT, STATUS 0, MASK bit of the type, the CRC register of
+    the type == CRC-16/MODBUS of the 250 bytes sent (and it is still the same on a second
+    read), a second COMMIT
     with nothing open -> 0x03.
 
 Usage:
@@ -61,6 +65,7 @@ REG_ACK = 0x0F40
 REG_STATUS = 0x0F41
 REG_COMMIT = 0x0F42
 REG_MASK = 0x0F43
+REG_CRC = {1: 0x0F44, 2: 0x0F45, 3: 0x0F46}   # CRC-16 of the stored Root CA / client cert / client key
 REG_CAPS = 0x0A08
 CAP_MQTT_TLS_CERT = 0x0080
 MAGIC = 0xA5A5
@@ -155,6 +160,14 @@ def run(d, args):
     mask0 = d.read(REG_MASK, 1)[0]
     info(f"ACK=0x{ack:04X} STATUS={st} ACTIVE_MASK=0x{mask0:04X} (ACK 0xFFFF = no chunk yet)")
     check(st in (0, 1, 2, 3), "STATUS is one of 0..3")
+    # The App reads mask + the three CRCs in ONE FC03 (Smart Sync, ICD MQTT-003 section 4 step 2).
+    mc, err = d.try_read(REG_MASK, 4)
+    check(mc is not None and len(mc) == 4, "FC03 of 4 registers from 0x0F43 (mask + 3 CRC) is served")
+    if mc is not None and len(mc) == 4:
+        info(f"mask=0x{mc[0]:04X} crc root=0x{mc[1]:04X} cert=0x{mc[2]:04X} key=0x{mc[3]:04X}")
+        for t_ in (1, 2, 3):
+            if not (mc[0] & (1 << (t_ - 1))):
+                check(mc[t_] == 0, f"type {t_} not stored (mask bit clear): its CRC register reads 0")
 
     section("bad headers: exception 0x03, nothing changes")
     before = ack_status(d)
@@ -217,10 +230,12 @@ def run(d, args):
         expect_exc(commit(d, v), EXC_VALUE, f"COMMIT with 0x{v:04X} on a complete transfer")
     expect_exc(send_regs(d, REG_STAGING, ok_chunk0[:63]), EXC_VALUE, "63 registers: a chunk is exactly 64")
     expect_exc(send_regs(d, REG_STAGING + 1, ok_chunk0), EXC_ADDR, "64 registers from +1: runs into the ACK register")
-    for a_ in (REG_ACK, REG_STATUS, REG_MASK):
+    for a_ in (REG_ACK, REG_STATUS, REG_MASK, REG_CRC[1], REG_CRC[2], REG_CRC[3]):
         expect_exc(d.fc06(a_, 0), EXC_ADDR, f"FC06 to 0x{a_:04X} (read-only)")
     expect_exc(send_regs(d, REG_COMMIT, [MAGIC, 0]), EXC_ADDR, "FC16 of 2 registers from 0x0F42")
-    expect_exc(send_regs(d, REG_MASK + 1, [0]), EXC_ADDR, "FC16 past 0x0F43 (unmapped)")
+    expect_exc(send_regs(d, REG_MASK + 1, [0]), EXC_ADDR, "FC16 to 0x0F44 (CRC register, read-only)")
+    expect_exc(send_regs(d, REG_MASK, [0, 0]), EXC_ADDR, "FC16 of 2 registers from 0x0F43 (mask + CRC)")
+    expect_exc(send_regs(d, REG_CRC[3] + 1, [0]), EXC_ADDR, "FC16 past 0x0F46 (unmapped)")
     check(ack_status(d)[0] == 2, "ACK=2: nothing above changed the transfer")
 
     section("chunk 0 restarts")
@@ -254,6 +269,14 @@ def run(d, args):
               + ("" if s == 0 else " (2 = overflow, 3 = the host's storage/parser said no; read the host log)"))
         if s == 0:
             check(bool(mask & bit), f"0x0F43 bit {ctype - 1} set")
+            want = T.crc16_modbus(bytes(c0) + bytes(c1) + bytes(c2))
+            got = d.read(REG_CRC[ctype], 1)[0]
+            check(got == want, f"0x{REG_CRC[ctype]:04X} = CRC-16 of the 250 bytes sent (got 0x{got:04X}, want 0x{want:04X})")
+            check(d.read(REG_CRC[ctype], 1)[0] == got, "the CRC register is stable on a second read")
+            for t_ in (1, 2, 3):
+                if t_ != ctype and not (mask & (1 << (t_ - 1))):
+                    check(d.read(REG_CRC[t_], 1)[0] == 0, f"type {t_} still not stored: CRC register reads 0")
+            info("a power cycle should keep the same CRC: re-run without --commit and compare the info line above")
         expect_exc(commit(d), EXC_VALUE, "a second COMMIT (nothing open)")
     else:
         info("COMMIT not tested (add --commit: it REPLACES the stored certificate of --type)")
