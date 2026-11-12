@@ -515,17 +515,34 @@ static bool will_topic_empty(const uint16_t *w)
     return (w[WL_TOPIC] >> 8) == 0U;           /* first character is NUL */
 }
 
-/* Enabled=1: QoS <= 2, topic not empty / printable / no wildcard (a Will topic is a topic NAME), payload
- * printable (empty is legal MQTT). Enabled=0: kept as written, nothing is checked. */
-static bool will_valid(const uint16_t *w)
+/* A character the ST67 AT command cannot carry: the host pastes the Will topic / payload UNESCAPED
+ * between double quotes into AT+MQTTCONNCFG, so '"' and a backslash break the command. Printable
+ * ASCII alone does not exclude them. Same rule as st67_mqtt_will_text_ok() in the host port
+ * (components/st67/st67_mqtt.c), which stays as the last line of defence: keep the two in step. */
+static bool will_text_has_at_hazard(const char *str)
+{
+    for (size_t i = 0; str[i] != '\0'; i++) {
+        if (str[i] == '"' || str[i] == '\\') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Enabled=1: QoS 0..2 (QoS 3 is forced to 1, as SPLC-SPEC-MQTT-004 section 7 says, and the image is
+ * changed in place: that is why `w` is not const), topic not empty / printable / no '"' or '\' / no
+ * wildcard (a Will topic is a topic NAME), payload printable and without '"' or '\' (empty is legal
+ * MQTT). Enabled=0: kept as written, nothing is checked. */
+static bool will_valid(uint16_t *w)
 {
     if (!will_enabled_img(w)) {
         return true;
     }
     const unsigned qos = (w[WL_CONTROL] & PLC_MQTT_WILL_CTRL_QOS_MASK) >> PLC_MQTT_WILL_CTRL_QOS_SHIFT;
     if (qos > SPLC_MQTT_QOS_2) {
-        log_warn(TAG, "COMMIT: Will: bad QOS %u", qos);
-        return false;
+        w[WL_CONTROL] = (uint16_t)((w[WL_CONTROL] & ~PLC_MQTT_WILL_CTRL_QOS_MASK) |
+                                   (1U << PLC_MQTT_WILL_CTRL_QOS_SHIFT));
+        log_warn(TAG, "COMMIT: Will: QOS %u is not 0..2, forced to 1", qos);
     }
     char topic[WL_TOPIC_CHARS + 1U];
     regs_to_str(&w[WL_TOPIC], WL_TOPIC_CHARS, topic);
@@ -535,6 +552,10 @@ static bool will_valid(const uint16_t *w)
     }
     if (!ascii_printable(topic)) {
         log_warn(TAG, "COMMIT: Will: topic has a non-printable character");
+        return false;
+    }
+    if (will_text_has_at_hazard(topic)) {
+        log_warn(TAG, "COMMIT: Will: topic must not contain '\"' or a backslash");
         return false;
     }
     for (size_t i = 0; topic[i] != '\0'; i++) {
@@ -547,6 +568,10 @@ static bool will_valid(const uint16_t *w)
     regs_to_str(&w[WL_PAYLOAD], WL_PAYLOAD_CHARS, payload);
     if (!ascii_printable(payload)) {
         log_warn(TAG, "COMMIT: Will: payload has a non-printable character");
+        return false;
+    }
+    if (will_text_has_at_hazard(payload)) {
+        log_warn(TAG, "COMMIT: Will: payload must not contain '\"' or a backslash");
         return false;
     }
     return true;
