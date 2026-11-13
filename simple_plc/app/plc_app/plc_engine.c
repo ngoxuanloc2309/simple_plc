@@ -7,6 +7,7 @@
 #include "plc_retain.h"
 #include "plc_modbus_cfg.h"
 #include "plc_rtc.h"
+#include "plc_systag.h"
 #include "plc_fb.h"
 #include "plc_mqtt.h"
 #include "plc_tagtype.h"
@@ -127,6 +128,12 @@ static void scan_cycle(uint32_t now_ms)
     s_prev_cycle_tick_ms = now_ms;
 
     input_scan();
+
+#if SPLC_SYSTAG_ENABLE
+    /* System Tags 1000..1007 + Modbus 0x0820: refreshed BEFORE the rules, also while a diag
+     * session suspends the Rule Engine, so the Host's reads keep moving. */
+    plc_systag_scan(now_ms);
+#endif
 
     /*
      * Suspended while a Host holds DIAG_CONTROL (Wire Contract section 1,

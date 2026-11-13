@@ -268,6 +268,16 @@
 #endif
 
 /* ======================================================================
+ * System Tags
+ * ==================================================================== */
+/* System Tags (ICD SPLC-SPEC-SYSTEM-TAGS-006): tags 1000..1007 for the Rule Engine and the
+ * read-only Modbus block 0x0820..0x0827 (services/plc_systag/). 0 = no code, no Modbus block;
+ * a rule that names tag 1000..1007 then fails COMMIT only for the reason tags >= MAX_TAGS always did. */
+#ifndef SPLC_SYSTAG_ENABLE
+#define SPLC_SYSTAG_ENABLE               1
+#endif
+
+/* ======================================================================
  * MQTT Publish (docs/plc_mqtt_design.md section 9)
  * ==================================================================== */
 /* 1 = build plc_mqtt and route Modbus 0x0C00..0x0D7F / 0x0E00..0x0E5F to it.
@@ -661,6 +671,9 @@
 #endif
 #if (SPLC_MODBUS_MAX_TRANSPORTS < 1) || (SPLC_MODBUS_MAX_TRANSPORTS > 3)
 #error "SPLC_MODBUS_MAX_TRANSPORTS must be 1..3"
+#endif
+#if (SPLC_SYSTAG_ENABLE != 0) && (SPLC_SYSTAG_ENABLE != 1)
+#error "SPLC_SYSTAG_ENABLE must be 0 or 1"
 #endif
 #if (SPLC_WIFI_ENABLE != 0) && (SPLC_WIFI_ENABLE != 1)
 #error "SPLC_WIFI_ENABLE must be 0 or 1"

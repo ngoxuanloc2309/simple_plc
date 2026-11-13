@@ -15,6 +15,7 @@ set(SPLC_SERVICES_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_retain/plc_retain.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_modbus_cfg/plc_modbus_cfg.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rtc/plc_rtc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_systag/plc_systag.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_fb/plc_fb.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_mqtt/plc_mqtt.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_mqtt_sub/plc_mqtt_sub.c
@@ -41,6 +42,7 @@ target_include_directories(splc_services PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_retain
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_modbus_cfg
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rtc
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_systag
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_fb
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_mqtt
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_mqtt_sub

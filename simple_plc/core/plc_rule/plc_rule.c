@@ -150,7 +150,7 @@ int rule_table_find_bad_tag(const SPLC_RuleRecord *table, uint16_t rule_count,
         }
         SPLC_RuleTagField bad_field;
         uint16_t          bad_value;
-        if (trigger_tag_is_used(r) && r->trigger_tag >= MAX_TAGS) {
+        if (trigger_tag_is_used(r) && r->trigger_tag >= MAX_TAGS && !tag_is_system(r->trigger_tag)) {
             bad_field = RULE_TAG_FIELD_TRIGGER;
             bad_value = r->trigger_tag;
         } else if (action_tag_is_used(r) && r->action_tag >= MAX_TAGS) {
@@ -158,7 +158,7 @@ int rule_table_find_bad_tag(const SPLC_RuleRecord *table, uint16_t rule_count,
             bad_value = r->action_tag;
         } else {
             const uint16_t guard_idx = (uint16_t)(r->guard_tag & GUARD_TAG_INDEX_MASK);
-            if (guard_idx == GUARD_TAG_NONE || guard_idx < MAX_TAGS) {
+            if (guard_idx == GUARD_TAG_NONE || guard_idx < MAX_TAGS || tag_is_system(guard_idx)) {
                 continue;
             }
             bad_field = RULE_TAG_FIELD_GUARD;

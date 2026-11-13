@@ -11,6 +11,10 @@
 SPLC_Tag    g_tag_table[MAX_TAGS];
 int32_t     g_tag_value[MAX_TAGS];
 
+/* System Tags 1000..1007 (see plc_tag.h). Separate from g_tag_value[]: written only by
+ * plc_systag.c, read through tag_read(). */
+static int32_t s_sys_value[TAG_SYS_COUNT];
+
 /*
  * Base index of each tag group, computed once by tag_table_load_from_flash()
  * from the SPLC_TagLayout it was given. DI's base is always 0 by
@@ -103,6 +107,9 @@ uint16_t tag_counter_base_index(void)     { return s_counter_base; }
 
 int32_t tag_read(uint16_t idx)
 {
+    if (tag_is_system(idx)) {
+        return s_sys_value[idx - TAG_SYS_BASE_INDEX];
+    }
     if (idx >= MAX_TAGS) {
         return 0;
     }
@@ -123,4 +130,16 @@ SPLC_TagKind tag_get_kind(uint16_t idx)
         return TAG_NONE;
     }
     return (SPLC_TagKind)g_tag_table[idx].kind;
+}
+
+void tag_system_set(uint16_t sys_idx, int32_t value)
+{
+    if (sys_idx < TAG_SYS_COUNT) {
+        s_sys_value[sys_idx] = value;
+    }
+}
+
+int32_t tag_system_get(uint16_t sys_idx)
+{
+    return (sys_idx < TAG_SYS_COUNT) ? s_sys_value[sys_idx] : 0;
 }

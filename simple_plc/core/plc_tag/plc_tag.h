@@ -14,6 +14,7 @@
  */
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -175,6 +176,31 @@ void tag_write(uint16_t idx, int32_t value);
  * returns: one of SPLC_TagKind
  */
 SPLC_TagKind tag_get_kind(uint16_t idx);
+
+/*
+ * System Tags (ICD SPLC-SPEC-SYSTEM-TAGS-006): 8 read-only values at the fixed tag
+ * indices 1000..1007, the same on every board (SYS_FIRST_SCAN, SYS_ON, SYS_OFF,
+ * SYS_CLOCK_1S, SYS_CLOCK_100MS, SYS_RTC_HOUR, SYS_RTC_MINUTE, SYS_COMM_OK). They live
+ * outside g_tag_value[]/g_tag_table[] (indices >= MAX_TAGS), so nothing about the tag
+ * layout, Flash or the Modbus runtime-tag window changes. tag_read() returns them;
+ * tag_write() ignores them; tag_get_kind() reports TAG_NONE for them. A rule may READ
+ * them as trigger_tag / guard_tag; as action_tag they are refused at COMMIT
+ * (rule_table_find_bad_tag()).
+ */
+#define TAG_SYS_BASE_INDEX   1000u
+#define TAG_SYS_COUNT        8u
+
+static inline bool tag_is_system(uint16_t idx)
+{
+    return (idx >= TAG_SYS_BASE_INDEX) && (idx < (TAG_SYS_BASE_INDEX + TAG_SYS_COUNT));
+}
+
+/* Set System Tag number `sys_idx` (0..7 = tag 1000..1007). Only plc_systag.c calls this,
+ * once per scan cycle. Out-of-range sys_idx is ignored. */
+void tag_system_set(uint16_t sys_idx, int32_t value);
+
+/* Current value of System Tag number `sys_idx` (0..7); 0 if out of range. */
+int32_t tag_system_get(uint16_t sys_idx);
 
 #ifdef __cplusplus
 }

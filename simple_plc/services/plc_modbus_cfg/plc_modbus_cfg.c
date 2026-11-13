@@ -8,6 +8,7 @@
 #include "plc_rule.h"
 #include "plc_rule_flash.h" /* plc_rule_flash_save(), called from write_commit_command() */
 #include "plc_retain.h"     /* retain_snapshot_write(), called from CMD_COMMIT_RETAIN */
+#include "plc_systag.h"     /* System Tags block 0x0820..0x0827 (SPLC_SYSTAG_ENABLE=1 only) */
 #include "plc_rtc.h"        /* RTC block 0x0810..0x0813, see cb_write_multiple_registers() */
 #include "plc_fb.h"         /* FB block 0x0B00..0x0B7F, see cb_write_multiple_registers() */
 #include "plc_mqtt.h"       /* MQTT blocks 0x0C00..0x0D7F / 0x0E00..0x0E5F / Last Will 0x0E60..0x0E7F (SPLC_MQTT_ENABLE=1 only) */
@@ -1504,6 +1505,9 @@ static const modbus_block_t s_blocks[] = {
     { 0x0100, 0x073F, false, read_active_rule_table,      NULL },
     { 0x0800, 0x0809, true,  read_device_health,          NULL },
     { 0x0810, 0x0813, true,  plc_rtc_read,                NULL },   /* FC16 writes handled in cb_write_multiple_registers (needs distinct exceptions) */
+#if SPLC_SYSTAG_ENABLE
+    { 0x0820, 0x0827, true,  plc_systag_read,             NULL },   /* System Tags 1000..1007, RO (SYSTEM-TAGS-006); no write callback = writes refused */
+#endif
     { 0x0900, 0x09FF, false, read_runtime_tag_values,     NULL },
     { 0x0A01, 0x0A02, true,  read_system_command_result,  NULL },
 #if SPLC_HAS_HW_CAPS

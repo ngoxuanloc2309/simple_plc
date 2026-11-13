@@ -76,6 +76,7 @@ typedef enum {
     SPLC_TRG_INTERVAL,        /* Fires periodically at a fixed interval */
 } SPLC_TriggerType;
 
+
 /*
  * CompareOp selects how the current tag value is compared against
  * threshold_lo/threshold_hi before a rule is allowed to fire.
