@@ -27,7 +27,8 @@ What the default run does (no Flash is written):
      minute rollover. The RTC is set to this PC's clock again at the end (--skip-rtc: do not
      touch the RTC; then only the plausibility checks of step 1 apply).
   4. Read-only: FC06 / FC16 into 0x0820..0x0827 are refused and the values are unchanged;
-     a read that runs past 0x0827 (0x0828 is not mapped) is refused.
+     a read that runs past 0x0827 is served, the unmapped 0x0828 reads as 0 (by design of
+     cb_read_holding_registers in plc_modbus_cfg.c: gaps and unmapped registers read as 0).
 
 --rule (WRITES Flash: replaces the rule table and ends with CLEAR_RULES, which also wipes
 MQTT/FB config the App deployed. Dev board only):
@@ -428,7 +429,13 @@ def step_readonly(d):
     regs, err = d.try_read(REG_SYSTAG + 1, 8)            # 0x0821..0x0828: last one not mapped
     if err is not None and getattr(err, "link", False):
         raise LinkError(f"read past the block: {err}")
-    check(err is not None, f"a read running past 0x0827 is refused (exception {exc_code(err) if err else None})")
+    # Firmware design: a read crossing the end of a block is NOT refused; unmapped registers
+    # read as 0 (plc_modbus_cfg.c, cb_read_holding_registers). So expect 8 values, the last = 0,
+    # and 0x0821..0x0827 equal to the tags read through the normal 8-register read (ON/OFF are static).
+    check(err is None and regs is not None and len(regs) == 8 and regs[7] == 0,
+          f"a read running past 0x0827 is served, 0x0828 (unmapped) reads 0 (got {regs}, err {err})")
+    if err is None and regs is not None and len(regs) == 8:
+        check(regs[0] == 1 and regs[1] == 0, "ON/OFF inside the over-long read are 1 / 0")
     regs, err = d.try_read(REG_SYSTAG + 5, 3)            # 0x0825..0x0827: inside
     check(err is None and len(regs) == 3, "a partial read inside the block works (0x0825 x3)")
     _ = before

@@ -11,17 +11,17 @@
 #define WIFI_IO_COUNTER_NUM         8
 
 /*DI Configuration*/
-#define DI0_PORT                    GPIOA
-#define DI0_PIN                     GPIO_PIN_8   
-
-#define DI1_PORT                    GPIOB
-#define DI1_PIN                     GPIO_PIN_13  
+#define DI3_PORT                    GPIOA
+#define DI3_PIN                     GPIO_PIN_8   
 
 #define DI2_PORT                    GPIOB
-#define DI2_PIN                     GPIO_PIN_12  
+#define DI2_PIN                     GPIO_PIN_13  
 
-#define DI3_PORT                    GPIOB
-#define DI3_PIN                     GPIO_PIN_10
+#define DI1_PORT                    GPIOB
+#define DI1_PIN                     GPIO_PIN_12  
+
+#define DI0_PORT                    GPIOB
+#define DI0_PIN                     GPIO_PIN_10
 
 /*DO Configuration*/
 #define DO0_PORT                    GPIOB
