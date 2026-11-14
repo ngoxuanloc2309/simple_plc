@@ -118,7 +118,8 @@ def run(d, args):
     table = d.read(REG_PORT_TABLE, PORT_TABLE_REGS)
     rec = table[idx * PORT_REGS:(idx + 1) * PORT_REGS]
     info(f"before: control=0x{rec[0]:04X} (enabled={bool(rec[0] & 0x100)}) baud={(rec[1] << 16) | rec[2]} "
-         f"parity={rec[3]} framing=0x{rec[4]:04X} timeout={rec[5]} gap={rec[6]} retries={rec[7]}")
+         f"parity={rec[3]} framing=0x{rec[4]:04X} timeout={rec[5]} gap={rec[6]} retries={rec[7]} "
+         f"role={rec[14]} ({'SLAVE' if rec[14] == 1 else 'master'}) slave_id={rec[15]}")
     new = list(table)
     b = idx * PORT_REGS
     new[b + 0] = 0x0100 | (idx + 1)
@@ -126,6 +127,7 @@ def run(d, args):
     new[b + 3] = PARITY[args.parity]
     new[b + 4] = (8 << 8) | args.stop
     new[b + 5], new[b + 6], new[b + 7] = 200, 20, 1
+    new[b + 14], new[b + 15] = 0, 0                      # role = Master (a Slave port never polls and reports err_code 1)
     resp = d.write_regs(REG_PORT_TABLE, new)
     if not check(resp is None, "port table written into the draft"):
         return None
@@ -151,6 +153,7 @@ def run(d, args):
         info("see the device log: 'block 0: port N, the device has M' / 'target tag ... not writable'")
         return None
     rec = d.read(REG_PORT_TABLE + idx * PORT_REGS, PORT_REGS)
+    check(rec[14] == 0, f"port {args.rs485_port} role reads back as Master (role={rec[14]})")
     check(bool(rec[0] & 0x100) and ((rec[1] << 16) | rec[2]) == args.baud,
           f"port {args.rs485_port} reads back enabled at {(rec[1] << 16) | rec[2]} baud")
 
@@ -192,6 +195,8 @@ def run(d, args):
                3: "the slave answered a Modbus exception", 4: "malformed / wrong-size answer"}.get(code, "?")
         check(False, f"poll failed: error={err} err_code={code} ({why})")
         if code == 1:
+            info("err_code 1 is ALSO reported WITHOUT sending anything (port not registered / disabled / role Slave):")
+            info("  look in the board log for: 'block 0: port N ... the block reports err_code 1' (log_warn)")
             info("compare with the simulator window:")
             info("  * NO 'RX' line there  -> the board did not transmit on this port:")
             info("      host never called splc_mbm_set_rs485_port() for it, A/B wiring, or the port is disabled")
