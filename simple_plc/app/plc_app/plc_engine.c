@@ -8,6 +8,7 @@
 #include "plc_modbus_cfg.h"
 #include "plc_rtc.h"
 #include "plc_systag.h"
+#include "plc_wdt.h"         /* channel PLC of the watchdog supervisor (SPLC_WDG_ENABLE) */
 #include "plc_fb.h"
 #include "plc_mqtt.h"
 #include "plc_tagtype.h"
@@ -52,6 +53,10 @@ static uint32_t s_prev_cycle_tick_ms = 0U;
 
 void plc_engine_init(void)
 {
+    /* Channel PLC: from here until the first plc_engine_poll() only SPLC_WDG_BOOT_GRACE_MS counts
+     * (board init, Flash rule load). No-op with SPLC_WDG_ENABLE = 0. */
+    (void)plc_wdt_register(PLC_WDT_CH_PLC, "PLC", SPLC_WDG_PLC_TIMEOUT_MS, SPLC_WDG_BOOT_GRACE_MS);
+
     /*
      * board_get_tag_layout() is a plain data query (no GPIO/UART/USB touched
      * -- see its doc-comment in splc_board.h), so it is safe to call before
@@ -240,4 +245,5 @@ void plc_engine_poll(void)
         s_last_scan_tick_ms = now;
         scan_cycle(now);
     }
+    plc_wdt_alive(PLC_WDT_CH_PLC);   /* the engine task got round the loop: feed channel PLC */
 }

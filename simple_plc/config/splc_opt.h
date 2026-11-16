@@ -278,6 +278,37 @@
 #endif
 
 /* ======================================================================
+ * Watchdog supervisor (docs/SPLC_Watchdog_Design.md)
+ * ==================================================================== */
+/* 1 = build services/plc_wdt: software supervisor in front of a hardware watchdog (IWDG). The
+ * host registers the kick function and calls plc_wdt_service(). 0 = no code, no RAM. */
+#ifndef SPLC_WDG_ENABLE
+#define SPLC_WDG_ENABLE                  0
+#endif
+/* Hardware watchdog timeout the host configured (IWDG prescaler/reload), in ms. The library only
+ * uses it for the compile-time checks below; the host port compares it with the real register
+ * values at boot. */
+#ifndef SPLC_WDG_HW_TIMEOUT_MS
+#define SPLC_WDG_HW_TIMEOUT_MS           5000U
+#endif
+/* How often the host calls plc_wdt_service(). */
+#ifndef SPLC_WDG_SERVICE_MS
+#define SPLC_WDG_SERVICE_MS              500U
+#endif
+/* Channel PLC (the engine task): longest allowed gap between two plc_engine_poll() calls. */
+#ifndef SPLC_WDG_PLC_TIMEOUT_MS
+#define SPLC_WDG_PLC_TIMEOUT_MS          2000U
+#endif
+/* Time a channel may take until its FIRST plc_wdt_alive() after registration. */
+#ifndef SPLC_WDG_BOOT_GRACE_MS
+#define SPLC_WDG_BOOT_GRACE_MS           30000U
+#endif
+/* Extra time given to channel PLC before a Flash erase+write (rule table, retain sector). */
+#ifndef SPLC_WDG_FLASH_GRACE_MS
+#define SPLC_WDG_FLASH_GRACE_MS          3000U
+#endif
+
+/* ======================================================================
  * MQTT Publish (docs/plc_mqtt_design.md section 9)
  * ==================================================================== */
 /* 1 = build plc_mqtt and route Modbus 0x0C00..0x0D7F / 0x0E00..0x0E5F to it.
@@ -674,6 +705,23 @@
 #endif
 #if (SPLC_SYSTAG_ENABLE != 0) && (SPLC_SYSTAG_ENABLE != 1)
 #error "SPLC_SYSTAG_ENABLE must be 0 or 1"
+#endif
+#if (SPLC_WDG_ENABLE != 0) && (SPLC_WDG_ENABLE != 1)
+#error "SPLC_WDG_ENABLE must be 0 or 1"
+#endif
+#if SPLC_WDG_ENABLE
+#if (SPLC_WDG_SERVICE_MS < 50) || (SPLC_WDG_SERVICE_MS > 5000)
+#error "SPLC_WDG_SERVICE_MS must be 50..5000"
+#endif
+#if SPLC_WDG_HW_TIMEOUT_MS < (4U * SPLC_WDG_SERVICE_MS)
+#error "SPLC_WDG_HW_TIMEOUT_MS must be at least 4 x SPLC_WDG_SERVICE_MS (one late service call must not reset the board)"
+#endif
+#if SPLC_WDG_HW_TIMEOUT_MS > 60000U
+#error "SPLC_WDG_HW_TIMEOUT_MS above 60 s: recovery from a hang would take too long (policy limit, not a hardware limit)"
+#endif
+#if SPLC_WDG_PLC_TIMEOUT_MS < 100U
+#error "SPLC_WDG_PLC_TIMEOUT_MS must be at least 100"
+#endif
 #endif
 #if (SPLC_WIFI_ENABLE != 0) && (SPLC_WIFI_ENABLE != 1)
 #error "SPLC_WIFI_ENABLE must be 0 or 1"

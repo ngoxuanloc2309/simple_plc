@@ -45,6 +45,7 @@
 #include "splc_flash_define.h"
 #include "sx_flash.h"
 #include "sx_time.h"
+#include "plc_wdt.h"    /* plc_wdt_grace(): a sector erase is slow (main loop only) */
 #include "splc_nmbs.h"
 #include "plc_tag.h"
 
@@ -279,6 +280,7 @@ static bool retain_sector_is_blank(uint32_t sector_idx)
  * for a program (plc_rule_flash.c does unlock -> erase -> write -> lock). */
 static void retain_erase_sector(uint32_t sector_idx)
 {
+    plc_wdt_grace(PLC_WDT_CH_PLC, SPLC_WDG_FLASH_GRACE_MS);
     sx_flash_unlock();
     sx_flash_erase(retain_sector_addr(sector_idx), SPLC_FLASH_SECTOR_SIZE);
     sx_flash_lock();

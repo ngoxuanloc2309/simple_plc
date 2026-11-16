@@ -73,6 +73,14 @@
 /* #define SPLC_IND_STATUS_FAILED_MS     2000 */   /* STATUS flashes once per this period on failure */
 /* #define SPLC_LED_FLASH_ON_MS          100 */    /* length of one STATUS flash */
 
+/* --- Watchdog supervisor (docs/SPLC_Watchdog_Design.md) -------------------- */
+/* #define SPLC_WDG_ENABLE               0 */      /* 1 = build plc_wdt: the host registers the hardware-watchdog kick (plc_wdt_set_kick_fn) and calls plc_wdt_service(); 0 = no code */
+/* #define SPLC_WDG_HW_TIMEOUT_MS        5000U */  /* hardware watchdog timeout the host configured; used for compile-time checks only */
+/* #define SPLC_WDG_SERVICE_MS           500U */   /* 50..5000: period of plc_wdt_service() */
+/* #define SPLC_WDG_PLC_TIMEOUT_MS       2000U */  /* longest gap between two plc_engine_poll() calls */
+/* #define SPLC_WDG_BOOT_GRACE_MS        30000U */ /* time until the first plc_wdt_alive() of a channel */
+/* #define SPLC_WDG_FLASH_GRACE_MS       3000U */  /* extra time for channel PLC around a Flash erase+write */
+
 /* --- REAL (float32) tags ---------------------------------------------- */
 /* #define SPLC_REAL_ENABLE              0 */      /* 1 = Tag DataType Registry 0x0080 (BOOL/INT32/REAL per tag) + float32 Rule Engine (rule flags bit 0); 0 = no change at all */
 

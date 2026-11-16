@@ -36,6 +36,7 @@
 #endif
 #include "plc_retain.h"     /* retain_flash_op_begin()/end(): keeps the PVD write off the Flash during this one */
 #include "splc_log.h"
+#include "plc_wdt.h"        /* plc_wdt_grace(): erase+write of the rule sector is slow */
 
 static const char *TAG = "PLC_RULE_FLASH";
 
@@ -551,6 +552,7 @@ static void rule_flash_write_sector(uint32_t dst_addr, uint32_t size)
     /* Flash-operation guard: if the PVD interrupt fires while this erase
      * +write is running it must not start its own Flash operation (see
      * plc_retain.h); it defers the retain snapshot to retain_service(). */
+    plc_wdt_grace(PLC_WDT_CH_PLC, SPLC_WDG_FLASH_GRACE_MS);
     retain_flash_op_begin();
     sx_flash_unlock();
     sx_flash_erase(dst_addr, SPLC_FLASH_RULE_TABLE_SIZE);
