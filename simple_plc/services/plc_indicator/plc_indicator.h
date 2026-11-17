@@ -16,11 +16,14 @@
  * What the LEDs show (the library's constants, the same on every product):
  *   POWER   lit from splc_indicator_init().
  *   Nothing registered: only POWER is lit.
- *   Every enabled protocol CONNECTED: STATUS and LINK steady on.
+ *   Every enabled protocol CONNECTED: LINK steady on; STATUS steady on, or with
+ *     SPLC_IND_HEARTBEAT_PERIOD_MS > 0 a heartbeat (SPLC_IND_HEARTBEAT_ON_MS on per period),
+ *     drawn by the scan itself: a frozen engine stops the pulse.
  *   Otherwise the REPORTED set = enabled, not CONNECTED and not hidden by depends_on.
  *     LINK   : the pattern of the protocol being shown (the product's choice).
  *     STATUS : CONNECTING flashes once per SPLC_IND_STATUS_CONNECTING_MS,
- *              FAILED once per SPLC_IND_STATUS_FAILED_MS.
+ *              FAILED once per SPLC_IND_STATUS_FAILED_MS (both SPLC_LED_FLASH_ON_MS long),
+ *              STALLED once per SPLC_IND_STATUS_STALLED_MS (SPLC_IND_STATUS_STALLED_ON_MS long).
  *     Several protocols in the set take turns, SPLC_IND_SLOT_MS each (rounded up to whole
  *     pattern cycles), with SPLC_IND_GAP_MS of BOTH LEDs off between two of them. One
  *     protocol alone is shown continuously, with no gap.

@@ -21,14 +21,17 @@ typedef enum {
     SPLC_LED_COUNT  = 3
 } SPLC_LED_ID;
 
-/* The four states every protocol is reduced to by its get_state() (design section 2).
+/* The states every protocol is reduced to by its get_state() (design section 2).
  * Mapping from plc_zigbee: OFF -> DISABLED, JOINING -> CONNECTING, UP -> CONNECTED,
- * ERROR -> FAILED. */
+ * ERROR -> FAILED. STALLED is for a port that notices the task which keeps its state has
+ * stopped running: the state it would report is out of date. Reported like FAILED, but STATUS
+ * flashes with its own, slower rhythm (SPLC_IND_STATUS_STALLED_MS / _ON_MS). */
 typedef enum {
     SPLC_LINK_STATE_DISABLED   = 0,   /* not enabled / not configured: ignored   */
     SPLC_LINK_STATE_CONNECTING = 1,   /* joining, associating, DHCP, registering */
     SPLC_LINK_STATE_CONNECTED  = 2,   /* usable                                  */
-    SPLC_LINK_STATE_FAILED     = 3    /* enabled but not usable                  */
+    SPLC_LINK_STATE_FAILED     = 3,   /* enabled but not usable                  */
+    SPLC_LINK_STATE_STALLED    = 4    /* the task behind this state stopped      */
 } SPLC_LINK_STATE;
 
 /* Diagnostic detail a port may keep next to its state. It does NOT change what the LEDs

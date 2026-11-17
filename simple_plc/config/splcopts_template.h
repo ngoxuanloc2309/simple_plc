@@ -73,6 +73,13 @@
 /* #define SPLC_IND_STATUS_FAILED_MS     2000 */   /* STATUS flashes once per this period on failure */
 /* #define SPLC_LED_FLASH_ON_MS          100 */    /* length of one STATUS flash */
 
+/* #define SPLC_IND_STATUS_STALLED_MS    2000 */   /* STALLED: STATUS period (default = SPLC_IND_STATUS_FAILED_MS) */
+/* #define SPLC_IND_STATUS_STALLED_ON_MS 100 */    /* STALLED: STATUS on-time (default = SPLC_LED_FLASH_ON_MS), 10..below the period */
+
+/* --- Connection indicator heartbeat ------------------------------------------------ */
+/* #define SPLC_IND_HEARTBEAT_PERIOD_MS  0 */    /* 0 = STATUS steady on when all OK; 200..10000 = STATUS pulses once per period (LINK stays on) */
+/* #define SPLC_IND_HEARTBEAT_ON_MS      100 */  /* length of the pulse, 20..PERIOD/2 */
+
 /* --- Watchdog supervisor (docs/SPLC_Watchdog_Design.md) -------------------- */
 /* #define SPLC_WDG_ENABLE               0 */      /* 1 = build plc_wdt: the host registers the hardware-watchdog kick (plc_wdt_set_kick_fn) and calls plc_wdt_service(); 0 = no code */
 /* #define SPLC_WDG_HW_TIMEOUT_MS        5000U */  /* hardware watchdog timeout the host configured; used for compile-time checks only */

@@ -394,6 +394,25 @@
 #ifndef SPLC_IND_STATUS_FAILED_MS
 #define SPLC_IND_STATUS_FAILED_MS        2000
 #endif
+/* STALLED (the task behind a protocol's state stopped): STATUS has its own rhythm. Defaults keep it
+ * the same as FAILED. */
+#ifndef SPLC_IND_STATUS_STALLED_MS
+#define SPLC_IND_STATUS_STALLED_MS       SPLC_IND_STATUS_FAILED_MS
+#endif
+#ifndef SPLC_IND_STATUS_STALLED_ON_MS
+#define SPLC_IND_STATUS_STALLED_ON_MS    SPLC_LED_FLASH_ON_MS
+#endif
+/* Heartbeat: with every connection OK, STATUS pulses instead of staying on (LINK stays on), so a
+ * frozen engine is visible: a pulsing LED is alive, an LED that stopped (on or off) is not.
+ * The pulse is drawn by splc_indicator_scan(), i.e. by the PLC scan itself, never by a timer.
+ * PERIOD_MS = 0: old behaviour, STATUS steady on. */
+#ifndef SPLC_IND_HEARTBEAT_PERIOD_MS
+#define SPLC_IND_HEARTBEAT_PERIOD_MS     0
+#endif
+#ifndef SPLC_IND_HEARTBEAT_ON_MS
+#define SPLC_IND_HEARTBEAT_ON_MS         100
+#endif
+
 /* Length of one STATUS flash. The scan runs every PLC_SCAN_INTERVAL_MS, so this is also the
  * shortest visible pulse. */
 #ifndef SPLC_LED_FLASH_ON_MS
@@ -772,6 +791,12 @@
 #if (SPLC_IND_GAP_MS > 10000)
 #error "SPLC_IND_GAP_MS must be 0..10000"
 #endif
+#if (SPLC_IND_HEARTBEAT_PERIOD_MS != 0) && ((SPLC_IND_HEARTBEAT_PERIOD_MS < 200) || (SPLC_IND_HEARTBEAT_PERIOD_MS > 10000))
+#error "SPLC_IND_HEARTBEAT_PERIOD_MS must be 0 (off) or 200..10000"
+#endif
+#if (SPLC_IND_HEARTBEAT_PERIOD_MS != 0) && ((SPLC_IND_HEARTBEAT_ON_MS < 20) || (SPLC_IND_HEARTBEAT_ON_MS * 2 > SPLC_IND_HEARTBEAT_PERIOD_MS))
+#error "SPLC_IND_HEARTBEAT_ON_MS must be 20..PERIOD/2"
+#endif
 #if (SPLC_LED_FLASH_ON_MS < 10) || (SPLC_LED_FLASH_ON_MS > 1000)
 #error "SPLC_LED_FLASH_ON_MS must be 10..1000"
 #endif
@@ -780,6 +805,9 @@
 #endif
 #if (SPLC_IND_STATUS_FAILED_MS <= SPLC_LED_FLASH_ON_MS) || (SPLC_IND_STATUS_FAILED_MS > 10000)
 #error "SPLC_IND_STATUS_FAILED_MS must be above SPLC_LED_FLASH_ON_MS and at most 10000"
+#endif
+#if (SPLC_IND_STATUS_STALLED_ON_MS < 10) || (SPLC_IND_STATUS_STALLED_MS <= SPLC_IND_STATUS_STALLED_ON_MS) || (SPLC_IND_STATUS_STALLED_MS > 10000)
+#error "SPLC_IND_STATUS_STALLED_ON_MS must be at least 10 and below SPLC_IND_STATUS_STALLED_MS (at most 10000)"
 #endif
 #endif
 #if (SPLC_MQTT_PAYLOAD_MAX < 128) || (SPLC_MQTT_PAYLOAD_MAX > 512)

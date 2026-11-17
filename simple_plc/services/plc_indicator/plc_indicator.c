@@ -94,6 +94,7 @@ static const char *state_name(SPLC_LINK_STATE st)
     case SPLC_LINK_STATE_DISABLED:   return "disabled";
     case SPLC_LINK_STATE_CONNECTING: return "connecting";
     case SPLC_LINK_STATE_CONNECTED:  return "connected";
+    case SPLC_LINK_STATE_STALLED:    return "stalled";
     default:                         return "failed";
     }
 }
@@ -112,17 +113,19 @@ static uint8_t sample_and_mask(void)
 
     for (i = 0U; i < s.n; i++) {
         SPLC_LINK_STATE st = s.proto[i].get_state(s.proto[i].ctx);
-        if ((unsigned)st > (unsigned)SPLC_LINK_STATE_FAILED) {
+        if ((unsigned)st > (unsigned)SPLC_LINK_STATE_STALLED) {
             st = SPLC_LINK_STATE_FAILED;       /* a port returning garbage is shown as a failure */
         }
         s.state[i] = st;
     }
     for (i = 0U; i < s.n; i++) {
-        bool report = (s.state[i] == SPLC_LINK_STATE_CONNECTING) || (s.state[i] == SPLC_LINK_STATE_FAILED);
+        bool report = (s.state[i] == SPLC_LINK_STATE_CONNECTING) || (s.state[i] == SPLC_LINK_STATE_FAILED) ||
+                      (s.state[i] == SPLC_LINK_STATE_STALLED);
 
         if (report && (s.proto[i].depends_on != 0U)) {
             SPLC_LINK_STATE ps = s.state[s.proto[i].depends_on - 1U];   /* always an earlier row */
-            if ((ps == SPLC_LINK_STATE_CONNECTING) || (ps == SPLC_LINK_STATE_FAILED)) {
+            if ((ps == SPLC_LINK_STATE_CONNECTING) || (ps == SPLC_LINK_STATE_FAILED) ||
+                (ps == SPLC_LINK_STATE_STALLED)) {
                 report = false;                /* the base link is down: this one cannot work */
             }
         }
@@ -202,6 +205,7 @@ static void render(uint32_t now)
     const splc_ind_proto_t *p = &s.proto[s.cur];
     SPLC_LINK_STATE st = s.state[s.cur];
     uint32_t period;
+    uint32_t on_ms;
     uint32_t el;
 
     led_write(SPLC_LED_LINK, pattern_on(&p->pattern, (uint32_t)(now - s.anchor)));
@@ -211,10 +215,18 @@ static void render(uint32_t now)
         s.st_state = st;
         s.st_anchor = now;
     }
-    period = (st == SPLC_LINK_STATE_CONNECTING) ? SPLC_IND_STATUS_CONNECTING_MS
-                                                : SPLC_IND_STATUS_FAILED_MS;
+    if (st == SPLC_LINK_STATE_CONNECTING) {
+        period = SPLC_IND_STATUS_CONNECTING_MS;
+        on_ms  = SPLC_LED_FLASH_ON_MS;
+    } else if (st == SPLC_LINK_STATE_STALLED) {
+        period = SPLC_IND_STATUS_STALLED_MS;
+        on_ms  = SPLC_IND_STATUS_STALLED_ON_MS;
+    } else {
+        period = SPLC_IND_STATUS_FAILED_MS;
+        on_ms  = SPLC_LED_FLASH_ON_MS;
+    }
     el = (uint32_t)(now - s.st_anchor);
-    led_write(SPLC_LED_STATUS, (el % period) < SPLC_LED_FLASH_ON_MS);
+    led_write(SPLC_LED_STATUS, (el % period) < on_ms);
     s.st_anchor += (el / period) * period;
 }
 
@@ -288,7 +300,12 @@ void splc_indicator_scan(uint32_t now_ms)
         }
         s.mode = MODE_STEADY;
         s.cur = -1;
+#if SPLC_IND_HEARTBEAT_PERIOD_MS != 0
+        /* Heartbeat: written by this scan only. If the engine task stops, so does the pulse. */
+        led_write(SPLC_LED_STATUS, (now_ms % (uint32_t)SPLC_IND_HEARTBEAT_PERIOD_MS) < (uint32_t)SPLC_IND_HEARTBEAT_ON_MS);
+#else
         led_write(SPLC_LED_STATUS, true);
+#endif
         led_write(SPLC_LED_LINK, true);
         return;
     }
