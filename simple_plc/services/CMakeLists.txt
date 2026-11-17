@@ -28,6 +28,7 @@ set(SPLC_SERVICES_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_zigbee/plc_zigbee.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_indicator/plc_indicator.c
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule_flash/plc_rule_flash.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_wdt/plc_wdt.c
 )
 
 add_library(splc_services STATIC ${SPLC_SERVICES_SRC})
@@ -55,6 +56,7 @@ target_include_directories(splc_services PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_zigbee
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_indicator
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_rule_flash
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_wdt
 )
 
 # plc_rtc.c includes splc_epoch.h (Layer U, utils/epoch/). Only the header
