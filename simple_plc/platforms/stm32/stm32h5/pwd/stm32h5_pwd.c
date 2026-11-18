@@ -6,9 +6,17 @@
  * PVD (Programmable Voltage Detector) low-voltage early warning.
  *
  * What CubeMX already provides (Core/Src/stm32h5xx_hal_msp.c,
- * HAL_MspInit()): the PVD threshold (PWR_PVDLEVEL_4), falling-edge
- * interrupt mode, and HAL_PWR_EnablePVD(). That configures the detector
- * and its EXTI line ONLY. It does NOT enable PVD_AVD_IRQn in the NVIC and
+ * HAL_MspInit()): the PVD threshold (PWR_PVDLEVEL_4), interrupt on BOTH
+ * edges (PWR_PVD_MODE_IT_RISING_FALLING), and HAL_PWR_EnablePVD(). That
+ * configures the detector and its EXTI line ONLY.
+ *
+ * Edge polarity: the PVD output (PWR_VMSR.PVDO) is 1 while VDD is BELOW the
+ * threshold, so the EXTI RISING edge is "VDD dropped" and the FALLING edge is
+ * "VDD recovered" -- the opposite of what the names suggest. A falling-edge-only
+ * configuration (CubeMX "falling") fires when the supply comes BACK, never at
+ * power loss, and the emergency retain write then never runs. Both edges are
+ * enabled and HAL_PWR_PVDCallback() below acts only while PVDO = 1, so the
+ * result does not depend on the polarity convention. It does NOT enable PVD_AVD_IRQn in the NVIC and
  * does NOT generate PVD_AVD_IRQHandler() (the .ioc has no NVIC entry for
  * it, and startup_stm32h523xx.s maps the vector to Default_Handler). This
  * file supplies both, so no CubeMX-generated file has to be edited:
@@ -78,6 +86,10 @@ void PVD_AVD_IRQHandler(void)
  */
 void HAL_PWR_PVDCallback(void)
 {
+    /* Both edges interrupt: only the "VDD below the threshold" one is a power loss. */
+    if (!__HAL_PWR_GET_FLAG(PWR_FLAG_PVDO)) {
+        return;
+    }
     void (*cb)(void) = s_low_voltage_cb;
     if (cb != NULL) {
         cb();

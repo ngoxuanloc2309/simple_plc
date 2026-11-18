@@ -5,6 +5,17 @@
 
 static const char *TAG = "PLC_RTC";
 
+/* What the STM32 RTC can hold: 2000-01-01 00:00:00 .. 2099-12-31 23:59:59 UTC. */
+#define RTC_EPOCH_MIN   946684800UL
+#define RTC_EPOCH_MAX   4102444799UL
+
+/* Real-world UTC offsets: UTC-12:00 .. UTC+14:00. */
+#define RTC_TZ_MIN_MIN  (-720)
+#define RTC_TZ_MAX_MIN  (840)
+
+static int16_t s_tz_offset_min = 0;
+static bool    s_tz_known      = false;   /* written by a Host since boot, or restored by tz_load */
+
 /* ----------------------------------------------------------------------
  * Clock backend: hw_get_epoch() / hw_set_epoch() / hw_is_synced().
  *   SPLC_RTC_EXTERNAL = 0: the Layer 1 contract sx_rtc_*() (built-in STM32H5
@@ -34,6 +45,69 @@ static bool     s_cache_ok;        /* last get_epoch() succeeded */
 static uint32_t s_cache_epoch;     /* epoch at s_cache_ms */
 static uint32_t s_cache_ms;
 static bool     s_cache_synced;
+static bool     s_tz_load_pending; /* tz_load() has not given a final answer yet */
+static bool     s_tz_tried;        /* tz_load() was called at least once */
+static uint32_t s_tz_last_try_ms;  /* tick of the last tz_load() call */
+static bool     s_tz_stored_valid; /* the product's store is known to hold s_tz_stored */
+static int16_t  s_tz_stored;
+
+/* Asks the product for the stored timezone offset (if it has a tz_load hook) until it gives a
+ * final answer. A Host that already wrote the offset wins: nothing is restored over it. */
+static void tz_try_restore(void)
+{
+    if (!s_tz_load_pending || !s_ops_set || s_ops.tz_load == NULL) {
+        return;
+    }
+    if (s_tz_known) {
+        s_tz_load_pending = false;
+        return;
+    }
+    /* Asked at most once per SPLC_RTC_EXT_READ_PERIOD_MS: this runs from the scan path, so a store
+     * that cannot be read must not be hammered every 10 ms. */
+    const uint32_t now = sx_get_tick_ms();
+    if (s_tz_tried && (uint32_t)(now - s_tz_last_try_ms) < (uint32_t)SPLC_RTC_EXT_READ_PERIOD_MS) {
+        return;
+    }
+    s_tz_tried       = true;
+    s_tz_last_try_ms = now;
+    int16_t tz = 0;
+    const int r = s_ops.tz_load(s_ops.ctx, &tz);
+    if (r < 0) {
+        return;                                   /* store not readable yet: ask again later */
+    }
+    s_tz_load_pending = false;
+    if (r == 0) {
+        log_info(TAG, "no stored time zone, waiting for the Host to write it");
+        return;
+    }
+    if (tz < RTC_TZ_MIN_MIN || tz > RTC_TZ_MAX_MIN) {
+        log_warn(TAG, "stored time zone %d out of range, ignored", (int)tz);
+        return;
+    }
+    s_tz_offset_min   = tz;
+    s_tz_known        = true;
+    s_tz_stored       = tz;
+    s_tz_stored_valid = true;
+    log_info(TAG, "time zone restored from storage: tz=%d", (int)tz);
+}
+
+/* After a Host write: store the offset when it differs from what the store holds. */
+static void tz_persist(int16_t tz)
+{
+    if (!s_ops_set || s_ops.tz_save == NULL) {
+        return;
+    }
+    if (s_tz_stored_valid && s_tz_stored == tz) {
+        return;
+    }
+    if (s_ops.tz_save(s_ops.ctx, tz)) {
+        s_tz_stored       = tz;
+        s_tz_stored_valid = true;
+        log_info(TAG, "time zone stored: tz=%d", (int)tz);
+    } else {
+        log_warn(TAG, "time zone NOT stored (tz_save failed), it is lost at the next reset");
+    }
+}
 
 bool plc_rtc_register(const plc_rtc_ops_t *ops)
 {
@@ -47,6 +121,10 @@ bool plc_rtc_register(const plc_rtc_ops_t *ops)
     s_attempted    = false;
     s_cache_ok     = false;
     s_cache_synced = false;
+    s_tz_load_pending = (ops->tz_load != NULL);
+    s_tz_stored_valid = false;
+    s_tz_tried        = false;
+    tz_try_restore();
     return true;
 }
 
@@ -76,6 +154,7 @@ static void ext_refresh(void)
     if (s_ops.is_synced != NULL) {
         s_cache_synced = s_ops.is_synced(s_ops.ctx);
     }
+    tz_try_restore();
 }
 
 static bool hw_get_epoch(uint32_t *epoch_utc_s)
@@ -112,18 +191,16 @@ static bool hw_is_synced(void)
 }
 #endif /* SPLC_RTC_EXTERNAL */
 
+#if SPLC_RTC_EXTERNAL
+/* The two local-time getters return early while the offset is unknown, i.e. before they touch the
+ * clock; they are exactly where a restore that could not finish at boot has to be retried. */
+#define TZ_RESTORE_POLL()   tz_try_restore()
+#else
+#define TZ_RESTORE_POLL()   ((void)0)
+#endif
+
 SPLC_RtcCaps g_rtc_caps;   /* zero-initialised: hw_present = false */
 
-/* What the STM32 RTC can hold: 2000-01-01 00:00:00 .. 2099-12-31 23:59:59 UTC. */
-#define RTC_EPOCH_MIN   946684800UL
-#define RTC_EPOCH_MAX   4102444799UL
-
-/* Real-world UTC offsets: UTC-12:00 .. UTC+14:00. */
-#define RTC_TZ_MIN_MIN  (-720)
-#define RTC_TZ_MAX_MIN  (840)
-
-static int16_t s_tz_offset_min = 0;
-static bool    s_tz_known      = false;   /* written by a Host since boot */
 
 static uint16_t status_flags_now(void)
 {
@@ -192,11 +269,15 @@ plc_rtc_write_result_t plc_rtc_write(uint16_t offset, uint16_t quantity,
     s_tz_offset_min = tz;
     s_tz_known      = true;
     log_info(TAG, "time set: epoch=%lu tz=%d", (unsigned long)epoch, (int)tz);
+#if SPLC_RTC_EXTERNAL
+    tz_persist(tz);
+#endif
     return PLC_RTC_WRITE_OK;
 }
 
 bool plc_rtc_get_local_hhmm(uint16_t *hhmm)
 {
+    TZ_RESTORE_POLL();
     if (!s_tz_known || !hw_is_synced()) {
         return false;
     }
@@ -211,6 +292,7 @@ bool plc_rtc_get_local_hhmm(uint16_t *hhmm)
 bool plc_rtc_get_local_datetime(splc_datetime_t *dt)
 {
     uint32_t epoch = 0U;
+    TZ_RESTORE_POLL();
     if (dt == NULL || !s_tz_known || !hw_is_synced() || !hw_get_epoch(&epoch)) {
         return false;
     }

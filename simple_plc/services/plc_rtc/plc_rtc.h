@@ -21,11 +21,12 @@
  *   BATTERY_LOW <- always 0 (no board reports it yet)
  * so a Host that still sends a 4th register has it ignored.
  *
- * The timezone offset lives in RAM only (never Flash) and applies at the
- * moment the Host writes it. Until it has been written since boot,
+ * The timezone offset is held in RAM and applies at the moment the Host
+ * writes it. Until it is known (written by a Host since boot, or restored
+ * from the product's own non-volatile store, see tz_load / tz_save below),
  * plc_rtc_get_local_hhmm() reports "no valid time" even if the RTC itself
- * kept its time across a warm reset: without the offset the local hour
- * would silently be UTC.
+ * kept its time across a reset: without the offset the local hour would
+ * silently be UTC. The library itself never writes Flash for it.
  *
  * This file is transport-agnostic: it does not include nanomodbus.h.
  * plc_modbus_cfg.c maps plc_rtc_write()'s result onto Modbus exceptions.
@@ -65,6 +66,17 @@ extern "C" {
  *               time since this boot (a battery-backed chip should supply the
  *               hook, otherwise Time Window rules stay quiet after every
  *               power cycle until Studio writes the time again).
+ *   tz_load     (optional) restore the timezone offset the product kept across a
+ *               reset / power loss. Return > 0 and set *tz_offset_min when a valid
+ *               value is stored, 0 when nothing (valid) is stored, < 0 when the store
+ *               cannot be read right now: the library then asks again (at most once
+ *               per SPLC_RTC_EXT_READ_PERIOD_MS) until it gets 0 or > 0. Never called
+ *               again once a Host has written the offset. A value outside -720..+840
+ *               is ignored.
+ *   tz_save     (optional) store the offset after a Host wrote a DIFFERENT one (or
+ *               the first one when nothing was restored). Return true when stored.
+ *               A failure is only logged: the Host write still succeeds and the next
+ *               Host write tries again. NULL = the offset stays RAM-only as before.
  *   ctx         passed back as the first argument of every hook.
  *
  * Rules for the hooks: they run in the ENGINE context (the one that calls
@@ -84,6 +96,8 @@ typedef struct {
     bool (*get_epoch)(void *ctx, uint32_t *epoch_utc_s);
     bool (*set_epoch)(void *ctx, uint32_t epoch_utc_s);
     bool (*is_synced)(void *ctx);          /* optional, may be NULL */
+    int  (*tz_load)(void *ctx, int16_t *tz_offset_min);   /* optional, may be NULL */
+    bool (*tz_save)(void *ctx, int16_t tz_offset_min);    /* optional, may be NULL */
 } plc_rtc_ops_t;
 
 /*
@@ -136,8 +150,8 @@ plc_rtc_write_result_t plc_rtc_write(uint16_t offset, uint16_t quantity,
 /*
  * Local time of day as HHMM (0..2359) for the Rule Engine. Returns false
  * (and leaves *hhmm untouched) unless the clock is SYNCED, the timezone
- * offset has been written since boot, and the RTC could be read.
- * Cheap enough to call every scan cycle.
+ * offset is known (written since boot or restored by tz_load), and the RTC
+ * could be read. Cheap enough to call every scan cycle.
  */
 bool plc_rtc_get_local_hhmm(uint16_t *hhmm);
 
