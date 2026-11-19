@@ -37,11 +37,29 @@
 #define SPLC_LOG_LVL_INFO    3
 #define SPLC_LOG_LVL_DEBUG   4
 
+/* SPLC_LOG_COMPILE_FILTER (splcopts.h, default 0): 1 = a log_*() call whose level is above
+ * SPLC_LOG_LEVEL is removed by the compiler together with its format string (saves Flash; the
+ * level is then fixed at build time). 0 = every call reaches log_func() and the level is only
+ * a run-time filter in logger_init() (the code generated is then the same as before this option).
+ * Only used by the default SPLC_LOG_OUTPUT below. */
+#ifndef SPLC_LOG_COMPILE_FILTER
+#define SPLC_LOG_COMPILE_FILTER 0
+#endif
+
 #ifndef SPLC_LOG_OUTPUT
 #include "logger.h"
 /* Values match LOGGER_ERROR..LOGGER_DEBUG of logger.h. */
+#if SPLC_LOG_COMPILE_FILTER
+#define SPLC_LOG_OUTPUT(level, tag, ...)                                       \
+    do {                                                                       \
+        if ((level) <= SPLC_LOG_LEVEL) {                                       \
+            log_func((LOGGING_LEVELS)(level), (tag), __VA_ARGS__);             \
+        }                                                                      \
+    } while (0)
+#else
 #define SPLC_LOG_OUTPUT(level, tag, ...) \
     log_func((LOGGING_LEVELS)(level), (tag), __VA_ARGS__)
+#endif
 #endif
 
 /* A host logger.h (SPLC_LOGGER_BUILTIN = 0) may define log_error()/... itself with the same
