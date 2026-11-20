@@ -89,6 +89,8 @@
 /* #define SPLC_WDG_FLASH_GRACE_MS       3000U */  /* extra time for channel PLC around a Flash erase+write */
 
 /* --- REAL (float32) tags ---------------------------------------------- */
+/* #define SPLC_MATH_ENABLE              0 */      /* default 1 (needs SPLC_REAL_ENABLE=1): MATH rule block (action 8) + verbatim wire reg 13 low byte / regs 14..15; 0 = exact pre-MATH binary */
+/* #define SPLC_MATH_FAULT_HOLD_MS       3000U */  /* ms health bit 3 (MATH_FAULT) stays set after the last MATH fault (100..60000) */
 /* #define SPLC_REAL_ENABLE              0 */      /* 1 = Tag DataType Registry 0x0080 (BOOL/INT32/REAL per tag) + float32 Rule Engine (rule flags bit 0); 0 = no change at all */
 
 /* --- MQTT Publish ---------------------------------------------------- */

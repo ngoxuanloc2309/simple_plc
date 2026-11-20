@@ -474,10 +474,17 @@ static void rule_wire_to_record(const uint8_t in[32], SPLC_RuleRecord *r)
     r->trigger_type  = (uint8_t)(w[11] & 0xFFU);
     r->compare_op    = (uint8_t)(w[12] >> 8);
     r->action_type   = (uint8_t)(w[12] & 0xFFU);
+#if SPLC_MATH_ENABLE
+    /* flags + reg 13 low byte + regs 14..15 (aux) come back verbatim: the Flash image is the wire image */
+    rule_set_wire_reg13(r, w[13]);
+    rule_set_wire_reg14(r, w[14]);
+    rule_set_wire_reg15(r, w[15]);
+#else
 #if SPLC_REAL_ENABLE
     r->flags = (uint8_t)(w[13] >> 8);            /* wire w[13] high byte = rule flags (SPLC_RULE_FLAG_*) */
 #endif
     memset(r->reserved, 0, sizeof(r->reserved)); /* wire w[13] low byte, w[14..15] are reserved/ignored, same as write_staging_rule_table() */
+#endif
 }
 
 /*

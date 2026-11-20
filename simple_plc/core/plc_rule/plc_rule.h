@@ -171,6 +171,29 @@ _Static_assert(sizeof(SPLC_RuleRecord) == 32u, "SPLC_RuleRecord must stay 32 byt
 #define SPLC_RULE_FLAG_ACTION_FLOAT  0x02u
 #define SPLC_RULE_FLAG_FLOAT_DATA    (SPLC_RULE_FLAG_TRIGGER_FLOAT | SPLC_RULE_FLAG_ACTION_FLOAT)  /* 0x03, legacy alias */
 
+/*
+ * Verbatim carrying of the rest of wire reg 13 and regs 14..15 (SPLC-SPEC-MATH-007 section 2).
+ * Only with SPLC_MATH_ENABLE=1 (which needs SPLC_REAL_ENABLE=1, so flags + reserved[5] exist):
+ * reserved[0] = reg 13 low byte, reserved[1..2] = reg 14 (high byte first), reserved[3..4] =
+ * reg 15. Every wire <-> record conversion goes through these, so the CRC over the wire image,
+ * the Flash image and the read-back all agree with what the sender wrote.
+ * With MATH=0 they do not exist and the callers keep the old "write 0 / ignore" code.
+ */
+#if SPLC_MATH_ENABLE
+static inline uint16_t rule_wire_reg13(const SPLC_RuleRecord *r)
+{ return (uint16_t)(((uint16_t)r->flags << 8) | r->reserved[0]); }
+static inline uint16_t rule_wire_reg14(const SPLC_RuleRecord *r)
+{ return (uint16_t)(((uint16_t)r->reserved[1] << 8) | r->reserved[2]); }
+static inline uint16_t rule_wire_reg15(const SPLC_RuleRecord *r)
+{ return (uint16_t)(((uint16_t)r->reserved[3] << 8) | r->reserved[4]); }
+static inline void rule_set_wire_reg13(SPLC_RuleRecord *r, uint16_t w)
+{ r->flags = (uint8_t)(w >> 8); r->reserved[0] = (uint8_t)(w & 0xFFU); }
+static inline void rule_set_wire_reg14(SPLC_RuleRecord *r, uint16_t w)
+{ r->reserved[1] = (uint8_t)(w >> 8); r->reserved[2] = (uint8_t)(w & 0xFFU); }
+static inline void rule_set_wire_reg15(SPLC_RuleRecord *r, uint16_t w)
+{ r->reserved[3] = (uint8_t)(w >> 8); r->reserved[4] = (uint8_t)(w & 0xFFU); }
+#endif
+
 /* Absolute tolerance used by float EQ / NEQ (same as the App's McuReferenceSimulator). */
 #define SPLC_RULE_FLOAT_EPSILON     1e-5f
 

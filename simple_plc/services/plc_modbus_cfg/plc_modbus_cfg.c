@@ -309,7 +309,13 @@ static void read_active_rule_table(uint16_t address, uint16_t quantity, uint16_t
             case 11: word = (uint16_t)((r->enabled << 8) | r->trigger_type); break;
             case 12: word = (uint16_t)((r->compare_op << 8) | r->action_type); break;
 #if SPLC_REAL_ENABLE
+#if SPLC_MATH_ENABLE
+            case 13: word = rule_wire_reg13(r); break;   /* high byte = flags, low byte echoed verbatim */
+            case 14: word = rule_wire_reg14(r); break;   /* aux (constant Op2) echoed verbatim */
+            case 15: word = rule_wire_reg15(r); break;
+#else
             case 13: word = (uint16_t)((uint16_t)r->flags << 8); break;   /* +13 high byte = rule flags */
+#endif
 #endif
             default: word = 0; break; /* +13 (REAL=0) / +14..+15: reserved, sender writes 0 */
         }
@@ -912,12 +918,18 @@ void rule_record_to_wire(const SPLC_RuleRecord *r, uint8_t out[32])
     w[10] = r->guard_tag;
     w[11] = (uint16_t)(((uint16_t)r->enabled << 8) | r->trigger_type);
     w[12] = (uint16_t)(((uint16_t)r->compare_op << 8) | r->action_type);
+#if SPLC_MATH_ENABLE
+    w[13] = rule_wire_reg13(r);        /* high byte = rule flags, low byte stored verbatim */
+    w[14] = rule_wire_reg14(r);        /* aux (constant Op2), stored verbatim */
+    w[15] = rule_wire_reg15(r);
+#else
 #if SPLC_REAL_ENABLE
     w[13] = (uint16_t)((uint16_t)r->flags << 8);   /* high byte = rule flags (float bit), low byte reserved */
 #else
     w[13] = 0;
 #endif
     w[14] = 0; w[15] = 0;              /* reserved: sender writes 0 */
+#endif
 
     for (uint8_t i = 0; i < 16U; i++) {
         out[2U * i]      = (uint8_t)(w[i] >> 8);
@@ -988,7 +1000,13 @@ static void read_staging_rule_table(uint16_t address, uint16_t quantity, uint16_
             case 11: word = (uint16_t)((r->enabled << 8) | r->trigger_type); break;
             case 12: word = (uint16_t)((r->compare_op << 8) | r->action_type); break;
 #if SPLC_REAL_ENABLE
+#if SPLC_MATH_ENABLE
+            case 13: word = rule_wire_reg13(r); break;
+            case 14: word = rule_wire_reg14(r); break;
+            case 15: word = rule_wire_reg15(r); break;
+#else
             case 13: word = (uint16_t)((uint16_t)r->flags << 8); break;
+#endif
 #endif
             default: word = 0; break;
         }
@@ -1039,7 +1057,13 @@ static void write_staging_rule_table(uint16_t address, uint16_t quantity, const 
             case 11: r->enabled = (uint8_t)(word >> 8); r->trigger_type = (uint8_t)(word & 0xFFU); break;
             case 12: r->compare_op = (uint8_t)(word >> 8); r->action_type = (uint8_t)(word & 0xFFU); break;
 #if SPLC_REAL_ENABLE
+#if SPLC_MATH_ENABLE
+            case 13: rule_set_wire_reg13(r, word); break;      /* high byte flags, low byte kept verbatim */
+            case 14: rule_set_wire_reg14(r, word); break;      /* aux, kept verbatim */
+            case 15: rule_set_wire_reg15(r, word); break;
+#else
             case 13: r->flags = (uint8_t)(word >> 8); break;   /* low byte reserved, ignored */
+#endif
 #endif
             default: break; /* +13 (REAL=0) / +14..+15: reserved, receiver ignores per section 6's encoding table. */
         }

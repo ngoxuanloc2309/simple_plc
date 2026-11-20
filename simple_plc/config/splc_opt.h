@@ -334,6 +334,25 @@
 #endif
 
 /* ======================================================================
+ * MATH rule block (action_type = 8, SPLC-SPEC-MATH-007): OUT = Op1 <op> Op2 on INT32 or float32.
+ * Needs SPLC_REAL_ENABLE = 1 (the rule `flags` byte only exists then).
+ * With MATH = 1 the rule's wire reg 13 LOW byte and regs 14..15 (the constant Op2, "aux")
+ * are stored and echoed back verbatim through staging / CRC / Flash / read-back; with
+ * MATH = 0 they are dropped as before (read back as 0), the exact baseline binary
+ * (byte-identical, checked with md5 of the .bin). Default 1: a product that does not set it
+ * gets the MATH code, so its binary differs from the pre-MATH one; to compare md5 with the old
+ * binary set SPLC_MATH_ENABLE 0 explicitly. */
+#ifndef SPLC_MATH_ENABLE
+#define SPLC_MATH_ENABLE                 1
+#endif
+
+/* How long health bit 3 (MATH_FAULT, 0x0803) stays set after the last MATH fault, in ms.
+ * A fault can last one scan (10 ms); the bit must outlive the polling period of the Host. */
+#ifndef SPLC_MATH_FAULT_HOLD_MS
+#define SPLC_MATH_FAULT_HOLD_MS          3000U
+#endif
+
+/* ======================================================================
  * MQTT Subscribe (0x0D80..0x0DFF, ICD SPLC-SPEC-MQTT-002): commands / setpoints
  * from the broker land in tags. Needs SPLC_MQTT_ENABLE = 1 (the broker config and
  * the connection status live there). The library holds the LOGIC and the data;
@@ -765,6 +784,15 @@
 #endif
 #if (SPLC_REAL_ENABLE != 0) && (SPLC_REAL_ENABLE != 1)
 #error "SPLC_REAL_ENABLE must be 0 or 1"
+#endif
+#if (SPLC_MATH_ENABLE != 0) && (SPLC_MATH_ENABLE != 1)
+#error "SPLC_MATH_ENABLE must be 0 or 1"
+#endif
+#if SPLC_MATH_ENABLE && !SPLC_REAL_ENABLE
+#error "SPLC_MATH_ENABLE = 1 needs SPLC_REAL_ENABLE = 1 (a product that sets SPLC_REAL_ENABLE 0 must also set SPLC_MATH_ENABLE 0)"
+#endif
+#if (SPLC_MATH_FAULT_HOLD_MS < 100U) || (SPLC_MATH_FAULT_HOLD_MS > 60000U)
+#error "SPLC_MATH_FAULT_HOLD_MS must be 100..60000"
 #endif
 #if (SPLC_MQTT_SUB_ENABLE != 0) && (SPLC_MQTT_SUB_ENABLE != 1)
 #error "SPLC_MQTT_SUB_ENABLE must be 0 or 1"
