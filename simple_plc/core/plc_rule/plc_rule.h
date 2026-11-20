@@ -105,6 +105,8 @@ typedef enum {
     SPLC_ACT_ADD_TAG,         /* action_tag += tag_read(trigger_tag) */
     SPLC_ACT_SCALE_TAG,       /* action_tag = tag_read(trigger_tag) * action_param / 1000 + threshold_hi
                                  (float rule: x * action_param_f + threshold_hi_f) */
+    SPLC_ACT_MATH_OP,         /* 8: action_tag = Op1 <compare_op> Op2 (SPLC-SPEC-MATH-007), runs every
+                                 scan while enabled; only executed when SPLC_MATH_ENABLE=1 */
 } SPLC_ActionType;
 
 
@@ -170,6 +172,16 @@ _Static_assert(sizeof(SPLC_RuleRecord) == 32u, "SPLC_RuleRecord must stay 32 byt
 #define SPLC_RULE_FLAG_TRIGGER_FLOAT 0x01u
 #define SPLC_RULE_FLAG_ACTION_FLOAT  0x02u
 #define SPLC_RULE_FLAG_FLOAT_DATA    (SPLC_RULE_FLAG_TRIGGER_FLOAT | SPLC_RULE_FLAG_ACTION_FLOAT)  /* 0x03, legacy alias */
+
+/*
+ * SPLC_RULE_FLAG_INT_TO_FLOAT (bit 2, 0x04; SPLC-SPEC-MATH-007 section 7). Meaningful ONLY on a
+ * SCALE_TAG rule together with bits 0 and 1 (flags == 0x07) and only when SPLC_MATH_ENABLE=1: the
+ * source tag then holds an int32 (e.g. a raw ADC count) that is converted with (float)(int32_t)
+ * before y = x * gain + offset, instead of being read as float32 bits. Everywhere else bit 2 is
+ * stored / echoed and ignored, as before. A device that does not declare capability bit 16
+ * (0x0A08) treats 0x07 like 0x03: the App must not emit 0x07 to it.
+ */
+#define SPLC_RULE_FLAG_INT_TO_FLOAT  0x04u
 
 /*
  * Verbatim carrying of the rest of wire reg 13 and regs 14..15 (SPLC-SPEC-MATH-007 section 2).
@@ -345,6 +357,29 @@ typedef enum {
  */
 int rule_table_find_bad_tag(const SPLC_RuleRecord *table, uint16_t rule_count,
                             SPLC_RuleTagField *field, uint16_t *tag_value);
+
+#if SPLC_MATH_ENABLE
+/* Why rule_table_find_bad_math() refused a rule. */
+typedef enum {
+    RULE_MATH_BAD_OPERATOR = 0,    /* compare_op > 4 */
+    RULE_MATH_BAD_FLAGS,           /* flags is neither 0x00 (int32) nor 0x03 (float32) */
+    RULE_MATH_CONST_ZERO_DIVISOR   /* DIV / MOD whose constant Op2 (aux) is 0 / +0.0 / -0.0 */
+} SPLC_RuleMathReason;
+
+/*
+ * COMMIT check of the MATH rule block (SPLC-SPEC-MATH-007 section 5, items 1, 2 and 5). Only
+ * ENABLED rules with action_type == SPLC_ACT_MATH_OP are looked at. The tag-index items (3, 4)
+ * are covered by rule_table_find_bad_tag(): MATH counts there as using trigger_tag (Op1),
+ * guard_tag (Op2, unless it is the constant sentinel) and action_tag (OUT, which must be a real
+ * tag, so a System Tag 1000..1007 is refused). Not checked, on purpose: Reg 6..7 (ignored),
+ * action_tag equal to an operand, the type of the OUT tag against `flags`.
+ *
+ * reason : optional; set only when a bad rule is found
+ * returns: index of the first bad rule, or -1 (also -1 for table == NULL)
+ */
+int rule_table_find_bad_math(const SPLC_RuleRecord *table, uint16_t rule_count,
+                             SPLC_RuleMathReason *reason);
+#endif
 
 #ifdef __cplusplus
 }

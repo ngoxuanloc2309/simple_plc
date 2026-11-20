@@ -83,7 +83,14 @@ static void action_add_tag(const SPLC_RuleRecord *rule)
  */
 static void action_scale_tag_f(const SPLC_RuleRecord *rule)
 {
+#if SPLC_MATH_ENABLE
+    /* flags 0x07: the source tag is an int32 (SPLC-SPEC-MATH-007 section 7); (float) rounds to nearest. */
+    const float x      = ((rule->flags & SPLC_RULE_FLAG_INT_TO_FLOAT) != 0u)
+                       ? (float)tag_read(rule->trigger_tag)
+                       : splc_bits_to_f32(tag_read(rule->trigger_tag));
+#else
     const float x      = splc_bits_to_f32(tag_read(rule->trigger_tag));
+#endif
     const float gain   = splc_bits_to_f32(rule->action_param);
     const float offset = splc_bits_to_f32(rule->threshold_hi);
     volatile float product = x * gain;

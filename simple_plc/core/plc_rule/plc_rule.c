@@ -4,6 +4,7 @@
 #include "plc_rule_eval.h"   /* check_trigger_edge(), compare_ok(), trigger_timing_ok() */
 #include "plc_rule_action.h" /* execute_action() */
 #include "plc_tag.h"
+#include "plc_math.h"     /* MATH rule block ALU (SPLC_MATH_ENABLE) */
 #include "splc_log.h"
 
 static const char *TAG = "PLC_RULE";
@@ -100,6 +101,11 @@ bool rule_table_commit(const uint8_t *raw_data, uint16_t rule_count)
 
 static bool trigger_tag_is_used(const SPLC_RuleRecord *r)
 {
+#if SPLC_MATH_ENABLE
+    if (r->action_type == (uint8_t)SPLC_ACT_MATH_OP) {
+        return true;                        /* Op1 */
+    }
+#endif
     /* ADD_TAG / SCALE_TAG read trigger_tag as their source, whatever the trigger type is. */
     if (r->action_type == (uint8_t)SPLC_ACT_ADD_TAG || r->action_type == (uint8_t)SPLC_ACT_SCALE_TAG) {
         return true;
@@ -126,6 +132,9 @@ static bool action_tag_is_used(const SPLC_RuleRecord *r)
         case SPLC_ACT_SEND_ALARM:
         case SPLC_ACT_ADD_TAG:
         case SPLC_ACT_SCALE_TAG:
+#if SPLC_MATH_ENABLE
+        case SPLC_ACT_MATH_OP:              /* OUT */
+#endif
             return true;
         case SPLC_ACT_WRITE_REMOTE:         /* stubs today: they do not touch action_tag */
         case SPLC_ACT_LOG_EVENT:
@@ -190,6 +199,50 @@ static bool rule_compare(const SPLC_RuleRecord *rule, int32_t current)
                       rule->threshold_lo, rule->threshold_hi);
 }
 
+#if SPLC_MATH_ENABLE
+/*
+ * MATH rule block (action_type = 8, SPLC-SPEC-MATH-007). Stateless: computed every scan while the
+ * rule is enabled; trigger_type / for_ms / thresholds / guard-as-condition are not used.
+ *   Op1 = tag_read(trigger_tag)
+ *   Op2 = tag_read(guard_tag & 0x7FFF), or the constant "aux" (wire regs 14..15, reg 14 = high
+ *         word) when that index is GUARD_TAG_NONE (0x7FFF); bit 15 of guard_tag is ignored
+ *   op  = compare_op (0..4)            type = flags: 0x03 -> float32, anything else -> int32
+ * A fault (divide by zero, NaN/Inf result, bad operator) leaves action_tag untouched and raises
+ * health bit 3 via splc_math_fault_note(); INT32_MIN / -1 writes INT32_MAX and raises it too.
+ * An operator outside 0..4 is refused at COMMIT; if one is ever loaded anyway (old Flash image)
+ * it counts as a fault rather than being ignored silently. No log: this runs 100 times a second.
+ */
+static void math_execute(const SPLC_RuleRecord *rule, uint32_t now_ms)
+{
+    const uint16_t op2_idx = (uint16_t)(rule->guard_tag & GUARD_TAG_INDEX_MASK);
+    const int32_t  a       = tag_read(rule->trigger_tag);
+    int32_t        b;
+    SPLC_MathResult res;
+    int32_t        out = 0;
+
+    if (op2_idx == GUARD_TAG_NONE) {
+        b = (int32_t)(((uint32_t)rule_wire_reg14(rule) << 16) | (uint32_t)rule_wire_reg15(rule));
+    } else {
+        b = tag_read(op2_idx);
+    }
+
+    if ((rule->flags & SPLC_RULE_FLAG_FLOAT_DATA) == SPLC_RULE_FLAG_FLOAT_DATA) {
+        uint32_t out_bits = 0u;
+        res = splc_math_f32(rule->compare_op, (uint32_t)a, (uint32_t)b, &out_bits);
+        out = (int32_t)out_bits;
+    } else {
+        res = splc_math_i32(rule->compare_op, a, b, &out);
+    }
+
+    if (res != SPLC_MATH_OK) {
+        splc_math_fault_note(now_ms);
+    }
+    if (res != SPLC_MATH_FAULT_KEEP) {
+        tag_write(rule->action_tag, out);
+    }
+}
+#endif /* SPLC_MATH_ENABLE */
+
 /*
  * State machine re-evaluated FROM SCRATCH every scan cycle for the
  * Trigger/Compare/Guard steps (they have no concept of "persisting across
@@ -210,6 +263,14 @@ bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt,
         rt->state = RULE_STATE_IDLE;
         return false;
     }
+
+#if SPLC_MATH_ENABLE
+    if (rule->action_type == (uint8_t)SPLC_ACT_MATH_OP) {
+        math_execute(rule, now_ms);
+        rt->state = RULE_STATE_IDLE;       /* no state is kept between scans */
+        return true;
+    }
+#endif
 
     SPLC_TriggerType trigger_type = (SPLC_TriggerType)rule->trigger_type;
     bool              is_edge_type = (trigger_type == SPLC_TRG_ON_RISE  ||
@@ -396,3 +457,42 @@ bool rule_state_machine_step(SPLC_RuleRecord *rule, SPLC_RuleRuntime *rt,
 
     return false;
 }
+
+#if SPLC_MATH_ENABLE
+int rule_table_find_bad_math(const SPLC_RuleRecord *table, uint16_t rule_count,
+                             SPLC_RuleMathReason *reason)
+{
+    if (table == NULL) {
+        return -1;
+    }
+    if (rule_count > MAX_RULES) {
+        rule_count = MAX_RULES;
+    }
+    for (uint16_t i = 0; i < rule_count; i++) {
+        const SPLC_RuleRecord *r = &table[i];
+        SPLC_RuleMathReason    why;
+        if (!r->enabled || r->action_type != (uint8_t)SPLC_ACT_MATH_OP) {
+            continue;
+        }
+        if (r->compare_op >= (uint8_t)SPLC_MATH_OP_COUNT) {
+            why = RULE_MATH_BAD_OPERATOR;
+        } else if (r->flags != 0x00u && r->flags != SPLC_RULE_FLAG_FLOAT_DATA) {
+            why = RULE_MATH_BAD_FLAGS;
+        } else if ((r->compare_op == (uint8_t)SPLC_MATH_DIV || r->compare_op == (uint8_t)SPLC_MATH_MOD) &&
+                   (uint16_t)(r->guard_tag & GUARD_TAG_INDEX_MASK) == GUARD_TAG_NONE) {
+            const uint32_t aux = ((uint32_t)rule_wire_reg14(r) << 16) | (uint32_t)rule_wire_reg15(r);
+            /* int32: exactly 0; float32: +0.0 and -0.0 (sign bit ignored) */
+            if ((r->flags == 0x00u) ? (aux == 0u) : ((aux << 1) == 0u)) {
+                why = RULE_MATH_CONST_ZERO_DIVISOR;
+            } else {
+                continue;
+            }
+        } else {
+            continue;
+        }
+        if (reason != NULL) { *reason = why; }
+        return (int)i;
+    }
+    return -1;
+}
+#endif /* SPLC_MATH_ENABLE */

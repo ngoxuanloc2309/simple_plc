@@ -271,8 +271,9 @@ Kiểm thử:
 
 ## 11. Chưa kiểm chứng
 
-- Chưa build ARM, chưa chạy board, chưa có `plc_math.c`. Bảng vector ở mục 8 chỉ được tính bằng chương trình tham chiếu trên host.
-- Kích thước phần MATH và chi phí `splc_fmodf`: chưa đo. Thời gian chạy `splc_fmodf` trên H523: chưa đo.
+- **Cập nhật 20/11/2026:** bước 1–4 của mục 10 đã code (xem handoff 101): đã build ARM (`MATH=0` md5 giống hệt trước MATH; `MATH=1` +864 B FLASH), vector mục 8 đã chạy bằng code thật trên host (PASS). CHƯA chạy board, CHƯA có `test_math.py`.
+- Bảng vector ở mục 8 do chương trình tham chiếu trên host tính; App chưa đối chiếu.
+- Kích thước phần MATH đã đo (+864 B FLASH, +8 B RAM so với `MATH=0`, gồm cả `splc_fmodf`). Thời gian chạy `splc_fmodf` trên H523: chưa đo.
 - Q13(b): firmware không kiểm kiểu tag OUT (D11); việc đối chiếu bảng kiểu với bảng rule lúc COMMIT chưa được xét về khả thi.
 - Thời gian giữ 3000 ms được chọn theo lập luận; chu kỳ hỏi của SCADA bên thứ ba chưa biết.
 - Phía App: các điểm về cách App sinh rule và xếp thứ tự là thỏa thuận qua phản hồi (hoặc hướng mặc định ở mục 9.2), firmware chưa kiểm tra thực tế.

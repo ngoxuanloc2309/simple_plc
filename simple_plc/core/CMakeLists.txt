@@ -15,6 +15,7 @@ add_library(splc_core STATIC
     plc_rule/plc_rule.c
     plc_internal_rule/plc_rule_eval.c
     plc_internal_rule/plc_rule_action.c
+    plc_math/plc_math.c
 )
 
 # plc_rule.c now calls log_debug()/log_info()/log_warn() (utils/logger/
@@ -61,6 +62,7 @@ target_include_directories(splc_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_error
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_system_cmd
     ${CMAKE_CURRENT_SOURCE_DIR}/plc_diag
+    ${CMAKE_CURRENT_SOURCE_DIR}/plc_math
 )
 
 # plc_rule_eval.h / plc_rule_action.h / plc_rule_state_machine.h are internal

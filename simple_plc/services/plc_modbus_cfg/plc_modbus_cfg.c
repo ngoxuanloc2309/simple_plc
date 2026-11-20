@@ -6,6 +6,7 @@
 #include "plc_tag.h"
 #include "plc_diag.h"
 #include "plc_rule.h"
+#include "plc_math.h"      /* splc_math_fault_active(): health bit 3 (SPLC_MATH_ENABLE=1 only) */
 #include "plc_rule_flash.h" /* plc_rule_flash_save(), called from write_commit_command() */
 #include "plc_retain.h"     /* retain_snapshot_write(), called from CMD_COMMIT_RETAIN */
 #include "plc_systag.h"     /* System Tags block 0x0820..0x0827 (SPLC_SYSTAG_ENABLE=1 only) */
@@ -199,6 +200,7 @@ static void read_device_resource_info(uint16_t offset, uint16_t quantity, uint16
 #define SPLC_CAP_BASE_LOGIC   0x00000001UL
 #define SPLC_CAP_RETENTIVE    0x00000002UL
 #define SPLC_CAP_MQTT_PUB     0x00000010UL
+#define SPLC_CAP_MATH         0x00010000UL   /* SPLC-SPEC-MATH-007 section 6, bit 16 of 0x0A08 */
 #define SPLC_CAP_MODBUS_TCP   0x00000400UL   /* App header SPLC_CAP_MODBUS_TCP; declared only while a TCP transport is registered */
 
 static void read_hw_capabilities(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
@@ -221,6 +223,9 @@ static void read_hw_capabilities(uint16_t offset, uint16_t quantity, uint16_t *r
 #endif
 #if SPLC_REAL_ENABLE
     caps |= PLC_TAGTYPE_CAP_FLOAT32;   /* 0x0800, App header SPLC_CAP_FLOAT32 */
+#endif
+#if SPLC_MATH_ENABLE
+    caps |= SPLC_CAP_MATH;             /* 0x00010000: MATH rule block + SCALE_TAG flag INT_TO_FLOAT (needs REAL) */
 #endif
 #if SPLC_WIFI_ENABLE
     caps |= plc_wifi_capabilities();   /* 0x0200, only once the host registered its Wi-Fi functions */
@@ -336,6 +341,15 @@ static void read_active_rule_table(uint16_t address, uint16_t quantity, uint16_t
 static void read_device_health(uint16_t offset, uint16_t quantity, uint16_t *registers_out)
 {
     g_device_health.uptime_s = (sx_get_tick_ms() - s_boot_tick_ms) / 1000U;
+#if SPLC_MATH_ENABLE
+    /* Bit 3 MATH_FAULT is not sticky: set while the last MATH fault is younger than
+     * SPLC_MATH_FAULT_HOLD_MS, cleared afterwards (SPLC-SPEC-MATH-007 section 6). */
+    if (splc_math_fault_active(sx_get_tick_ms())) {
+        g_device_health.health_flags |= (uint16_t)SPLC_HEALTH_MATH_FAULT;
+    } else {
+        g_device_health.health_flags &= (uint16_t)~(uint16_t)SPLC_HEALTH_MATH_FAULT;
+    }
+#endif
 
     const uint16_t *fields = (const uint16_t *)&g_device_health;
     for (uint16_t i = 0; i < quantity; i++) {
@@ -1171,12 +1185,28 @@ static void write_commit_command(uint16_t value)
         uint16_t          bad_value = 0U;
         const int bad_rule = rule_table_find_bad_tag(s_staging_rule_table, s_rule_count_staged,
                                                      &bad_field, &bad_value);
-        if (bad_rule >= 0) {
-            log_warn(TAG, "commit rejected: rule %d %s = 0x%04X is outside the tag table (MAX_TAGS=%u)",
-                     bad_rule,
-                     (bad_field == RULE_TAG_FIELD_TRIGGER) ? "trigger_tag" :
-                     (bad_field == RULE_TAG_FIELD_ACTION)  ? "action_tag"  : "guard_tag",
-                     (unsigned)bad_value, (unsigned)MAX_TAGS);
+#if SPLC_MATH_ENABLE
+        /* MATH rule block (SPLC-SPEC-MATH-007 section 5): operator, flags, constant zero divisor. */
+        SPLC_RuleMathReason math_reason = RULE_MATH_BAD_OPERATOR;
+        const int bad_math = (bad_rule >= 0) ? -1
+                           : rule_table_find_bad_math(s_staging_rule_table, s_rule_count_staged, &math_reason);
+        if (bad_math >= 0) {
+            log_warn(TAG, "commit rejected: MATH rule %d: %s", bad_math,
+                     (math_reason == RULE_MATH_BAD_OPERATOR) ? "operator > 4" :
+                     (math_reason == RULE_MATH_BAD_FLAGS)    ? "flags is not 0x00 or 0x03" :
+                                                               "DIV/MOD by a constant zero");
+        }
+#else
+        const int bad_math = -1;
+#endif
+        if (bad_rule >= 0 || bad_math >= 0) {
+            if (bad_rule >= 0) {
+                log_warn(TAG, "commit rejected: rule %d %s = 0x%04X is outside the tag table (MAX_TAGS=%u)",
+                         bad_rule,
+                         (bad_field == RULE_TAG_FIELD_TRIGGER) ? "trigger_tag" :
+                         (bad_field == RULE_TAG_FIELD_ACTION)  ? "action_tag"  : "guard_tag",
+                         (unsigned)bad_value, (unsigned)MAX_TAGS);
+            }
             s_config_status     = CONFIG_STATUS_ERROR;
             s_config_error_code = SPLC_ERROR_INVALID_PARAMETER;
             plc_fb_discard_draft();

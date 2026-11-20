@@ -130,7 +130,8 @@ typedef enum {
     SPLC_HEALTH_NONE         = 0,
     SPLC_HEALTH_CPU_HIGH     = 1 << 0,
     SPLC_HEALTH_RAM_HIGH     = 1 << 1,
-    SPLC_HEALTH_SCAN_OVERRUN = 1 << 2
+    SPLC_HEALTH_SCAN_OVERRUN = 1 << 2,
+    SPLC_HEALTH_MATH_FAULT   = 1 << 3   /* a MATH rule faulted recently (SPLC-SPEC-MATH-007 section 6) */
 } SPLC_HealthFlags;
 
 /*
